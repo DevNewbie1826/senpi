@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Hidden extension-triggered turns (goal continuations, monitor wakes) now pass through `before_agent_start` like a typed prompt, so the compaction extension's proactive policy runs for them. Before this, a goal-driven session skipped that policy on every turn: nothing compacted between the proactive threshold and the hard reserve valve, and the turn that finally crossed it paid a from-scratch summarization while the screen sat on `Compacting...` for minutes ([#1329](https://github.com/code-yeongyu/senpi/issues/1329)).
+
 ### Removed
 
 ## [2026.9.19] - 2026-09-19
