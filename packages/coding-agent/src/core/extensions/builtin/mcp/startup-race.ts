@@ -10,6 +10,13 @@ import { safeTimer } from "./wrap.ts";
 
 export const MCP_STARTUP_RACE_MS = 250;
 export const MCP_STARTUP_TIMEOUT_ENV = "SENPI_MCP_STARTUP_TIMEOUT_MS";
+/**
+ * How long a consumer that must OBSERVE the attach waits for the connects this
+ * race backgrounded. Each connect is itself bounded by the server's
+ * `connectTimeoutMs` (15s default), so this is the earlier point at which the
+ * user's turn stops waiting and the server's catalog lands on a later turn.
+ */
+export const MCP_ATTACH_SETTLE_TIMEOUT_MS = 5_000;
 
 /**
  * Resolve the startup-race window (ms) a server's attach connect is bounded by.
@@ -39,6 +46,48 @@ interface RaceMcpStartupConnectOptions {
 	// Bounded startup window (ms) before the connect is backgrounded; defaults to
 	// MCP_STARTUP_RACE_MS when omitted.
 	readonly deadlineMs?: number;
+	// Called with the full connect continuation when the race backgrounds it, so
+	// consumers that must observe the attach can await the exact completion.
+	readonly onDeferred: (settled: Promise<void>) => void;
+}
+
+/**
+ * Completion signal for the connects `raceMcpStartupConnect` backgrounds.
+ * session_start deliberately returns before a slow connect finishes; anything
+ * that assembles session state from the catalog - the first turn's system
+ * prompt build - awaits this instead of assuming the attach already landed.
+ */
+export class McpDeferredAttach {
+	readonly #pending = new Set<Promise<void>>();
+
+	track(settled: Promise<void>): void {
+		// A failed connect still SETTLES the attach, which is what the barrier
+		// asks about; this is also the one place that failure is finally handled,
+		// so it is logged here rather than surfacing as an unhandled rejection.
+		const tracked = settled.then(
+			() => undefined,
+			(error: unknown) => {
+				createMcpLogger("startup").warn("Deferred MCP attach failed", {
+					error: error instanceof Error ? error.message : String(error),
+				});
+			},
+		);
+		this.#pending.add(tracked);
+		void tracked.then(() => this.#pending.delete(tracked));
+	}
+
+	async wait(timeoutMs: number): Promise<McpStartupRaceResult> {
+		const pending = [...this.#pending];
+		if (pending.length === 0) return "settled";
+		return await waitForMcpStartupRace(
+			Promise.all(pending).then(() => undefined),
+			timeoutMs,
+		);
+	}
+
+	clear(): void {
+		this.#pending.clear();
+	}
 }
 
 export async function raceMcpStartupConnect(options: RaceMcpStartupConnectOptions): Promise<void> {
@@ -48,7 +97,7 @@ export async function raceMcpStartupConnect(options: RaceMcpStartupConnectOption
 	);
 	const result = await waitForMcpStartupRace(connect, options.deadlineMs);
 	if (result === "settled" || options.pi === undefined) return;
-	void connect.then(() => refreshMcpToolsAfterStartupRace(options));
+	options.onDeferred(connect.then(() => refreshMcpToolsAfterStartupRace(options)));
 }
 
 export async function connectAndRefreshMcpCatalog(
