@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-17 - Keep ws's native accelerators out of the bundle
+
+### What changed
+
+- `build-coding-agent-bundle.mjs`: `bufferutil` and `utf-8-validate` are esbuild externals and members of `allowedExternalPackages`.
+
+### Why
+
+- `ws` requires those two when they are present. Their loader is `node-gyp-build`, which resolves its binding through a computed require that esbuild cannot follow; the import survives as an external named `<runtime>` and `validateExternalImports` rejects the build. They are optional accelerators with a pure-JS fallback, so they belong outside the bundle next to the other native dependencies.
+
+### Why an extension could not handle it
+
+- This is the release bundler's own external policy. Nothing outside the build script decides which packages esbuild may leave unresolved.
+
+### Expected merge conflict zones
+
+- LOW: the `external` array and the `allowedExternalPackages` set in `build-coding-agent-bundle.mjs`.
+
 ## 2026-09-17 - Publish a bundled workspace's assets (senpi#1800)
 
 ### What changed

@@ -28,6 +28,9 @@ const allowedExternalPackages = new Set([
 	"bun:sqlite",
 	// Runtime-guarded host child reaper bindings; a Node host turns the reaper off.
 	"bun:ffi",
+	// Optional ws accelerators; kept external so the binding loader stays out of the bundle.
+	"bufferutil",
+	"utf-8-validate",
 	// linkedom's optional native canvas stays package-relative, with its JS fallback.
 	"canvas",
 	// Optional native accelerators. Their callers fall back to JavaScript when absent.
@@ -103,7 +106,12 @@ function commonBuildOptions() {
 			"@earendil-works/pi-pty",
 			"bun:sqlite",
 			"bun:ffi",
+			// ws resolves these native accelerators when they happen to be installed.
+			// They load their binding through node-gyp-build, whose computed require
+			// esbuild cannot analyse, so bundling them leaves an unresolvable external.
+			"bufferutil",
 			"canvas",
+			"utf-8-validate",
 		],
 		format: "esm",
 		legalComments: "none",
