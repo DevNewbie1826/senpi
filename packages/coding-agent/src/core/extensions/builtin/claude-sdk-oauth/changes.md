@@ -1,5 +1,27 @@
 # claude-sdk-oauth
 
+## 2026-09-17 - Re-login refreshes the slot in place; all-blocked guidance names auth failures (omo#7084, omo#8383)
+
+### What changed
+
+- `accounts.ts`: new `upsertAccount()` — a same-name slot is replaced in place with fresh token material, its block stamps cleared, and its `displayName` preserved; unknown names still append.
+- `oauth-login.ts`: a re-login now targets an existing slot instead of minting `account-N+1`. The recovery target is identity-safe: a lone slot, or the pool's one `auth_error`-blocked slot, is refreshed in place; anything else stays append-only unless the user types an existing name, so a blank or headless re-login never overwrites the newest working slot in a multi-account pool. The Anthropic import is now a move — accepting it calls the new `removeAnthropicCredential` dep so one single-use grant never lives in two stores.
+- `index.ts`: wires `removeAnthropicCredential` through the locked auth.json backend (`FileAuthStorageBackend.withLockAsync`).
+- `affinity.ts`: `AllAccountsBlockedError` carries the dominant block reason (`auth_error` when any slot is auth-blocked).
+- `guidance.ts` / `stream-guidance.ts`: the all-blocked guidance for an auth-dominated pool names the authentication failure and the re-login action, so the outer credential-pool classifier maps it to `auth_error` instead of laundering it into a rate-limit cooldown via the generic "(rate limit or auth errors)" wording (omo#8383).
+
+### Why
+
+- Two field reports on 2026.9.16-3: `/claude-account list` showed `default | login | blocked until re-login` and re-login returned to the same state. The lane stamped `auth_error` permanently ("until login refreshes the slot") while `login()` only ever appended or threw on a duplicate name, so the documented recovery could never fire. The import path also forked the Anthropic grant into two stores, guaranteeing a later `invalid_grant`.
+
+### Why an extension could not handle it
+
+- The slot store, the OAuth login flow, and the failover block policy are lane internals; the recovery contract lives inside the lane's own auth.json stamps.
+
+### Expected merge conflict zones
+
+- `oauth-login.ts` (login naming and the import branch).
+
 ## 2026-09-16 - Keep the binding across a provider excursion and report the recorded invalidation cause (senpi#1747)
 
 ### What changed

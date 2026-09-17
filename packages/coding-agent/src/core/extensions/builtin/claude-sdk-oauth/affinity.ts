@@ -12,8 +12,14 @@ export type AffinityOptions = {
 
 export class AllAccountsBlockedError extends Error {
 	readonly soonestUnblockAt: number | undefined;
+	/**
+	 * Dominant block reason, set when at least one slot is auth-blocked, so the
+	 * guidance and the outer credential-pool classifier read the cause instead
+	 * of guessing it from prose (omo#8383).
+	 */
+	readonly blockReason: "auth_error" | undefined;
 
-	constructor(soonestUnblockAt: number | undefined) {
+	constructor(soonestUnblockAt: number | undefined, blockReason?: "auth_error") {
 		super(
 			soonestUnblockAt === undefined
 				? "All Claude SDK OAuth accounts are blocked until re-login."
@@ -21,6 +27,7 @@ export class AllAccountsBlockedError extends Error {
 		);
 		this.name = "AllAccountsBlockedError";
 		this.soonestUnblockAt = soonestUnblockAt;
+		this.blockReason = blockReason;
 	}
 }
 
@@ -89,5 +96,8 @@ export function selectAccount(accounts: readonly AccountSlot[], options: Affinit
 	const cleared = clearExpiredBlocks(accounts, now);
 	const afterClear = selectUnblocked(cleared, options, now);
 	if (afterClear) return afterClear;
-	throw new AllAccountsBlockedError(soonestUnblockAt(accounts, now));
+	throw new AllAccountsBlockedError(
+		soonestUnblockAt(accounts, now),
+		accounts.some((account) => account.blockReason === "auth_error") ? "auth_error" : undefined,
+	);
 }

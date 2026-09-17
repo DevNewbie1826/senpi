@@ -18,6 +18,8 @@ export type RotationSlot = RunSlot & {
 	/** Env-lane key material for the attempt; never serialized or persisted. */
 	envKey?: string;
 	envVarName?: string;
+	/** Stored-lane material revision binding sidecar health to the current credential; never serialized. */
+	storedRevision?: string;
 };
 
 export type RotationSources = {
@@ -69,25 +71,34 @@ export async function listRotationSlots(
 		const state = await repository.listSlots(providerId, "stored");
 		const slots: RotationSlot[] = [];
 		for (const slot of listCredentialSlots(credential)) {
-			const current = state[slot.name];
+			const persisted = state[slot.name];
+			const storedRevision = await repository.storedCredentialRevision(providerId, slot.name, {
+				key: slot.key,
+				access: slot.access,
+				refresh: slot.refresh,
+			});
+			// A block belongs to the material that earned it; a re-login starts clean.
+			const applicable = persisted?.credentialRevision === storedRevision ? persisted : undefined;
 			if (
 				acquireLeases &&
-				current?.blockedUntil !== undefined &&
-				current.blockedUntil <= (sources.now ?? Date.now)()
+				applicable?.blockedUntil !== undefined &&
+				applicable.blockedUntil <= (sources.now ?? Date.now)()
 			) {
 				const lease = await acquireHalfOpenLease(repository, providerId, "stored", slot.name, {
 					now: (sources.now ?? Date.now)(),
 				});
 				if (!lease) continue;
 				const leased = await repository.listSlots(providerId, "stored");
+				const leasedState = leased[slot.name];
 				slots.push(
 					overlayState(
 						{
 							name: slot.name,
 							lane: "stored",
 							pinned: (credential as PooledCredential).pinned === slot.name,
+							storedRevision,
 						},
-						leased[slot.name],
+						leasedState?.credentialRevision === storedRevision ? leasedState : undefined,
 					),
 				);
 				continue;
@@ -98,8 +109,9 @@ export async function listRotationSlots(
 						name: slot.name,
 						lane: "stored",
 						pinned: (credential as PooledCredential).pinned === slot.name,
+						storedRevision,
 					},
-					current,
+					applicable,
 				),
 			);
 		}
@@ -247,7 +259,7 @@ export function streamWithCredentialRotation(
 			const revision =
 				slot.lane === "env" && slot.envVarName !== undefined && slot.envKey !== undefined
 					? await sources.repository.envCredentialRevision(slot.envVarName, slot.envKey)
-					: undefined;
+					: slot.storedRevision;
 			await sources.repository.mutateSlotState(sources.providerId, slot.lane, slot.name, (current) =>
 				blockPatch(block, current, now(), revision, sources.policy),
 			);

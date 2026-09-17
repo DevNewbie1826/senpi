@@ -5,6 +5,7 @@ import {
 	classifyCredentialFailure,
 	rateLimitCooldown,
 } from "../src/core/credential-pool/classify.ts";
+import { allAccountsBlockedGuidance } from "../src/core/extensions/builtin/claude-sdk-oauth/guidance.ts";
 
 function status(code: number, message = `HTTP ${code}`): Error {
 	const error = new Error(message);
@@ -78,5 +79,16 @@ describe("credential error taxonomy", () => {
 		const capped = rateLimitCooldown(0, COOLDOWN_CAP_MS * 2);
 		expect(capped.cooldownMs).toBe(COOLDOWN_CAP_MS);
 		expect(capped.retryAfterWasCapped).toBe(true);
+	});
+
+	test("lane all-blocked guidance for an auth-dominated pool classifies as auth_error, not rate_limit (omo#8383)", () => {
+		const action = classifyCredentialFailure(new Error(allAccountsBlockedGuidance(undefined, "auth_error")));
+		expect(action).toEqual({ kind: "failover", block: { reason: "auth_error" } });
+	});
+
+	test("lane all-blocked guidance without an auth block stays a rate-limit cooldown", () => {
+		const action = classifyCredentialFailure(new Error(allAccountsBlockedGuidance(undefined)));
+		expect(action.kind).toBe("failover");
+		if (action.kind === "failover") expect(action.block.reason).toBe("rate_limit");
 	});
 });

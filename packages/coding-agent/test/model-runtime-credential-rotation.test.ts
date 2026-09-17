@@ -348,13 +348,17 @@ describe("credential rotation over a pooled provider", () => {
 	});
 
 	test("expired stored cooldown admits and runs exactly one probe", async () => {
+		const defaultRevision = await repository.storedCredentialRevision("test", "default", { key: "key-default" });
+		const workRevision = await repository.storedCredentialRevision("test", "work", { key: "key-work" });
 		await repository.mutateSlotState("test", "stored", "default", () => ({
 			blockedUntil: NOW - 1,
 			blockReason: "rate_limit",
+			credentialRevision: defaultRevision,
 		}));
 		await repository.mutateSlotState("test", "stored", "work", () => ({
 			blockedUntil: NOW + 60_000,
 			blockReason: "rate_limit",
+			credentialRevision: workRevision,
 		}));
 		const attempted: string[] = [];
 		await collect(
@@ -457,9 +461,11 @@ describe("credential rotation over a pooled provider", () => {
 	});
 
 	test("successful pooled request completes after selection", async () => {
+		const defaultRevision = await repository.storedCredentialRevision("test", "default", { key: "key-default" });
 		await repository.mutateSlotState("test", "stored", "default", () => ({
 			blockedUntil: NOW + 60_000,
 			blockReason: "rate_limit",
+			credentialRevision: defaultRevision,
 		}));
 		await repository.mutateSlotState("test", "stored", "work", () => ({}));
 		const attempted: string[] = [];
@@ -489,9 +495,11 @@ describe("credential rotation over a pooled provider", () => {
 		expect(successfulState?.blockReason).toBeUndefined();
 	});
 	test("lists both stored slots with sidecar health overlaid", async () => {
+		const workRevision = await repository.storedCredentialRevision("test", "work", { key: "key-work" });
 		await repository.mutateSlotState("test", "stored", "work", () => ({
 			blockedUntil: NOW + 60_000,
 			blockReason: "rate_limit",
+			credentialRevision: workRevision,
 		}));
 
 		const slots = await listRotationSlots({

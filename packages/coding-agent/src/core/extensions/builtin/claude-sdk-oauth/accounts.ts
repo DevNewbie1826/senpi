@@ -77,6 +77,29 @@ export function addAccount(credential: ClaudeSdkOauthCredential, slot: AccountSl
 	return { ...credential, accounts: [...storedSlots(credential), slot] };
 }
 
+/**
+ * Re-login recovery (omo#7084): a same-name slot is replaced in place — fresh
+ * token material and source, block stamps cleared, displayName preserved — so
+ * a successful login lifts the slot's `auth_error` lock. Unknown names append.
+ */
+export function upsertAccount(credential: ClaudeSdkOauthCredential, slot: AccountSlot): ClaudeSdkOauthCredential {
+	assertValidAccountName(slot.name);
+	const existing = storedSlots(credential).find((candidate) => candidate.name === slot.name);
+	if (!existing) return { ...credential, accounts: [...storedSlots(credential), slot] };
+	const { blockedUntil: _blockedUntil, blockReason: _blockReason, ...identity } = existing;
+	const refreshed: AccountSlot = {
+		...identity,
+		access: slot.access,
+		refresh: slot.refresh,
+		expires: slot.expires,
+		source: slot.source,
+	};
+	return {
+		...credential,
+		accounts: storedSlots(credential).map((candidate) => (candidate.name === slot.name ? refreshed : candidate)),
+	};
+}
+
 export function removeAccount(credential: ClaudeSdkOauthCredential, name: string): ClaudeSdkOauthCredential {
 	const accounts = storedSlots(credential).filter((slot) => slot.name !== name);
 	const next: ClaudeSdkOauthCredential = { ...credential, accounts };
