@@ -38,6 +38,18 @@ export function time(label: string, namespace: TimingLabel = "main"): void {
 	timingNamespace.lastTime = now;
 }
 
+/**
+ * Record a phase this module could not measure itself - a duration derived from the process clock,
+ * such as everything that happened before the first instrumented statement ran. The namespace's
+ * cursor is left untouched, so the next `time()` call still measures from where it was.
+ */
+export function recordTiming(label: string, ms: number, namespace: TimingLabel = "main"): void {
+	if (!ENABLED) return;
+	const timingNamespace = timingNamespaces.get(namespace) ?? { timings: [], lastTime: Date.now() };
+	timingNamespaces.set(namespace, timingNamespace);
+	timingNamespace.timings.push({ label, ms });
+}
+
 function printTimingGroup(title: string, timings: TimingNamespace["timings"]): void {
 	const printableTimings = timings.filter((timing) => timing.ms >= 0);
 	if (printableTimings.length === 0) return;

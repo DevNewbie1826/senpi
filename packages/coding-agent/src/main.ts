@@ -76,7 +76,7 @@ import {
 import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { shouldJoinSharedHost } from "./core/shared-host-policy.ts";
-import { printTimings, resetTimings, time } from "./core/timings.ts";
+import { printTimings, recordTiming, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
 import { builtInExtensions } from "./extensions/index.ts";
 import { getFromSourceRealConfigWarning } from "./from-source-config-guard.ts";
@@ -885,6 +885,9 @@ export function createCliRuntimeFactory(
 
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
+	// The pre-main phase - runtime boot, cli.js, and this module's static import graph - is already
+	// over when the first statement runs, so it is read from the process clock rather than measured.
+	recordTiming("processStart->main", Math.round(process.uptime() * 1000));
 	const extensionFactories = [...builtInExtensions, ...(options?.extensionFactories ?? [])];
 	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(envValue("OFFLINE"));
 	if (offlineMode) {
@@ -1303,7 +1306,9 @@ export async function main(args: string[], options?: MainOptions) {
 			if (process.stderr.writableLength > 0) {
 				await new Promise<void>((resolve) => process.stderr.once("drain", resolve));
 			}
-			return;
+			// Benchmark runs leave the TUI's terminal handles active, so returning here only parks the
+			// loop; the measurement is complete, so the process ends with it.
+			process.exit(0);
 		}
 
 		printTimings();
