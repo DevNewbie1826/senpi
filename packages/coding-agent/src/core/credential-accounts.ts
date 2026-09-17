@@ -110,11 +110,19 @@ export async function summarizeCredentialAccounts(
 				: listSlots(credential);
 		for (const slot of storedAccounts) {
 			const displayName = accountDisplayName(slot.displayName);
+			const persisted = state[slot.name];
+			const revision = await repository.storedCredentialRevision(provider, slot.name, {
+				key: slot.key,
+				access: slot.access,
+				refresh: slot.refresh,
+			});
+			// A block belongs to the material that earned it; a re-login starts clean.
+			const applicable = persisted?.credentialRevision === revision ? persisted : undefined;
 			summaries.push({
 				name: slot.name,
 				...(displayName === undefined ? {} : { displayName }),
 				source: slot.source ?? "login",
-				blocked: slotBlocked(slot, state[slot.name], now),
+				blocked: slotBlocked(slot, applicable, now),
 				pinned: pinned === slot.name,
 			});
 		}

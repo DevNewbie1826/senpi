@@ -1,5 +1,30 @@
 # changes — senpi-monorepo root
 
+## claude-sdk-oauth re-login refreshes the slot; stored pool blocks bind to credential revisions (2026-09-17)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/accounts.ts`: new `upsertAccount()` — a same-name slot is replaced in place (fresh token material, block stamps cleared, `displayName` preserved); unknown names still append.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/oauth-login.ts`: a re-login now targets an existing slot instead of minting `account-N+1` — a lone slot or the pool's one `auth_error`-blocked slot is refreshed in place; anything else stays append-only unless the user types an existing name, so a blank or headless re-login never overwrites the newest working slot in a multi-account pool. The Anthropic import is now a move: accepting it removes the grant from the `anthropic` provider so two stores never refresh one single-use token.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/index.ts`: wires `removeAnthropicCredential` through the locked auth.json backend.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/{affinity,guidance,stream-guidance}.ts`: `AllAccountsBlockedError` carries the dominant block reason and the all-blocked guidance names an authentication failure explicitly, so the outer credential-pool classifier maps it to `auth_error` instead of laundering it into a rate-limit cooldown via the generic "(rate limit or auth errors)" wording.
+- `packages/coding-agent/src/core/credential-pool/{state-store,rotation-stream}.ts` and `packages/coding-agent/src/core/credential-accounts.ts`: stored-lane sidecar health is bound to a credential revision (HMAC over the installation key and slot material, never raw material) — the stored-lane twin of the env revision rule — so a re-login or token refresh retires the block the old material earned. Legacy rows without a revision are retired on first read.
+- Tests: new `test/claude-sdk-oauth-login-refresh.test.ts` (refresh matrix, import move, dominant reason) and `test/credential-pool-stored-revision.test.ts` (legacy/foreign/current revision, revision stamping); `test/credential-error-taxonomy.test.ts` gains the guidance→classifier composition cases; `test/credential-accounts.test.ts` and `test/model-runtime-credential-rotation.test.ts` fixtures now stamp the matching revision for blocks that must apply.
+
+### Why
+
+- omo#7084 (two fresh field reports on 2026.9.16-3): `/login claude-sdk-oauth` never refreshed the existing slot — it appended `account-N+1` or threw on a duplicate name — while `auth_error` blocks were permanent by design ("until login refreshes the slot"), so the documented recovery could never fire and the pool dead-ended at "blocked until re-login". The import path also copied the Anthropic grant into a second store, guaranteeing a later `invalid_grant`.
+- omo#8383: the lane's generic all-blocked wording let the outer classifier string-match "rate limit" and stamp a cooldown for what was a 401 revocation, and the stored lane's sidecar had no credential-replacement signal at all, so blocks outlived the credential that earned them.
+
+### Why an extension could not handle it
+
+- The slot store, the OAuth login flow, the failover block policy, and the credential-pool sidecar are engine internals; the recovery contract spans the lane's auth.json stamps and the generic pool's sidecar, which no extension surface reaches.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/oauth-login.ts` (login naming and the import branch).
+- `packages/coding-agent/src/core/credential-pool/rotation-stream.ts` (stored-lane listing and `persistBlock`).
+
 ## Type-check the qa scripts (2026-09-16)
 
 ### What changed

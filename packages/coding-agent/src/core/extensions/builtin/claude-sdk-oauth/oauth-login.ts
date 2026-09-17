@@ -15,6 +15,7 @@ import {
 	emptyCredential,
 	listAccounts,
 	SENTINEL_OAUTH_FIELDS,
+	upsertAccount,
 } from "./accounts.ts";
 import { readAmbientClaudeAuthStatus } from "./availability.ts";
 
@@ -77,21 +78,44 @@ function toSlot(
 	return { name, access: credential.access, refresh: credential.refresh, expires: credential.expires, source };
 }
 
+/**
+ * Recovery target for a re-login (omo#7084): a lone slot, or the pool's one
+ * auth-blocked slot, is refreshed in place — identity-safe because no working
+ * account is displaced. Anything else stays append-only unless the user names
+ * an existing slot explicitly, so a blank or headless re-login never
+ * overwrites the newest working slot in a multi-account pool.
+ */
+function recoveryTargetName(existing: AccountSlot[]): string | undefined {
+	if (existing.length === 1) return existing[0]?.name;
+	const authBlocked = existing.filter((slot) => slot.blockReason === "auth_error");
+	if (authBlocked.length === 1) return authBlocked[0]?.name;
+	return undefined;
+}
+
 async function promptAccountName(callbacks: OAuthLoginCallbacks, existing: AccountSlot[]): Promise<string> {
 	if (existing.length === 0) return "default";
-	if (!callbacks.onPrompt) return `account-${existing.length + 1}`;
+	const recovery = recoveryTargetName(existing);
+	const fallback = `account-${existing.length + 1}`;
+	if (!callbacks.onPrompt) return recovery ?? fallback;
+	const names = existing.map((slot) => slot.name).join(", ");
+	const message =
+		recovery === undefined
+			? `Name for this account (existing: ${names}; press Enter to add ${fallback}, or type an existing name to refresh it)`
+			: `Name for this account (existing: ${names}; press Enter to refresh '${recovery}' with this login)`;
 	const answer = (
 		await callbacks.onPrompt({
-			message: `Name for this account (existing: ${existing.map((slot) => slot.name).join(", ")})`,
-			placeholder: `account-${existing.length + 1}`,
+			message,
+			placeholder: recovery ?? fallback,
 		})
 	).trim();
-	return answer || `account-${existing.length + 1}`;
+	return answer || recovery || fallback;
 }
 
 export function createOAuthConfig(deps: {
 	readCurrent: CurrentCredentialReader;
 	readAnthropicCredential?: () => Promise<{ access: string; refresh: string; expires: number } | undefined>;
+	/** Moves the imported grant out of the anthropic provider so two stores never refresh one single-use token (omo#7084). */
+	removeAnthropicCredential?: () => Promise<void>;
 	readAmbientAuthStatus?: (signal?: AbortSignal) => Promise<boolean>;
 	readSettings?: () => { tokenInjection?: "oauth-slots" | "config-dir" | "ambient"; enabled?: boolean } | undefined;
 	loginFlow?: OAuthAuth;
@@ -166,12 +190,14 @@ export function createOAuthConfig(deps: {
 				if (imported) {
 					const answer = (
 						await callbacks.onPrompt({
-							message: "An Anthropic OAuth login already exists. Import it instead of a new login? [y/N]",
+							message:
+								"An Anthropic OAuth login already exists. Move it here (the anthropic provider is logged out) instead of a new login? [y/N]",
 						})
 					)
 						.trim()
 						.toLowerCase();
 					if (answer === "y" || answer === "yes") {
+						await deps.removeAnthropicCredential?.();
 						return addAccount(current, toSlot(imported, "imported-anthropic", "import"));
 					}
 				}
@@ -192,7 +218,7 @@ export function createOAuthConfig(deps: {
 
 			const existingAfter = listAccounts(current);
 			const name = await promptAccountName(callbacks, existingAfter);
-			return addAccount(current, toSlot(credential, name, "login"));
+			return upsertAccount(current, toSlot(credential, name, "login"));
 		},
 
 		async refreshToken(credentials) {

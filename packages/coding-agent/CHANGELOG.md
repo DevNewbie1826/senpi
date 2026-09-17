@@ -10,6 +10,11 @@
 
 ### Fixed
 
+- Fixed `claude-sdk-oauth` re-login never refreshing the existing account: a successful login now replaces the same-name slot in place (clearing its `auth_error` block and preserving its display name) instead of appending `account-N+1` or failing on a duplicate name, so "blocked until re-login" actually lifts on re-login. A blank or headless re-login only ever targets a lone slot or the pool's one auth-blocked slot, never the newest working slot of a multi-account pool. ([#7084](https://github.com/code-yeongyu/oh-my-openagent/issues/7084))
+- Fixed the Anthropic OAuth import forking one single-use refresh token into two stores: accepting the import now moves the grant out of the `anthropic` provider. ([#7084](https://github.com/code-yeongyu/oh-my-openagent/issues/7084))
+- Fixed stored credential-pool blocks outliving the credential that earned them: stored-lane sidecar health is bound to a credential revision (an HMAC of the slot material, never the material itself), so a re-login or token refresh retires stale `auth_error` and cooldown blocks the way env-key rotation already did. ([#7084](https://github.com/code-yeongyu/oh-my-openagent/issues/7084), [#8383](https://github.com/code-yeongyu/oh-my-openagent/issues/8383))
+- Fixed the all-accounts-blocked guidance laundering an authentication failure into a rate-limit cooldown: the message now names the authentication error and the re-login action, which the credential-pool classifier maps to `auth_error`. ([#8383](https://github.com/code-yeongyu/oh-my-openagent/issues/8383))
+
 ### Removed
 
 ## [2026.9.17] - 2026-09-17

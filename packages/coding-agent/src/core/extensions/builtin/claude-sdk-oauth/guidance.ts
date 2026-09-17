@@ -17,7 +17,17 @@ export function noAccountGuidance(hasAnthropicCredential: boolean): string {
 	return lines.join("\n");
 }
 
-export function allAccountsBlockedGuidance(soonestUnblockAt: number | undefined): string {
+export function allAccountsBlockedGuidance(soonestUnblockAt: number | undefined, blockReason?: "auth_error"): string {
+	if (blockReason === "auth_error") {
+		// omo#8383: name the authentication failure. The recovery is a re-login,
+		// and the outer credential-pool classifier maps "authentication error" to
+		// auth_error instead of laundering the block into a rate-limit cooldown.
+		return [
+			`All Claude accounts for ${PROVIDER} are currently blocked (authentication error).`,
+			`  /login ${PROVIDER}  - re-authenticate to refresh the blocked account`,
+			`  /claude-account list  - inspect account states`,
+		].join("\n");
+	}
 	const eta =
 		soonestUnblockAt !== undefined && Number.isFinite(soonestUnblockAt)
 			? new Date(soonestUnblockAt).toISOString()
