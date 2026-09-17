@@ -17,6 +17,8 @@
 
 
 ### Fixed
+- An `auto` theme no longer repaints on every launch. Making theme detection non-blocking meant the first frame is painted from a guess, and for `light/dark` that guess came from `COLORFGBG` alone - unset by most terminals - while the detected answer was never remembered. A user on a light terminal therefore got a dark first frame on every start, corrected one OSC round trip later. The detected terminal background is now remembered in `<agentDir>/cache/terminal-theme.json` and seeds the next launch, so the repaint happens at most once after install; the file is written atomically and a missing or malformed one simply falls back to the environment guess. ([#1781](https://github.com/code-yeongyu/senpi/issues/1781))
+
 
 - Fixed `claude-sdk-oauth` re-login never refreshing the existing account: a successful login now replaces the same-name slot in place (clearing its `auth_error` block and preserving its display name) instead of appending `account-N+1` or failing on a duplicate name, so "blocked until re-login" actually lifts on re-login. A blank or headless re-login only ever targets a lone slot or the pool's one auth-blocked slot, never the newest working slot of a multi-account pool. ([#7084](https://github.com/code-yeongyu/oh-my-openagent/issues/7084))
 - Fixed the Anthropic OAuth import forking one single-use refresh token into two stores: accepting the import now moves the grant out of the `anthropic` provider. ([#7084](https://github.com/code-yeongyu/oh-my-openagent/issues/7084))
