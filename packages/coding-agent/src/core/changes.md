@@ -1,5 +1,26 @@
 # changes
 
+## 2026-09-17 - Read only the frontmatter prefix during skill discovery (senpi#1781)
+
+### What changed
+
+- New `packages/coding-agent/src/core/skill-discovery.ts` owns `collectSkillEntries` / `collectAutoSkillEntries` (moved out of `package-manager.ts`) and `readSkillMarkdownSource`.
+- `readSkillMarkdownSource` reads at most 8 KiB, slices at the closing `---` when that delimiter is inside the prefix (falling back to the rest of the file when it is not), and never feeds the markdown body to the YAML parser.
+- `packages/coding-agent/src/core/skills.ts` `loadSkillFromFile` uses that reader, and the directory walk skips `node_modules`, `.git` and dot-prefixed names.
+
+### Why
+
+- The startup `skills` phase read whole `SKILL.md` bodies only to parse their frontmatter. Extracting the walk also keeps `package-manager.ts` from growing further.
+
+### Why an extension could not handle it
+
+- Skill discovery and frontmatter parsing run in the host resource loader before any extension is bound.
+
+### Expected merge conflict zones
+
+- MEDIUM: `collectSkillEntries` used to live in `package-manager.ts`, so upstream edits to that walk must land in `skill-discovery.ts`.
+- LOW: the `loadSkillFromFile` read path in `skills.ts`.
+
 ## 2026-09-17 - Inline skill mentions expand on submit (senpi#1778)
 
 ### What changed
