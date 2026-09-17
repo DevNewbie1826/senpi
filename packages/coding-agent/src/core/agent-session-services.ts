@@ -18,6 +18,7 @@ import {
 import { type CreateAgentSessionOptions, type CreateAgentSessionResult, createAgentSession } from "./sdk.ts";
 import type { SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
+import { joinStartupBranches } from "./startup-branch-join.ts";
 
 /**
  * Non-fatal issues collected while creating services or sessions.
@@ -159,16 +160,16 @@ export async function createAgentSessionServices(
 	const cwd = resolvePath(options.cwd);
 	const agentDir = options.agentDir ? resolvePath(options.agentDir) : getAgentDir();
 	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
-	const modelRuntime =
-		options.modelRuntime ??
-		(await ModelRuntime.create({
-			credentials: authStorage,
-			authPath: join(agentDir, "auth.json"),
-			agentDir,
-			modelsPath: join(agentDir, "models.json"),
-			signal: options.modelRuntimeSignal,
-		}));
-	const modelRegistry = new ModelRegistry(modelRuntime, authStorage);
+	const runtimePromise =
+		options.modelRuntime !== undefined
+			? Promise.resolve(options.modelRuntime)
+			: ModelRuntime.create({
+					credentials: authStorage,
+					authPath: join(agentDir, "auth.json"),
+					agentDir,
+					modelsPath: join(agentDir, "models.json"),
+					signal: options.modelRuntimeSignal,
+				});
 	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
 	const resourceLoader = new DefaultResourceLoader({
 		...(options.resourceLoaderOptions ?? {}),
@@ -176,7 +177,11 @@ export async function createAgentSessionServices(
 		agentDir,
 		settingsManager,
 	});
-	await resourceLoader.reload(options.resourceLoaderReloadOptions);
+	const { primary: modelRuntime } = await joinStartupBranches(
+		runtimePromise,
+		resourceLoader.reload(options.resourceLoaderReloadOptions),
+	);
+	const modelRegistry = new ModelRegistry(modelRuntime, authStorage);
 
 	const diagnostics: AgentSessionRuntimeDiagnostic[] = [];
 	const extensionsResult = resourceLoader.getExtensions();
