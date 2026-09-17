@@ -101,6 +101,19 @@ interface OpenFields {
 	retain_on_disconnect?: boolean;
 }
 
+/**
+ * Holds every session's teardown where a real disposal spends its time (`waitForIdle`),
+ * so a test can put a session INTO teardown and keep it there while it exercises
+ * another command. Without it, the fake runtime disposes within one microtask and a
+ * test about the teardown window would be a race the test usually wins.
+ */
+export interface TeardownGate {
+	/** Every teardown from here on blocks until `release()`. */
+	hold(): void;
+	/** Lets the held teardowns finish. */
+	release(): void;
+}
+
 /** One session's turn, driven by the test instead of by a model. */
 export interface FakeTurn {
 	/** The session reports a streaming, busy turn from here on. */
@@ -118,8 +131,26 @@ export interface FakeTurn {
  * the host aborted persists nothing - so a test that expects a turn to outlive its
  * client's disconnect fails if the host tore the session down instead.
  */
-function inProcessRuntimeFactory(): { createRuntime: CreateAgentSessionRuntimeFactory; turns: Map<string, FakeTurn> } {
+function inProcessRuntimeFactory(): {
+	createRuntime: CreateAgentSessionRuntimeFactory;
+	turns: Map<string, FakeTurn>;
+	teardown: TeardownGate;
+} {
 	const turns = new Map<string, FakeTurn>();
+	let held: { promise: Promise<void>; resolve: () => void } | undefined;
+	const teardown: TeardownGate = {
+		hold: () => {
+			let resolve!: () => void;
+			const promise = new Promise<void>((settle) => {
+				resolve = settle;
+			});
+			held = { promise, resolve };
+		},
+		release: () => {
+			held?.resolve();
+			held = undefined;
+		},
+	};
 	const createRuntime: CreateAgentSessionRuntimeFactory = async (options) => {
 		new ProjectTrustStore(options.agentDir).set(options.cwd, true);
 		const manager = options.sessionManager;
@@ -173,7 +204,9 @@ function inProcessRuntimeFactory(): { createRuntime: CreateAgentSessionRuntimeFa
 					state.isStreaming = false;
 				},
 				abortBash: () => {},
-				waitForIdle: async () => {},
+				waitForIdle: async () => {
+					await held?.promise;
+				},
 				dispose: () => {},
 				messages: [],
 				pendingMessageCount: 0,
@@ -182,7 +215,7 @@ function inProcessRuntimeFactory(): { createRuntime: CreateAgentSessionRuntimeFa
 			diagnostics: [],
 		} as unknown as CreateAgentSessionRuntimeResult;
 	};
-	return { createRuntime, turns };
+	return { createRuntime, turns, teardown };
 }
 
 /**
@@ -192,7 +225,7 @@ function inProcessRuntimeFactory(): { createRuntime: CreateAgentSessionRuntimeFa
  * runs its production code path on the runtime the daemon selects.
  */
 export function createInProcessRig(dir: string, idle?: RpcSessionIdlePolicy) {
-	const { createRuntime, turns } = inProcessRuntimeFactory();
+	const { createRuntime, turns, teardown } = inProcessRuntimeFactory();
 	// One clock for both halves of the idle contract: the registry stamps `lastCommandAt`
 	// and the router's sweep compares against it.
 	const registry = new RpcSessionRegistry({ agentDir: dir, createRuntime, now: idle?.now });
@@ -231,6 +264,7 @@ export function createInProcessRig(dir: string, idle?: RpcSessionIdlePolicy) {
 		registry,
 		router,
 		turns,
+		teardown,
 		settle,
 		async open(connection: string, fields: OpenFields): Promise<WireRecord | undefined> {
 			const id = `open-${++requests}`;

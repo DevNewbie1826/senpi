@@ -71,9 +71,12 @@
  * record completion.
  *
  * Duplicate/idempotency: duplicate `open_session` while a path reservation is
- * held → `session_path_in_use`. `close_session` on unknown/already-closed, or from a
- * connection that never attached to that handle → `unknown_session` error. Request
- * `id`s are client-owned; the server echoes them without dedup.
+ * held → `session_path_in_use`; a reservation held by a session whose teardown is
+ * already in flight is WAITED OUT on the in-process runtime (bounded by the close
+ * grace window) and the path then opens fresh. `close_session` on
+ * unknown/already-closed, or from a connection that never attached to that handle →
+ * `unknown_session` error. Request `id`s are client-owned; the server echoes them
+ * without dedup.
  *
  * Full prose docs: `packages/coding-agent/docs/rpc.md` (Multi-session mode).
  */
