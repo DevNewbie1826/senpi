@@ -1,5 +1,33 @@
 # changes
 
+## 2026-09-17 - The host-daemon surface is what the modes barrel re-exports (#1782)
+
+### What changed
+
+- `index.ts` and `modes/index.ts`: re-export the host-daemon surface a client needs - `ensureHost`, `probeHost`, `stopHost`, `handoffHost`, `decideHostAction`, `engineBuildIdentity` and the host identity/decision types - beside the existing `RpcClient` surface, so nothing outside `modes/rpc/` reaches into that directory.
+
+### Why
+
+A client - omo's task runner, the desktop server, a terminal attach - has to decide what to do with a host it finds on a socket. That decision belongs to the engine (protocol version, capabilities, build ordinal, launch profile), not to each client's guesswork, so the engine must export it. One barrel is also what lets a client duck-type these symbols and fail closed against an older engine that lacks them.
+
+### Why an extension could not handle it
+
+An extension runs inside a session; both of these are process-level surfaces that exist before any session does - the module barrel a client imports to decide what to do with a host it found, and the compile step that stamps the binary. Neither is reachable from extension code.
+
+### Expected merge conflict zones
+
+Upstream edits to the same export list, and upstream edits to the `bun build --compile` argument list in the release script.
+
+
+
+### What changed
+
+`src/modes/index.ts` now re-exports the pieces a client needs to talk to a machine-wide host, so nothing outside `src/modes/rpc/` has to reach into that directory: `ensureHost`, `probeHost`, `stopHost`, `handoffHost`, `decideHostAction` and the host identity/decision types, alongside the `RpcClient` surface that was already there.
+
+### Why
+
+A client - omo's task runner, the desktop server, a terminal attach - decides what to do with a host it found on a socket. That decision belongs to the engine (protocol version, capabilities, build ordinal, launch profile), not to each client's own guesswork, so the engine has to export it. Keeping the export list in one barrel is also what lets a client duck-type the symbols and fail closed when it is running against an older engine that does not have them.
+
 ## 2026-09-17 - Per-session kind and context reach the session's resources only (senpi#1782)
 
 ### What changed
