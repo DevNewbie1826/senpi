@@ -12,6 +12,7 @@ import {
 	type TerminalTheme,
 	type Theme,
 } from "./theme.ts";
+import { readTerminalThemeHint, writeTerminalThemeHint } from "./terminal-theme-cache.ts";
 
 type ThemeResult = { success: boolean; error?: string };
 type AutoThemeSetting = NonNullable<ReturnType<typeof parseAutoThemeSetting>>;
@@ -22,7 +23,7 @@ export class InteractiveThemeController {
 	private readonly showError: (message: string) => void;
 	private readonly onChanged: () => void;
 	private currentThemeSetting: string | undefined;
-	private terminalTheme: TerminalTheme = detectTerminalBackgroundFromEnv().theme;
+	private terminalTheme: TerminalTheme = readTerminalThemeHint() ?? detectTerminalBackgroundFromEnv().theme;
 	private activeThemeName: string | undefined;
 	private autoSyncEnabled = false;
 	private terminalColorSchemeUnsubscribe: (() => void) | undefined;
@@ -145,6 +146,7 @@ export class InteractiveThemeController {
 			const detected = await detectTerminalThemeForAuto({ ui: this.ui, timeoutMs: 100 });
 			if (generation !== this.detectionGeneration) return;
 			this.terminalTheme = detected;
+			writeTerminalThemeHint(detected);
 			this.applyThemeName(detected === "light" ? autoTheme.lightTheme : autoTheme.darkTheme, true);
 		} catch {
 			// OSC detection is best-effort and must not reject startup.
@@ -156,6 +158,7 @@ export class InteractiveThemeController {
 			const detection = await detectTerminalBackgroundTheme({ ui: this.ui, timeoutMs: 100 });
 			if (generation !== this.detectionGeneration) return;
 			this.terminalTheme = detection.theme;
+			writeTerminalThemeHint(detection.theme);
 			if (!this.applyThemeName(detection.theme).success) return;
 			if (detection.confidence === "high") {
 				settingsManager.setTheme(detection.theme);

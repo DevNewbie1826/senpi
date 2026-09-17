@@ -1,3 +1,22 @@
+## 2026-09-17 - Remember the detected terminal background (senpi#1781)
+
+### What changed
+
+- New `theme/terminal-theme-cache.ts`: reads and atomically writes `<agentDir>/cache/terminal-theme.json`, failing open in both directions.
+- `theme/theme-controller.ts`: seeds `terminalTheme` from that hint before falling back to `detectTerminalBackgroundFromEnv()`, and writes the hint whenever a detection resolves (both the background and the `auto` paths).
+
+### Why
+
+- Detection became non-blocking, so the first frame is painted from a guess. For a `light/dark` setting that guess came only from `COLORFGBG`, which most terminals do not set, and nothing was persisted - so an `auto` user on a light terminal was repainted on every single launch rather than once.
+
+### Why an extension could not handle it
+
+- The terminal background is read by the host's own theme controller before any extension is bound.
+
+### Expected merge conflict zones
+
+- LOW: the `terminalTheme` field initializer and the two detection branches in `theme-controller.ts`.
+
 ## 2026-09-17 - Mark the init seams and stop waiting on the theme query (senpi#1781)
 
 ### What changed
