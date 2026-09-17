@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { processIsLive, readProcessStartTime } from "../app-server/daemon/process.ts";
-import { createHostDaemonPaths, HOST_DAEMON_DIR_ENV } from "./host-daemon-state.ts";
+import { createHostDaemonPaths, HOST_DAEMON_DIR_ENV } from "./host-daemon-paths.ts";
 
 /** How long a client should wait before retrying a path another generation still holds. */
 export const SESSION_PATH_RETRY_AFTER_MS = 2_000;

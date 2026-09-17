@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { VERSION } from "../src/config.ts";
 import { processIsLive, processMatchesPidFile, readProcessStartTime } from "../src/modes/app-server/daemon/process.ts";
-import { readHostRegistration } from "../src/modes/rpc/host-daemon-state.ts";
+import { readHostRegistration } from "../src/modes/rpc/host-daemon-registration.ts";
 import { createHostDaemonPaths, ensureHost, type HostLifecyclePolicyInput } from "../src/modes/rpc/host-ensure.ts";
 import {
 	DEFAULT_HOST_IDLE_EXIT_MS,

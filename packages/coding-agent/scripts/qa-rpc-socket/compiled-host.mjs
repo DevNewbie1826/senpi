@@ -24,7 +24,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
-import { readHostRegistration } from "../../src/modes/rpc/host-daemon-state.ts";
+import { readHostRegistration } from "../../src/modes/rpc/host-daemon-registration.ts";
 import { createHostDaemonPaths } from "../../src/modes/rpc/host-ensure.ts";
 import {
 	cleanupAllAndWait,

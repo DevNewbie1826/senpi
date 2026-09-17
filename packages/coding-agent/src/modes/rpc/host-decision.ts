@@ -28,7 +28,10 @@ import {
 	SESSION_CONTEXT_CAPABILITY,
 	SESSION_KIND_CAPABILITY,
 } from "./custom-capability.ts";
+import type { HostProtocolInfo } from "./host-protocol-info.ts";
 import type { RpcLaunchProfile } from "./rpc-types.ts";
+
+export { type HostProtocolInfo, parseHostProtocolInfo } from "./host-protocol-info.ts";
 
 /** The wire protocol this build speaks. A host answering with any other number is refused, not replaced. */
 export const HOST_PROTOCOL_VERSION = 1;
@@ -46,24 +49,6 @@ export const REQUIRED_HOST_CAPABILITIES = [
 	SESSION_CONTEXT_CAPABILITY,
 	SESSION_KIND_CAPABILITY,
 ] as const;
-
-/**
- * A `get_protocol_info` answer as a CLIENT reads it. Every identity field is optional because a
- * host from an older release answers without them; absence is read as "uncomparable", never as zero.
- */
-export interface HostProtocolInfo {
-	readonly protocolVersion: number;
-	/** Informational only. Nothing in this module compares it. */
-	readonly serverVersion: string;
-	readonly capabilities: readonly string[];
-	/** Which host PROCESS answered. A handoff is complete exactly when this value changes. */
-	readonly instanceId?: string;
-	/** Which generation of the daemon that process is; `0` until the first handoff. */
-	readonly generation?: number;
-	readonly engineVersion?: string;
-	readonly engineOrdinal?: EngineOrdinal;
-	readonly launch_profile?: RpcLaunchProfile;
-}
 
 export interface HostDecisionClient {
 	readonly protocolVersion: number;
@@ -230,47 +215,6 @@ function covers(candidate: RpcLaunchProfile | undefined, running: RpcLaunchProfi
 /** True when both builds are the same released version and only their build epoch differs. */
 function sameRelease(candidate: EngineOrdinal, running: EngineOrdinal | undefined): boolean {
 	return running !== undefined && candidate.slice(0, 4).every((part, index) => part === running[index]);
-}
-
-/** Parses the `data` of a `get_protocol_info` reply. Unknown or malformed identity fields are dropped, not guessed. */
-export function parseHostProtocolInfo(data: unknown): HostProtocolInfo | undefined {
-	if (!isRecord(data) || typeof data.serverVersion !== "string") return undefined;
-	if (!Array.isArray(data.capabilities) || !data.capabilities.every((entry) => typeof entry === "string")) {
-		return undefined;
-	}
-	const ordinal = parseOrdinal(data.engineOrdinal);
-	const launchProfile = parseLaunchProfile(data.launch_profile);
-	return {
-		// A reply without a protocol version predates the field; 0 never matches, so it fails closed.
-		protocolVersion: typeof data.protocolVersion === "number" ? data.protocolVersion : 0,
-		serverVersion: data.serverVersion,
-		capabilities: data.capabilities,
-		...(typeof data.instanceId === "string" && { instanceId: data.instanceId }),
-		...(typeof data.generation === "number" &&
-			Number.isSafeInteger(data.generation) && { generation: data.generation }),
-		...(typeof data.engineVersion === "string" && { engineVersion: data.engineVersion }),
-		...(ordinal && { engineOrdinal: ordinal }),
-		...(launchProfile && { launch_profile: launchProfile }),
-	};
-}
-
-function parseOrdinal(value: unknown): EngineOrdinal | undefined {
-	if (!Array.isArray(value) || value.length !== 5 || !value.every((part) => typeof part === "number"))
-		return undefined;
-	return [value[0], value[1], value[2], value[3], value[4]];
-}
-
-function parseLaunchProfile(value: unknown): RpcLaunchProfile | undefined {
-	if (!isRecord(value) || typeof value.profile_id !== "string" || !isRecord(value.core)) return undefined;
-	const { extensions, multi_session, session_runtime } = value.core;
-	if (!Array.isArray(extensions) || !extensions.every((entry) => typeof entry === "string")) return undefined;
-	if (typeof multi_session !== "boolean") return undefined;
-	if (session_runtime !== "in-process" && session_runtime !== "worker") return undefined;
-	return { profile_id: value.profile_id, core: { extensions, multi_session, session_runtime } };
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function assertNever(value: never): never {

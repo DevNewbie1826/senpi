@@ -47,7 +47,8 @@ import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, isBunBinary, isBundledNode } from "../../config.ts";
 import { processIsLive, readProcessStartTime } from "../app-server/daemon/process.ts";
-import { createHostDaemonPaths, generationPaths, HOST_DAEMON_DIR_ENV, releaseGeneration } from "./host-daemon-state.ts";
+import { createHostDaemonPaths, generationPaths, HOST_DAEMON_DIR_ENV } from "./host-daemon-paths.ts";
+import { releaseGeneration } from "./host-daemon-registration.ts";
 import {
 	HOST_CLEANUP_PATHS_ENV,
 	HOST_PUBLIC_SOCKET_ENV,

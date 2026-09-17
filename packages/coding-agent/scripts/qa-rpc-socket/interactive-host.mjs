@@ -8,7 +8,8 @@ import { createAgentSessionRuntime, createAgentSessionServices, createAgentSessi
 import { createInteractiveHostRuntime } from "../../src/modes/interactive/interactive-host-runtime.ts";
 import { RpcClient } from "../../src/modes/rpc/rpc-client.ts";
 import { ensureHost } from "../../src/modes/rpc/host-ensure.ts";
-import { createHostDaemonPaths, generationPaths, readHostRegistration } from "../../src/modes/rpc/host-daemon-state.ts";
+import { createHostDaemonPaths, generationPaths } from "../../src/modes/rpc/host-daemon-paths.ts";
+import { readHostRegistration } from "../../src/modes/rpc/host-daemon-registration.ts";
 import { cleanupAllAndWait, installCleanupHooks, makeScratch, startFakeModelServer, writeMockModelsJson } from "../qa-app-server/lib/env.mjs";
 
 const lines = [];

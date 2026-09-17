@@ -15,7 +15,8 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHostDaemonPaths, readHostRegistration } from "../../src/modes/rpc/host-daemon-state.ts";
+import { createHostDaemonPaths } from "../../src/modes/rpc/host-daemon-paths.ts";
+import { readHostRegistration } from "../../src/modes/rpc/host-daemon-registration.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(here, "..", "..");

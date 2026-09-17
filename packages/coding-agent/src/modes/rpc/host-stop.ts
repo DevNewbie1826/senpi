@@ -16,7 +16,9 @@
  * failure ESRCH means "already gone", not "something went wrong", and must never surface as a raw
  * error to a caller that asked for exactly that outcome.
  */
-import { createHostDaemonPaths, provenOwner, readHostRegistration, releaseGeneration } from "./host-daemon-state.ts";
+
+import { createHostDaemonPaths } from "./host-daemon-paths.ts";
+import { provenOwner, readHostRegistration, releaseGeneration } from "./host-daemon-registration.ts";
 import { GENERATION_HANDOFF_CAPABILITY } from "./host-decision.ts";
 import { probeProtocolInfo, probeSessionCount } from "./host-probe.ts";
 

@@ -15,18 +15,20 @@ import {
 } from "../app-server/daemon/process.ts";
 import { RPC_CLIENT_CAPABILITIES_ENV } from "./custom-capability.ts";
 import {
-	clearHostRegistration,
 	createDaemonDirectories,
 	createHostDaemonPaths,
 	HOST_DAEMON_DIR_ENV,
 	type HostDaemonPaths,
+} from "./host-daemon-paths.ts";
+import {
+	clearHostRegistration,
 	legacyHostIsLive,
 	type RegisteredHost,
 	readHostRegistration,
 	writeHostRegistration,
-	writeHostSettings,
 	writtenByThisProcess,
-} from "./host-daemon-state.ts";
+} from "./host-daemon-registration.ts";
+import { writeHostSettings } from "./host-daemon-state.ts";
 import {
 	decideHostAction,
 	HOST_PROTOCOL_VERSION,
@@ -50,7 +52,7 @@ export {
 	type HostDaemonPaths,
 	HostDaemonStateError,
 	type HostGenerationPaths,
-} from "./host-daemon-state.ts";
+} from "./host-daemon-paths.ts";
 export { defaultHostLaunch, PINNED_HOST_CLIENT_CAPABILITIES } from "./host-launch.ts";
 export { type ProbeHostOptions, probeHost } from "./host-probe.ts";
 export type { HostColdStart, HostLifecyclePolicyInput };

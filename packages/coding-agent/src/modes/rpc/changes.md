@@ -1,3 +1,29 @@
+## 2026-09-17 - The created host modules go back under the file-size ceiling (#1782)
+
+### What changed
+
+- `src/modes/rpc/host-daemon-paths.ts` (restored): WHERE one socket's daemon keeps its state - `createHostDaemonPaths`, `generationPaths`, `daemonDirectoryName`, the `HostDaemonPaths`/`HostGenerationPaths` shapes, the layout marker, the 0700/0600 mode bits, `createDaemonDirectories`/`createGenerationDirectory` and `HostDaemonStateError`. This is the module the layout-2 change had folded INTO `host-daemon-state.ts`; folding it in is what pushed that file to 399 lines, so it is a file again.
+- `src/modes/rpc/host-daemon-state.ts` now holds only WHAT the settings say (`HostDaemonSettings`, `writeHostSettings`, `readHostSettings`) plus the three primitives every state file goes through (`writeStateFile`, `readFileOrUndefined`, `parseJson`, and the `isRecord` guard), shared with the registration module.
+- `src/modes/rpc/host-daemon-registration.ts` (from the previous entry) keeps the pointer and generation RECORDS and the ownership predicates.
+- `src/modes/rpc/host-protocol-info.ts` (new, out of `host-decision.ts`): the `HostProtocolInfo` shape and the tolerant boundary parse that produces it (`parseHostProtocolInfo`, `parseOrdinal`, `parseLaunchProfile`). The decision module now imports the type and re-exports both for its existing callers, so `host-decision.ts` is the truth table and nothing else.
+- `src/modes/rpc/host-successor.ts` (new, out of `host-handoff.ts`): bringing the successor generation up - the bind path and its length guard, the settings and environment it is launched with, the spawn, the readiness observation on the PUBLIC socket (`awaitSuccessor`), the registration, the drain signal to the predecessor, and `abortReason`. `host-handoff.ts` is now the DECISION half: probe, the `generation_handoff` capability guard, the win32 refusal, the owner proof, and the refusal/result vocabulary.
+- Importers follow the seams; no test assertion changed.
+- `scripts/qa-rpc-socket/ensure-host.mjs`: brought to the compatibility contract this plan introduced. It asserted that a host with a different `serverVersion` is REPLACED, which is exactly the behaviour the capability/ordinal decision removed - so the driver was asserting a defect. It now proves, live against the real `ensureHost`: a fresh start, a reuse of that same host, a host advertising protocol 1 plus every required capability under a DIFFERENT `serverVersion` being REUSED rather than replaced, and a host missing `session_context` being REFUSED (`capability`) while staying alive - the refusal holding even though the registration names this process as the writer, which would otherwise permit a stop.
+
+### Why
+
+- Measured with `awk '!/^[[:space:]]*$/ && !/^[[:space:]]*\/\//' <file> | wc -l`, the files this work created were over the 250 ceiling: `host-daemon-state.ts` 399, `host-handoff.ts` 258, `host-decision.ts` 251. After the split: paths 149, state 83, registration 204, decision 200, protocol-info 66, handoff 100, successor 173, stop 80 - every created module under the ceiling, with `host-probe.ts` 106, `host-launch.ts` 45 and `host-reservations.ts` 136 unchanged.
+- Each cut follows a seam the code already had: where files live vs what they contain; the wire parse vs the decision that consumes it; bringing a generation up vs deciding whether it may be brought up at all. No "utils" bucket was created.
+- Pure move: a scripted symbol-body comparison against the previous commit (66 symbols before and after, comments and whitespace normalized) reports zero lost symbols and exactly one changed body - `startSuccessor`, which gained `export`. `writeStateFile`, `readFileOrUndefined`, `parseJson` and `isRecord` had already been exported by the previous split.
+
+### Why an extension could not handle it
+
+- Module boundaries inside the engine's host-lifecycle code; nothing about it is reachable from an extension.
+
+### Expected merge conflict zones
+
+- LOW: mechanical import moves plus three new files. Anything upstream that also edits the import blocks of `host-ensure.ts`, `host-handoff.ts` or `host-lifecycle.ts` conflicts on those lines only.
+
 ## 2026-09-17 - One daemon directory per socket, and no pidfile a legacy client can act on (#1782)
 
 ### What changed

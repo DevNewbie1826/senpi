@@ -11,7 +11,7 @@ import {
 	readProcessStartTime,
 	waitForStartTime,
 } from "../src/modes/app-server/daemon/process.ts";
-import { type HostPidFileWriter, readHostRegistration } from "../src/modes/rpc/host-daemon-state.ts";
+import { type HostPidFileWriter, readHostRegistration } from "../src/modes/rpc/host-daemon-registration.ts";
 import { GENERATION_HANDOFF_CAPABILITY, HostEnsureRefusedError } from "../src/modes/rpc/host-decision.ts";
 import { createHostDaemonPaths, defaultHostLaunch, ensureHost } from "../src/modes/rpc/host-ensure.ts";
 import { handoffHost } from "../src/modes/rpc/host-handoff.ts";
