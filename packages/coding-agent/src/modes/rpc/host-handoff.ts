@@ -24,24 +24,28 @@
  * with `upgrade_unsupported`; upgrades there apply after a drain-stop or an idle exit.
  */
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { open } from "node:fs/promises";
 import { ENV_AGENT_DIR } from "../../config.ts";
-import { processMatchesPidFile, readProcessStartTime, waitForStartTime } from "../app-server/daemon/process.ts";
+import { waitForStartTime } from "../app-server/daemon/process.ts";
 import { RPC_CLIENT_CAPABILITIES_ENV } from "./custom-capability.ts";
 import {
+	createDaemonDirectories,
 	createHostDaemonPaths,
+	HOST_DAEMON_DIR_ENV,
 	type HostDaemonPaths,
-	type RegisteredHost,
+	provenOwner,
+	readHostRegistration,
 	readHostSettings,
-	readPidFile,
+	writeHostRegistration,
 	writeHostSettings,
-	writePidFile,
 } from "./host-daemon-state.ts";
 import { GENERATION_HANDOFF_CAPABILITY, type HostProtocolInfo } from "./host-decision.ts";
 import { defaultHostLaunch, PINNED_HOST_CLIENT_CAPABILITIES } from "./host-launch.ts";
 import { DEFAULT_HOST_IDLE_EXIT_MS, type HostLifecyclePolicyInput } from "./host-lifecycle.ts";
-import { probeProtocolInfo, probeSessionCount } from "./host-probe.ts";
-import { HOST_GENERATION_ENV } from "./protocol-identity.ts";
+import { probeProtocolInfo } from "./host-probe.ts";
+import { signalGeneration } from "./host-stop.ts";
+import { HOST_GENERATION_ENV, HOST_INSTANCE_ID_ENV, hostLaunchProfile } from "./protocol-identity.ts";
 import {
 	generationBindPath,
 	MAX_SOCKET_PATH_BYTES,
@@ -108,38 +112,33 @@ export type HandoffResult =
 export async function handoffHost(options: HandoffHostOptions): Promise<HandoffResult> {
 	const platform = options._test?.platform ?? process.platform;
 	if (platform === "win32") return { action: "refuse", reason: "upgrade_unsupported", upgradeable: false };
-	const paths = createHostDaemonPaths(options.agentDir);
+	const paths = createHostDaemonPaths({
+		socket: options.socket,
+		...(options.agentDir ? { agentDir: options.agentDir } : {}),
+	});
+	await createDaemonDirectories(paths);
 	const host = await probeProtocolInfo(options.socket, 10_000);
 	if (!host) return { action: "refuse", reason: "no_host", upgradeable: false };
 	if (!host.capabilities.includes(GENERATION_HANDOFF_CAPABILITY)) {
 		return { action: "refuse", reason: "handoff_unsupported", upgradeable: false };
 	}
-	const registered = await readPidFile(paths);
-	const owner = await drainableOwner(registered, options.socket);
+	const registered = await readHostRegistration(paths);
+	const owner = await provenOwner(registered, options.socket);
 	if (!owner) return { action: "refuse", reason: "unknown_owner", upgradeable: true };
 	return startSuccessor({ options, paths, host, owner });
-}
-
-/** The predecessor's pid, when - and only when - the record proves which process serves this socket. */
-async function drainableOwner(
-	registered: RegisteredHost | undefined,
-	socket: string,
-): Promise<{ pid: number; processStartTime: string } | undefined> {
-	const record = registered?.record;
-	if (!record || record.processStartTime === null) return undefined;
-	if (registered?.socket !== undefined && registered.socket !== socket) return undefined;
-	const identity = { pid: record.pid, processStartTime: record.processStartTime };
-	return (await processMatchesPidFile(identity, readProcessStartTime).catch(() => false)) ? identity : undefined;
 }
 
 async function startSuccessor(context: {
 	options: HandoffHostOptions;
 	paths: HostDaemonPaths;
 	host: HostProtocolInfo;
-	owner: { pid: number; processStartTime: string };
+	owner: { pid: number; processStartTime: string; instanceId: string };
 }): Promise<HandoffResult> {
 	const { options, paths, host, owner } = context;
 	const generation = (host.generation ?? 0) + 1;
+	// The successor's identity, chosen here so its generation directory holds its settings before it
+	// boots and the pointer can name it the instant it answers on the public socket.
+	const instanceId = randomUUID();
 	const bindSocket = generationBindPath(options.socket, generation);
 	if (Buffer.byteLength(bindSocket) > MAX_SOCKET_PATH_BYTES) {
 		return { action: "refuse", reason: "socket_path_too_long", upgradeable: true, detail: bindSocket };
@@ -155,6 +154,7 @@ async function startSuccessor(context: {
 		coldStart: options.policy?.coldStart ?? running?.coldStart ?? "transient",
 		idleExitMs: options.policy?.idleExitMs ?? running?.idleExitMs ?? DEFAULT_HOST_IDLE_EXIT_MS,
 		generation,
+		instanceId,
 	});
 	await options._test?.beforeSpawn?.();
 	const argv = [
@@ -171,7 +171,7 @@ async function startSuccessor(context: {
 	const child = spawn(launch.command, [...launch.args], {
 		detached: true,
 		windowsHide: true,
-		env: successorEnv(options, generation),
+		env: successorEnv(options, { paths, generation, instanceId }),
 		stdio: ["ignore", "ignore", stderr.fd],
 	});
 	await stderr.close();
@@ -184,11 +184,24 @@ async function startSuccessor(context: {
 			return { action: "refuse", reason: await abortReason(options.socket, replaced), upgradeable: true };
 		}
 		const processStartTime = (await waitForStartTime(child.pid, 10_000).catch(() => undefined)) ?? null;
-		await writePidFile(paths, { record: { pid: child.pid, processStartTime }, socket: options.socket });
+		// The pointer moves to the successor only now: until the rename landed, the generation the
+		// clients reach is still the predecessor, and the pointer has to name whoever owns the socket.
+		await writeHostRegistration(paths, {
+			record: { pid: child.pid, processStartTime },
+			socket: options.socket,
+			instanceId,
+			generation,
+			launchProfileId: hostLaunchProfile(
+				["--mode", "rpc", "--multi-session", ...(options.hostArgs ?? [])],
+				process.cwd(),
+			).profile_id,
+		});
 		child.unref();
 		// The successor owns the socket now: the predecessor may drain. SIGUSR1 is sent only here,
-		// to a pid the record proved and a host that advertised it can survive the signal.
-		process.kill(owner.pid, "SIGUSR1");
+		// to a pid the record proved and a host that advertised it can survive the signal. A
+		// predecessor that exited on its own in the meantime is already drained, and the handoff it
+		// was being asked to make room for has already happened.
+		signalGeneration(owner.pid, "SIGUSR1");
 		return {
 			action: "handoff",
 			pid: child.pid,
@@ -243,10 +256,17 @@ async function abortReason(socket: string, replaced: SocketFileIdentity): Promis
 		: "successor_unavailable";
 }
 
-function successorEnv(options: HandoffHostOptions, generation: number): NodeJS.ProcessEnv {
+function successorEnv(
+	options: HandoffHostOptions,
+	successor: { readonly paths: HostDaemonPaths; readonly generation: number; readonly instanceId: string },
+): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
-		[HOST_GENERATION_ENV]: String(generation),
+		[HOST_GENERATION_ENV]: String(successor.generation),
+		// Always SET, never inherited: a handoff completes exactly when the instance id on the socket
+		// changes, so a successor that inherited the predecessor's id could never be seen to arrive.
+		[HOST_INSTANCE_ID_ENV]: successor.instanceId,
+		[HOST_DAEMON_DIR_ENV]: successor.paths.dir,
 		[RPC_CLIENT_CAPABILITIES_ENV]: PINNED_HOST_CLIENT_CAPABILITIES.join(","),
 		...(options.agentDir ? { [ENV_AGENT_DIR]: options.agentDir } : {}),
 	};
@@ -255,50 +275,6 @@ function successorEnv(options: HandoffHostOptions, generation: number): NodeJS.P
 		else env[key] = value;
 	}
 	return env;
-}
-
-export interface StopHostOptions {
-	readonly socket: string;
-	readonly agentDir?: string;
-	/** Ask the host to finish its work and exit (SIGUSR1) instead of terminating it. */
-	readonly drain?: boolean;
-	/** Terminate even when the host still reports open sessions. */
-	readonly force?: boolean;
-	readonly timeoutMs?: number;
-}
-
-export type StopHostResult =
-	| { readonly action: "drained" | "stopped"; readonly pid: number }
-	| { readonly action: "refuse"; readonly reason: "unknown_owner" | "drain_unsupported" | "sessions_live" };
-
-/**
- * Ends a running generation. `drain` is always permitted - it ends no work, it only stops the
- * host from taking new work - while a hard stop requires either an empty host or `force`, so an
- * operator never silently kills another client's sessions.
- */
-export async function stopHost(options: StopHostOptions): Promise<StopHostResult> {
-	const paths = createHostDaemonPaths(options.agentDir);
-	const registered = await readPidFile(paths);
-	const owner = await drainableOwner(registered, options.socket);
-	if (!owner) return { action: "refuse", reason: "unknown_owner" };
-	const host = await probeProtocolInfo(options.socket, options.timeoutMs ?? 10_000);
-	if (options.drain === true) {
-		// SIGUSR1 terminates a process that installed no handler for it: a host that does not
-		// advertise the drain is refused rather than killed by the request to shut down gently.
-		if (!host?.capabilities.includes(GENERATION_HANDOFF_CAPABILITY) || process.platform === "win32") {
-			return { action: "refuse", reason: "drain_unsupported" };
-		}
-		process.kill(owner.pid, "SIGUSR1");
-		return { action: "drained", pid: owner.pid };
-	}
-	// A hard stop ends whatever the host is doing, including work that belongs to other clients:
-	// it is allowed only against a host that reports nothing open, or by an explicit override.
-	const sessions = await probeSessionCount(options.socket, options.timeoutMs ?? 10_000);
-	if (options.force !== true && host !== undefined && sessions !== undefined && sessions > 0) {
-		return { action: "refuse", reason: "sessions_live" };
-	}
-	process.kill(owner.pid, "SIGTERM");
-	return { action: "stopped", pid: owner.pid };
 }
 
 function delay(ms: number): Promise<void> {

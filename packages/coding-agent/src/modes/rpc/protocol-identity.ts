@@ -26,8 +26,18 @@ import type { RpcLaunchProfile, RpcLaunchProfileCore, RpcProtocolIdentity } from
  */
 export const HOST_GENERATION_ENV = "SENPI_RPC_HOST_GENERATION";
 
+/**
+ * Identity of the host being spawned, chosen by the ensure that spawns it so the daemon directory
+ * can hold that generation's state before the process exists. A host nobody ensured names itself.
+ */
+export const HOST_INSTANCE_ID_ENV = "SENPI_RPC_HOST_INSTANCE_ID";
+
 /** Identity of THIS host process, fixed for its lifetime. */
-const INSTANCE_ID = randomUUID();
+const INSTANCE_ID = resolveInstanceId(process.env[HOST_INSTANCE_ID_ENV]);
+
+function resolveInstanceId(value: string | undefined): string {
+	return value !== undefined && value.trim() !== "" ? value : randomUUID();
+}
 
 /** Who this host is, for anything that has to name the process rather than describe it. */
 export function hostInstanceId(): string {

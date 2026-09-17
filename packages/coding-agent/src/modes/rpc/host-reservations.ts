@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { processIsLive, readProcessStartTime } from "../app-server/daemon/process.ts";
+import { createHostDaemonPaths, HOST_DAEMON_DIR_ENV } from "./host-daemon-state.ts";
 
 /** How long a client should wait before retrying a path another generation still holds. */
 export const SESSION_PATH_RETRY_AFTER_MS = 2_000;
@@ -37,6 +38,33 @@ export interface SessionPathReservations {
 /** One claim per canonical session path, named by its hash so the file name is bounded. */
 export function reservationFile(dir: string, sessionPath: string): string {
 	return join(dir, `${createHash("sha256").update(sessionPath, "utf8").digest("hex").slice(0, 16)}.json`);
+}
+
+/**
+ * The claims of a host serving one ENDPOINT, or none when there is no endpoint to share. A
+ * supervised host is TOLD its daemon directory, because the socket it binds is a private hop rather
+ * than the public endpoint; a bare socket host derives it from what it listens on; a stdio host has
+ * no daemon directory, no successor generation and therefore nothing to publish.
+ */
+export function createEndpointReservations(host: {
+	readonly agentDir: string;
+	readonly socket: string | undefined;
+	readonly instanceId: string;
+	readonly onFailure?: (message: string) => void;
+}): SessionPathReservations | undefined {
+	const told = process.env[HOST_DAEMON_DIR_ENV];
+	const dir =
+		told !== undefined && told.trim() !== ""
+			? told
+			: host.socket === undefined
+				? undefined
+				: createHostDaemonPaths({ socket: host.socket, agentDir: host.agentDir }).dir;
+	if (dir === undefined) return undefined;
+	return createSessionPathReservations({
+		dir: join(dir, "reservations"),
+		instanceId: host.instanceId,
+		...(host.onFailure ? { onFailure: host.onFailure } : {}),
+	});
 }
 
 export function createSessionPathReservations(options: {

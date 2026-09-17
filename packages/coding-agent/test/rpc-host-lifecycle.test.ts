@@ -1,7 +1,6 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { on, once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { createServer as createHttpServer, type Server as HttpServer, type ServerResponse } from "node:http";
 import { type AddressInfo, createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -9,6 +8,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { VERSION } from "../src/config.ts";
 import { processIsLive, processMatchesPidFile, readProcessStartTime } from "../src/modes/app-server/daemon/process.ts";
+import { readHostRegistration } from "../src/modes/rpc/host-daemon-state.ts";
 import { createHostDaemonPaths, ensureHost, type HostLifecyclePolicyInput } from "../src/modes/rpc/host-ensure.ts";
 import {
 	DEFAULT_HOST_IDLE_EXIT_MS,
@@ -207,7 +207,7 @@ describe("ensureHost-spawned host lifecycle", () => {
 		const entry = currentManaged();
 		await waitForHostExit(entry);
 		expect(existsSync(entry.pidFilePath)).toBe(false);
-		expect(existsSync(createHostDaemonPaths(qa.agentDir).settingsFile)).toBe(false);
+		expect(existsSync(daemonPaths(qa).settingsFile)).toBe(false);
 		expect(await endpointLive(qa.socket)).toBe(false);
 		// Scoped to THIS supervisor: the internal directories live in one shared tmpdir, so any
 		// other host running concurrently (another suite, another checkout) owns its own.
@@ -325,7 +325,7 @@ describe("ensureHost-spawned host lifecycle", () => {
 		// Win32 endpoint close and metadata unlink are separate operations; poll the
 		// identity-aware lifecycle helper instead of asserting the pidfile atomically.
 		await waitForHostExit(entry, WINDOWS_SUPERVISOR_EXIT_TIMEOUT_MS);
-		expect(existsSync(createHostDaemonPaths(qa.agentDir).settingsFile)).toBe(false);
+		expect(existsSync(daemonPaths(qa).settingsFile)).toBe(false);
 	}, 60_000);
 });
 
@@ -540,7 +540,7 @@ function scratch(label: string): Scratch {
 		sessionDir,
 		cwd,
 		socket: join(root, "rpc.sock"),
-		pidFilePath: createHostDaemonPaths(agentDir).pidFile,
+		pidFilePath: daemonPaths({ agentDir, socket: join(root, "rpc.sock") }).pointerFile,
 	};
 }
 
@@ -734,7 +734,7 @@ async function ensureLifecycleHost(
 					: { command: process.execPath, args: [hostLifecycleEntry(), "--socket", qa.socket, ...hostArgs] },
 			},
 		});
-		managed.push({ pidFile: await recordedPidFile(qa.pidFilePath, ensured.pid), pidFilePath: qa.pidFilePath });
+		managed.push({ pidFile: await recordedPidFile(qa, ensured.pid), pidFilePath: qa.pidFilePath });
 		return ensured;
 	} catch (error) {
 		throw new Error(
@@ -748,18 +748,21 @@ async function ensureLifecycleHost(
  * ensureHost returning, so the pidfile may already be gone; the returned pid is
  * still the identity every later liveness/exit probe needs.
  */
-async function recordedPidFile(pidFilePath: string, pid: number): Promise<{ pid: number; processStartTime: string }> {
-	try {
-		return JSON.parse(await readFile(pidFilePath, "utf8")) as { pid: number; processStartTime: string };
-	} catch (error: unknown) {
-		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-		return { pid, processStartTime: (await readProcessStartTime(pid)) ?? "" };
-	}
+async function recordedPidFile(qa: Scratch, pid: number): Promise<{ pid: number; processStartTime: string }> {
+	const record = (await readHostRegistration(daemonPaths(qa)).catch(() => undefined))?.record;
+	return record?.processStartTime !== undefined && record.processStartTime !== null
+		? { pid: record.pid, processStartTime: record.processStartTime }
+		: { pid, processStartTime: (await readProcessStartTime(pid)) ?? "" };
+}
+
+/** This endpoint's daemon directory: one per socket, so the agent directory alone no longer names it. */
+function daemonPaths(qa: { readonly agentDir: string; readonly socket: string }) {
+	return createHostDaemonPaths({ socket: qa.socket, agentDir: qa.agentDir });
 }
 
 function readSupervisorStderr(qa: Scratch): string {
 	try {
-		return readFileSync(createHostDaemonPaths(qa.agentDir).stderrLog, "utf8");
+		return readFileSync(daemonPaths(qa).stderrLog, "utf8");
 	} catch {
 		return "<no supervisor stderr log>";
 	}

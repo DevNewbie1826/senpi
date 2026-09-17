@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { VERSION } from "../src/config.ts";
 import {
@@ -11,6 +11,7 @@ import {
 	readProcessStartTime,
 	waitForStartTime,
 } from "../src/modes/app-server/daemon/process.ts";
+import { type HostPidFileWriter, readHostRegistration } from "../src/modes/rpc/host-daemon-state.ts";
 import { GENERATION_HANDOFF_CAPABILITY, HostEnsureRefusedError } from "../src/modes/rpc/host-decision.ts";
 import { createHostDaemonPaths, defaultHostLaunch, ensureHost } from "../src/modes/rpc/host-ensure.ts";
 import { handoffHost } from "../src/modes/rpc/host-handoff.ts";
@@ -30,8 +31,6 @@ const incompatibleProtocolFixture = join(import.meta.dirname, "fixtures", "rpc-i
 const CAPABILITIES = "multi_session,extension_events,session_context,session_kind";
 /** A host that can drain into a successor generation: the only kind a client may ever hand off from. */
 const HANDOFF_CAPABILITIES = `${CAPABILITIES},${GENERATION_HANDOFF_CAPABILITY}`;
-/** The published release whose ensure logic is replayed in the legacy fail-closed proof. */
-const LEGACY_VERSION = "2026.9.16-3";
 
 afterEach(async () => {
 	for (const child of children.splice(0)) await killAndWait(child);
@@ -191,9 +190,8 @@ describe("ensureHost", () => {
 
 	it("cleans a stale dead pidfile and starts fresh", async () => {
 		const qa = await scratch("stale-pidfile");
-		const paths = createHostDaemonPaths(qa.agentDir);
-		await mkdir(paths.dir, { recursive: true });
-		await writeFile(paths.pidFile, `${JSON.stringify({ pid: 999_999_999, processStartTime: "dead" })}\n`);
+		const paths = daemonPaths(qa);
+		await writeRegistration(qa, { pid: 999_999_999, processStartTime: "dead" });
 		await writeFile(paths.settingsFile, "stale");
 		const result = await ensureFixtureHost(qa);
 		expect(result.reused).toBe(false);
@@ -222,8 +220,7 @@ describe("ensureHost", () => {
 				},
 			}),
 		).rejects.toThrow(/did not answer get_protocol_info.*fixture readiness diagnostic/s);
-		const paths = createHostDaemonPaths(qa.agentDir);
-		await expect(access(paths.pidFile)).rejects.toMatchObject({ code: "ENOENT" });
+		await expect(access(daemonPaths(qa).pointerFile)).rejects.toMatchObject({ code: "ENOENT" });
 		await expect(access(qa.socket)).rejects.toMatchObject({ code: "ENOENT" });
 	}, 10_000);
 
@@ -248,8 +245,7 @@ describe("ensureHost", () => {
 				},
 			}),
 		).rejects.toThrow(/did not answer get_protocol_info.*fixture readiness diagnostic/s);
-		const paths = createHostDaemonPaths(qa.agentDir);
-		await expect(access(paths.pidFile)).rejects.toMatchObject({ code: "ENOENT" });
+		await expect(access(daemonPaths(qa).pointerFile)).rejects.toMatchObject({ code: "ENOENT" });
 		await expect(access(qa.socket)).rejects.toMatchObject({ code: "ENOENT" });
 	}, 10_000);
 
@@ -274,8 +270,7 @@ describe("ensureHost", () => {
 				},
 			}),
 		).rejects.toThrow(/did not answer get_protocol_info.*fixture readiness diagnostic/s);
-		const paths = createHostDaemonPaths(qa.agentDir);
-		await expect(access(paths.pidFile)).rejects.toMatchObject({ code: "ENOENT" });
+		await expect(access(daemonPaths(qa).pointerFile)).rejects.toMatchObject({ code: "ENOENT" });
 	}, 10_000);
 
 	it("serializes concurrent starts even when the identity probe fails transiently on a live pid", async () => {
@@ -336,8 +331,7 @@ describe("ensureHost", () => {
 		const qa = await scratch("unreadable-identity");
 		const host = await ensureFixtureHost(qa, { readProcessStartTime: async () => undefined });
 		expect(host).toMatchObject({ socket: qa.socket, reused: false });
-		const pidFile = JSON.parse(await readFile(createHostDaemonPaths(qa.agentDir).pidFile, "utf8")) as unknown;
-		expect(pidFile).toMatchObject({ pid: host.pid, processStartTime: null });
+		expect((await readHostRegistration(daemonPaths(qa)))?.record).toEqual({ pid: host.pid, processStartTime: null });
 		const second = await ensureFixtureHost(qa);
 		expect(second).toMatchObject({ socket: qa.socket, reused: true });
 	}, 20_000);
@@ -348,9 +342,7 @@ describe("ensureHost", () => {
 		const qa = await scratch("unguarded-pidfile");
 		const live = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], { stdio: "ignore" });
 		children.push(live);
-		const paths = createHostDaemonPaths(qa.agentDir);
-		await mkdir(dirname(paths.pidFile), { recursive: true });
-		await writeFile(paths.pidFile, `${JSON.stringify({ pid: live.pid, processStartTime: null })}\n`);
+		await writeRegistration(qa, { pid: live.pid ?? 0, processStartTime: null });
 		const host = await ensureFixtureHost(qa);
 		expect(host.reused).toBe(false);
 		expect(host.pid).not.toBe(live.pid);
@@ -361,9 +353,7 @@ describe("ensureHost", () => {
 		// A real process that has already exited: liveness is genuinely false.
 		const dead = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
 		await new Promise<void>((resolve) => dead.once("exit", () => resolve()));
-		const paths = createHostDaemonPaths(qa.agentDir);
-		await mkdir(dirname(paths.pidFile), { recursive: true });
-		await writeFile(paths.pidFile, `${JSON.stringify({ pid: dead.pid, processStartTime: "stale" })}\n`);
+		await writeRegistration(qa, { pid: dead.pid ?? 0, processStartTime: "stale" });
 		let probeCalls = 0;
 		const host = await ensureFixtureHost(qa, {
 			readProcessStartTime: async (pid) => {
@@ -546,64 +536,6 @@ describe.skipIf(process.platform === "win32")("protocol fixture self-termination
 	}, 30_000);
 });
 
-describe("legacy client against a daemon directory with no flat pidfile", () => {
-	it("fails closed instead of taking the host over", async () => {
-		// D11: the published v2026.9.16-3 ensure logic, replayed below, is what is deployed on user
-		// machines while the new daemon rolls out. Its compatibility test is `serverVersion === VERSION`,
-		// so it calls every new host incompatible - and the ONLY thing keeping it from stopping that
-		// host is the absence of a pidfile it can parse. This test pins that outcome with spies in
-		// place of its two side effects: neither may fire.
-		expect(VERSION).not.toBe(LEGACY_VERSION);
-		const qa = await scratch("legacy-client");
-		const running = await startManagedFixture(qa);
-		// The v2 layout: a marker file, and deliberately no flat `host.pid` for a legacy reader.
-		const paths = createHostDaemonPaths(qa.agentDir);
-		await rm(paths.pidFile, { force: true });
-		await writeFile(join(paths.dir, "layout.json"), `${JSON.stringify({ layout: 2, dir: "deadbeefdeadbeef" })}\n`);
-		const spawned: string[] = [];
-		const stopped: number[] = [];
-
-		const failure = await legacyEnsureHostLocked({
-			qa,
-			spawnHost: () => spawned.push(qa.socket),
-			stopManagedHost: (pid) => stopped.push(pid),
-		}).catch((error: unknown) => error);
-
-		expect(failure).toBeInstanceOf(Error);
-		expect((failure as Error).message).toContain("unmanaged host");
-		expect({ spawned, stopped }).toEqual({ spawned: [], stopped: [] });
-		expect(await processMatchesPidFile(running.pidFile, readProcessStartTime)).toBe(true);
-	}, 20_000);
-});
-
-/**
- * The decision half of `ensureHostLocked` as published in v2026.9.16-3
- * (`git show v2026.9.16-3:packages/coding-agent/src/modes/rpc/host-ensure.ts`), with its two side
- * effects replaced by spies. Copied rather than imported on purpose: this proves what the DEPLOYED
- * client does against today's directory layout, so it must not follow this branch's refactors.
- */
-async function legacyEnsureHostLocked(args: {
-	qa: Qa;
-	spawnHost: () => void;
-	stopManagedHost: (pid: number) => void;
-}): Promise<void> {
-	const paths = createHostDaemonPaths(args.qa.agentDir);
-	const pidFile = await readFile(paths.pidFile, "utf8").then(
-		(text) => JSON.parse(text) as { pid: number; processStartTime: string },
-		() => undefined,
-	);
-	const answer = await protocolInfo(args.qa.socket).catch(() => undefined);
-	const protocol = answer?.data as { serverVersion?: string; capabilities?: string[] } | undefined;
-	const compatible =
-		protocol?.serverVersion === LEGACY_VERSION &&
-		["multi_session", "extension_events"].every((capability) => protocol.capabilities?.includes(capability));
-	if (compatible) return;
-	const pidMatches = pidFile ? await processMatchesPidFile(pidFile, readProcessStartTime) : false;
-	if (protocol && !pidMatches) throw new Error(`RPC socket ${args.qa.socket} is owned by an unmanaged host`);
-	if (pidFile && pidMatches) args.stopManagedHost(pidFile.pid);
-	args.spawnHost();
-}
-
 describe("defaultHostLaunch", () => {
 	it("re-enters through the internal supervisor route in compiled binaries", () => {
 		expect(defaultHostLaunch(["--socket", "/tmp/qa.sock", "--provider", "mock"], true)).toEqual({
@@ -663,6 +595,35 @@ function fixtureIdentity(overrides: {
 }
 
 type Qa = { root: string; agentDir: string; socket: string };
+
+function daemonPaths(qa: Qa) {
+	return createHostDaemonPaths({ socket: qa.socket, agentDir: qa.agentDir });
+}
+
+/**
+ * A registration in the shape a client reads it back: the pointer names a generation, and the
+ * generation record is what carries the pid, its identity guard and the writer that may stop it.
+ */
+async function writeRegistration(
+	qa: Qa,
+	record: { pid: number; processStartTime: string | null },
+	writer?: HostPidFileWriter,
+): Promise<void> {
+	const paths = daemonPaths(qa);
+	const instanceId = `fixture-${record.pid}`;
+	const stamp = writer ?? { pid: process.pid, startTime: (await readProcessStartTime(process.pid)) ?? null };
+	await mkdir(join(paths.generationsDir, instanceId), { recursive: true, mode: 0o700 });
+	await writeFile(
+		join(paths.generationsDir, instanceId, "host.pid"),
+		`${JSON.stringify({ ...record, instance_id: instanceId, socket: qa.socket, writer: stamp })}\n`,
+		{ mode: 0o600 },
+	);
+	await writeFile(
+		paths.pointerFile,
+		`${JSON.stringify({ layout: 2, instance_id: instanceId, generation_dir: `generations/${instanceId}`, writer: stamp })}\n`,
+		{ mode: 0o600 },
+	);
+}
 /** Who the pidfile claims wrote it: this process, this process's pid after a reboot recycled it, or the host itself. */
 type Writer = "self" | "recycled-pid" | "foreign";
 type Managed = { pid: number; pidFile: { pid: number; processStartTime: string } };
@@ -752,19 +713,8 @@ async function register(qa: Qa, child: ChildProcess, writer: Writer): Promise<Ma
 	// the probe is starved on a loaded host, which these fixtures do not exercise.
 	const processStartTime = await waitForStartTime(child.pid, 2_000);
 	if (processStartTime === undefined) throw new Error("managed host had no process identity");
-	const paths = createHostDaemonPaths(qa.agentDir);
-	await mkdir(paths.dir, { recursive: true });
-	await writeFile(
-		paths.pidFile,
-		`${JSON.stringify({
-			pid: child.pid,
-			processStartTime,
-			socket: qa.socket,
-			writer: await writerRecord(writer, child.pid),
-		})}\n`,
-		{ mode: 0o600 },
-	);
-	await writeFile(paths.settingsFile, `${JSON.stringify({ socket: qa.socket })}\n`, { mode: 0o600 });
+	await writeRegistration(qa, { pid: child.pid, processStartTime }, await writerRecord(writer, child.pid));
+	await writeFile(daemonPaths(qa).settingsFile, `${JSON.stringify({ socket: qa.socket })}\n`, { mode: 0o600 });
 	return { pid: child.pid, pidFile: { pid: child.pid, processStartTime } };
 }
 
@@ -822,19 +772,16 @@ async function expectGone(pidFile: { pid: number; processStartTime: string }): P
 }
 
 async function stopManagedRoot(root: string): Promise<void> {
-	try {
-		const parsed = JSON.parse(await readFile(createHostDaemonPaths(join(root, "agent")).pidFile, "utf8"));
-		if (
-			typeof parsed?.pid === "number" &&
-			typeof parsed?.processStartTime === "string" &&
-			(await processMatchesPidFile(parsed, readProcessStartTime))
-		) {
-			process.kill(parsed.pid, "SIGKILL");
-			await expectGone(parsed);
-		}
-	} catch (error: unknown) {
-		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-	}
+	const agentDir = join(root, "agent");
+	const registered = await readHostRegistration(
+		createHostDaemonPaths({ socket: join(root, "rpc.sock"), agentDir }),
+	).catch(() => undefined);
+	const record = registered?.record;
+	if (!record || record.processStartTime === null) return;
+	const identity = { pid: record.pid, processStartTime: record.processStartTime };
+	if (!(await processMatchesPidFile(identity, readProcessStartTime))) return;
+	process.kill(identity.pid, "SIGKILL");
+	await expectGone(identity);
 }
 
 describe("processMatchesPidFile", () => {

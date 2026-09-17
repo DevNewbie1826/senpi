@@ -14,11 +14,10 @@ import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { startHostChildReaper } from "./child-reaper.ts";
 import type { RpcConnectionSink } from "./connection-handler.ts";
 import { parseClientCapabilities } from "./custom-capability.ts";
-import { createHostDaemonPaths } from "./host-daemon-state.ts";
 import { GENERATION_HANDOFF_CAPABILITY } from "./host-decision.ts";
 import { parseIdleExitMs } from "./host-lifecycle.ts";
 import { HostMemorySampler } from "./host-memory-sampler.ts";
-import { createSessionPathReservations } from "./host-reservations.ts";
+import { createEndpointReservations } from "./host-reservations.ts";
 import { armHostWatchdog, readHostWatchdogConfigFromBrandEnv } from "./host-watchdog.ts";
 import { attachJsonlLineReader, MAX_RPC_LINE_CHARACTERS } from "./jsonl.ts";
 import { LoopLagWatchdog } from "./loop-lag-watchdog.ts";
@@ -164,8 +163,9 @@ export function createHostCore(
 					closeGraceMs: idle.closeGraceMs ?? parseIdleExitMs(process.env[RPC_CLOSE_GRACE_MS_ENV]) ?? 10_000,
 					// Two generations of this daemon can be alive at once during a handoff; the claims
 					// they publish here are what keeps them off one session file.
-					pathReservations: createSessionPathReservations({
-						dir: join(createHostDaemonPaths(options.agentDir).dir, "reservations"),
+					pathReservations: createEndpointReservations({
+						agentDir: options.agentDir,
+						socket: listenSocketPath(options),
 						instanceId: hostInstanceId(),
 						onFailure: hostLog,
 					}),
@@ -454,6 +454,12 @@ function oversizedLineError(): string {
 
 function errorMessage(cause: unknown): string {
 	return cause instanceof Error ? cause.message : String(cause);
+}
+
+/** The endpoint this host listens on, or nothing when it speaks stdio and shares no socket. */
+function listenSocketPath(options: MultiSessionHostOptions): string | undefined {
+	if (options.listen === undefined || options.listen === "stdio://") return undefined;
+	return resolveSocketPath(options.listen, options.agentDir);
 }
 
 function resolveSocketPath(value: string, agentDir: string): string {

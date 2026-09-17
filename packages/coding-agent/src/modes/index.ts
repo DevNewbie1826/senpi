@@ -37,11 +37,9 @@ export {
 	type HandoffRefusal,
 	type HandoffResult,
 	handoffHost,
-	type StopHostOptions,
-	type StopHostResult,
-	stopHost,
 } from "./rpc/host-handoff.ts";
 export { type ProbeHostOptions, probeHost } from "./rpc/host-probe.ts";
+export { type StopHostOptions, type StopHostResult, stopHost } from "./rpc/host-stop.ts";
 export {
 	isTransportGoneError,
 	type ModelInfo,

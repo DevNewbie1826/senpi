@@ -4,8 +4,9 @@ import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHostDaemonPaths, ensureHost } from "../src/modes/rpc/host-ensure.ts";
-import { handoffHost, stopHost } from "../src/modes/rpc/host-handoff.ts";
+import { handoffHost } from "../src/modes/rpc/host-handoff.ts";
 import { probeHost } from "../src/modes/rpc/host-probe.ts";
+import { signalGeneration, stopHost } from "../src/modes/rpc/host-stop.ts";
 import {
 	GENERATION_HOST_ARGS,
 	type GenerationScratch,
@@ -33,8 +34,10 @@ afterEach(async () => {
 	for (const peer of peers.splice(0)) peer.destroy();
 	for (const model of models.splice(0)) await model.close();
 	for (const pid of supervisors.splice(0)) {
-		if (!processAlive(pid)) continue;
-		process.kill(pid, "SIGKILL");
+		// Never `kill` on the strength of a liveness READ: a drained generation can exit between the
+		// check and the signal, and the raw ESRCH that follows fails the hook - and therefore the case
+		// - for the one outcome this teardown was hoping for.
+		if (!signalGeneration(pid, "SIGKILL")) continue;
 		// The host child follows its supervisor's death through the lifetime pipe; removing the
 		// sandbox under a host that is still writing to it is what leaves ENOTEMPTY behind.
 		await waitForPidGone(pid, 20_000);
@@ -75,7 +78,12 @@ describe.skipIf(process.platform === "win32")("generation handoff between live h
 		expect(after?.generation).toBe(1);
 		const inodeAfter = await socketInode(qa.socket);
 		expect(inodeAfter).not.toBe(inodeBefore);
-		expect(recordedPid(await pidFile(qa))).toBe(result.pid);
+		// The daemon directory points at the NEW generation: same pointer file, a different generation
+		// directory, and the id in it is the one answering on the socket.
+		const registered = await pidFile(qa);
+		expect(recordedPid(registered)).toBe(result.pid);
+		expect(registered.pointer_instance_id).toBe(after?.instanceId);
+		expect(registered.pointer_instance_id).not.toBe(before?.instanceId);
 		expect(processAlive(firstPid(qa))).toBe(true);
 
 		// The old pair leaves once its last client does - without unlinking the public socket.
@@ -88,11 +96,18 @@ describe.skipIf(process.platform === "win32")("generation handoff between live h
 
 	it("keeps the new generation registered when the drained supervisor is SIGKILLed", async () => {
 		const qa = await generation("kill9");
+		// An ATTACHED session is what makes the kill below deterministic. The drain parks only sessions
+		// with no attachments and the host exits as soon as it holds nothing, so a predecessor with an
+		// EMPTY registry starts leaving on the first sweep after SIGUSR1 - and on a loaded runner it can
+		// be gone before the next statement runs, turning this case into `kill ESRCH`. One attached
+		// session keeps it alive by a state invariant instead of by how fast this process gets there.
+		const attached = await peer(qa);
+		await attached.request({ id: "open", type: "open_session", cwd: qa.cwd });
 		const result = await handoff(qa);
 		const inodeAfter = await socketInode(qa.socket);
 		const live = await probeHost({ socket: qa.socket });
 
-		process.kill(firstPid(qa), "SIGKILL");
+		expect(signalGeneration(firstPid(qa), "SIGKILL")).toBe(true);
 		expect(await waitForPidGone(firstPid(qa), 45_000)).toBe(true);
 
 		expect(recordedPid(await pidFile(qa))).toBe(result.pid);
@@ -246,8 +261,14 @@ async function peer(qa: GenerationScratch): Promise<JsonlPeer> {
 	return connected;
 }
 
+/** The generation the daemon directory currently points at, as a client reads it back off disk. */
 async function pidFile(qa: GenerationScratch): Promise<WireRecord> {
-	return JSON.parse(await readFile(createHostDaemonPaths(qa.agentDir).pidFile, "utf8")) as WireRecord;
+	const paths = createHostDaemonPaths({ socket: qa.socket, agentDir: qa.agentDir });
+	const pointer = JSON.parse(await readFile(paths.pointerFile, "utf8")) as WireRecord;
+	const record = JSON.parse(
+		await readFile(join(paths.dir, String(pointer.generation_dir), "host.pid"), "utf8"),
+	) as WireRecord;
+	return { ...record, pointer_instance_id: pointer.instance_id };
 }
 
 function recordedPid(record: WireRecord): number {

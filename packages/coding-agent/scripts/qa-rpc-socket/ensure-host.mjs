@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VERSION } from "../../src/config.ts";
 import { processMatchesPidFile, waitForStartTime } from "../../src/modes/app-server/daemon/process.ts";
+import { readHostRegistration, writeHostRegistration } from "../../src/modes/rpc/host-daemon-state.ts";
 import { createHostDaemonPaths, ensureHost } from "../../src/modes/rpc/host-ensure.ts";
 
 const lines = [];
@@ -23,10 +24,16 @@ try {
 	await stop(managed);
 	await rm(socket, { force: true });
 	fake = await startWrongVersionFake(socket);
-	const paths = createHostDaemonPaths(agentDir);
+	const paths = createHostDaemonPaths({ socket, agentDir });
 	await mkdir(paths.dir, { recursive: true });
 	const fakeStart = await waitForStartTime(fake.pid, 2_000);
-	await writeFile(paths.pidFile, `${JSON.stringify({ pid: fake.pid, processStartTime: fakeStart })}\n`, { mode: 0o600 });
+	await writeHostRegistration(paths, {
+		record: { pid: fake.pid, processStartTime: fakeStart },
+		socket,
+		instanceId: "qa-wrong-version-fake",
+		generation: 0,
+		launchProfileId: "qa",
+	});
 	await writeFile(paths.settingsFile, `${JSON.stringify({ socket })}\n`, { mode: 0o600 });
 	await waitForSocket(socket);
 
@@ -49,7 +56,7 @@ try {
 process.stdout.write(`${lines.join("\n")}\n`);
 
 async function readManagedPid(agentDir) {
-	return JSON.parse(await readFile(createHostDaemonPaths(agentDir).pidFile, "utf8"));
+	return (await readHostRegistration(createHostDaemonPaths({ socket, agentDir }))).record;
 }
 
 async function startWrongVersionFake(socketPath) {

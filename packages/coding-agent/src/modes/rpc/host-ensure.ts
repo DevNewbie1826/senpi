@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -15,12 +15,16 @@ import {
 } from "../app-server/daemon/process.ts";
 import { RPC_CLIENT_CAPABILITIES_ENV } from "./custom-capability.ts";
 import {
+	clearHostRegistration,
+	createDaemonDirectories,
 	createHostDaemonPaths,
+	HOST_DAEMON_DIR_ENV,
 	type HostDaemonPaths,
+	legacyHostIsLive,
 	type RegisteredHost,
-	readPidFile,
+	readHostRegistration,
+	writeHostRegistration,
 	writeHostSettings,
-	writePidFile,
 	writtenByThisProcess,
 } from "./host-daemon-state.ts";
 import {
@@ -37,10 +41,16 @@ import { defaultHostLaunch, PINNED_HOST_CLIENT_CAPABILITIES } from "./host-launc
 import { DEFAULT_HOST_IDLE_EXIT_MS, type HostColdStart, type HostLifecyclePolicyInput } from "./host-lifecycle.ts";
 import { probeProtocolInfo } from "./host-probe.ts";
 import { acquireOwnershipSafeLock } from "./ownership-safe-lock.ts";
-import { hostLaunchProfile } from "./protocol-identity.ts";
+import { HOST_GENERATION_ENV, HOST_INSTANCE_ID_ENV, hostLaunchProfile } from "./protocol-identity.ts";
 import { createSocketSecret, resolveSocketTransportAddress, socketSecretPath } from "./socket-transport.ts";
 
-export { createHostDaemonPaths, type HostDaemonPaths } from "./host-daemon-state.ts";
+export {
+	createHostDaemonPaths,
+	daemonDirectoryName,
+	type HostDaemonPaths,
+	HostDaemonStateError,
+	type HostGenerationPaths,
+} from "./host-daemon-state.ts";
 export { defaultHostLaunch, PINNED_HOST_CLIENT_CAPABILITIES } from "./host-launch.ts";
 export { type ProbeHostOptions, probeHost } from "./host-probe.ts";
 export type { HostColdStart, HostLifecyclePolicyInput };
@@ -113,8 +123,8 @@ const lockOptions = {
 } as const;
 export async function ensureHost(options: EnsureHostOptions): Promise<EnsuredHost> {
 	const socket = normalizeSocketPath(options.socket);
-	const paths = createHostDaemonPaths(options.agentDir);
-	await mkdir(paths.dir, { recursive: true });
+	const paths = createHostDaemonPaths({ socket, ...(options.agentDir ? { agentDir: options.agentDir } : {}) });
+	await createDaemonDirectories(paths);
 	// The public socket is the shared resource; agent directories are not a
 	// sufficient lock scope when two installations target the same endpoint.
 	const lockTarget = join(tmpdir(), "senpi-rpc-host-locks", createSocketLockName(socket));
@@ -141,10 +151,10 @@ async function ensureHostLocked(
 	options: EnsureHostOptions,
 ): Promise<EnsuredHost> {
 	const testOptions = options._test;
-	const registered = await readPidFile(paths);
-	// A record naming ANOTHER endpoint is not about this ensure's host: today's daemon directory
-	// holds one pidfile per agent directory, so a second socket in the same directory used to read
-	// the first socket's daemon as its own - and stop it.
+	const registered = await readHostRegistration(paths);
+	// A record naming ANOTHER endpoint is not about this ensure's host. The per-socket directory
+	// makes that structural, and the field stays as the second guard for a directory that was
+	// somehow reused: a second socket must never read the first socket's daemon as its own.
 	const registeredHere = registersSocket(registered, socket);
 	const protocol = await probeProtocolInfo(socket, EXISTING_HOST_PROBE_TIMEOUT_MS);
 	const startedByUs = registeredHere && (await writtenByThisProcess(registered?.writer));
@@ -172,7 +182,11 @@ async function ensureHostLocked(
 		if (!startedByUs) throw new HostEnsureRefusedError(socket, "foreign_writer", protocol);
 		await stopManagedHost(registered.record, testOptions?.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS, probe);
 	}
-	if (registeredHere) await cleanupState(paths);
+	// A host from before this layout registered itself in the FLAT directory. Its files are another
+	// process's state: never read as ours, never signalled, never removed - and while it is alive,
+	// this ensure refuses instead of binding a socket it may still be serving.
+	if (await legacyHostIsLive(paths, probe)) throw new HostEnsureRefusedError(socket, "legacy_host", protocol);
+	if (registeredHere) await clearHostRegistration(paths);
 	return startHost(paths, socket, options);
 }
 
@@ -248,6 +262,9 @@ function registersSocket(registered: RegisteredHost | undefined, socket: string)
 
 async function startHost(paths: HostDaemonPaths, socket: string, options: EnsureHostOptions): Promise<EnsuredHost> {
 	const testOptions = options._test;
+	// The generation this ensure is about to spawn, chosen HERE so its directory exists before the
+	// host boots and the pointer can name it the moment the host is registered.
+	const instanceId = randomUUID();
 	// The settings file must exist before the supervisor reads it at boot, so it
 	// records the policy before the spawn instead of beside the pidfile.
 	if (process.platform === "win32") await createSocketSecret(socketSecretPath(socket));
@@ -257,6 +274,7 @@ async function startHost(paths: HostDaemonPaths, socket: string, options: Ensure
 		coldStart: options.policy?.coldStart ?? "transient",
 		idleExitMs: options.policy?.idleExitMs ?? DEFAULT_HOST_IDLE_EXIT_MS,
 		generation: 0,
+		instanceId,
 	});
 	const stderr = await open(paths.stderrLog, "w", 0o600);
 	let pidFile: DaemonPidFile | undefined;
@@ -269,7 +287,7 @@ async function startHost(paths: HostDaemonPaths, socket: string, options: Ensure
 		child = spawn(launch.command, [...launch.args], {
 			detached: true,
 			windowsHide: true,
-			env: hostEnv(options),
+			env: hostEnv(options, { paths, instanceId }),
 			stdio: ["ignore", "ignore", stderr.fd],
 		});
 		childExit = new Promise((resolveExit) => {
@@ -299,7 +317,13 @@ async function startHost(paths: HostDaemonPaths, socket: string, options: Ensure
 		// reads it as unknown - so the worst case is a fresh host next time, not a killed healthy one.
 		pidFile = { pid: child.pid, processStartTime: processStartTime ?? null };
 		await testOptions?.beforePidFileWrite?.();
-		await writePidFile(paths, { record: pidFile, socket });
+		await writeHostRegistration(paths, {
+			record: pidFile,
+			socket,
+			instanceId,
+			generation: 0,
+			launchProfileId: hostLaunchProfile(hostChildArgv(options.hostArgs ?? []), process.cwd()).profile_id,
+		});
 		child.unref();
 	} catch (error: unknown) {
 		// Whether the child died on its own decides which diagnostic is true, and the
@@ -322,14 +346,14 @@ async function startHost(paths: HostDaemonPaths, socket: string, options: Ensure
 			}
 		}
 		if (!exitedBeforeCleanup) {
-			await cleanupState(paths);
+			await clearHostRegistration(paths);
 			throw error;
 		}
 		const diagnostic = await appendStderr(
 			paths,
 			`RPC socket host exited with code ${exitedBeforeCleanup.code ?? "null"}${exitedBeforeCleanup.signal ? ` (${exitedBeforeCleanup.signal})` : ""} before answering get_protocol_info`,
 		);
-		await cleanupState(paths);
+		await clearHostRegistration(paths);
 		throw new Error(diagnostic);
 	} finally {
 		await stderr.close();
@@ -361,7 +385,7 @@ async function startHost(paths: HostDaemonPaths, socket: string, options: Ensure
 		paths,
 		stopFailure === undefined ? message : `${message} (teardown also reported: ${stopFailure})`,
 	);
-	await cleanupState(paths);
+	await clearHostRegistration(paths);
 	// The supervisor may have failed before binding, or another owner may have
 	// appeared while readiness was being checked. Never unlink an endpoint we
 	// cannot prove this start owned.
@@ -518,7 +542,10 @@ function isCompatible(protocol: HostProtocolInfo | undefined): boolean {
 }
 
 /** The environment a spawned host inherits: this process's, the caller's overrides, then the fixed wiring. */
-function hostEnv(options: EnsureHostOptions): NodeJS.ProcessEnv {
+function hostEnv(
+	options: EnsureHostOptions,
+	generation: { readonly paths: HostDaemonPaths; readonly instanceId: string },
+): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = { ...process.env };
 	for (const [key, value] of Object.entries(options.env ?? {})) {
 		if (value === null) delete env[key];
@@ -526,6 +553,12 @@ function hostEnv(options: EnsureHostOptions): NodeJS.ProcessEnv {
 	}
 	env[ENV_AGENT_DIR] = options.agentDir ?? getAgentDir();
 	env[RPC_CLIENT_CAPABILITIES_ENV] = PINNED_HOST_CLIENT_CAPABILITIES.join(",");
+	// Always SET, never inherited: an ensure run from inside a daemon session would otherwise hand
+	// its own host's identity to the one it spawns, and two hosts claiming one instance id make a
+	// handoff - which completes exactly when the instance id changes - impossible to observe.
+	env[HOST_INSTANCE_ID_ENV] = generation.instanceId;
+	env[HOST_GENERATION_ENV] = "0";
+	env[HOST_DAEMON_DIR_ENV] = generation.paths.dir;
 	return env;
 }
 
@@ -562,15 +595,6 @@ async function reapOrphanedInternalHostDirs(): Promise<void> {
 				}),
 		);
 	} catch {}
-}
-
-/**
- * Drops the registration of a host that is gone. Only ever called for a record about THIS
- * socket: another endpoint's daemon keeps its registration, whatever this ensure does.
- */
-async function cleanupState(paths: HostDaemonPaths): Promise<void> {
-	await rm(paths.pidFile, { force: true });
-	await rm(paths.settingsFile, { force: true });
 }
 
 async function appendStderr(paths: HostDaemonPaths, message: string): Promise<string> {

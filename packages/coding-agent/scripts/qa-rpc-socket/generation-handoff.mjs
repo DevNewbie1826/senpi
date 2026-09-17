@@ -15,11 +15,13 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHostDaemonPaths, readHostRegistration } from "../../src/modes/rpc/host-daemon-state.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(here, "..", "..");
 const { ensureHost } = await import(join(packageRoot, "src/modes/rpc/host-ensure.ts"));
-const { handoffHost, stopHost } = await import(join(packageRoot, "src/modes/rpc/host-handoff.ts"));
+const { handoffHost } = await import(join(packageRoot, "src/modes/rpc/host-handoff.ts"));
+const { stopHost } = await import(join(packageRoot, "src/modes/rpc/host-stop.ts"));
 const { probeHost } = await import(join(packageRoot, "src/modes/rpc/host-probe.ts"));
 
 const keep = process.argv.includes("--keep");
@@ -79,7 +81,7 @@ try {
 		instanceId: after?.instanceId,
 		generation: after?.generation,
 		inode: statSync(socket).ino,
-		pidfile: JSON.parse(readFileSync(join(agentDir, "rpc-host-daemon", "host.pid"), "utf8")),
+		pidfile: (await readHostRegistration(createHostDaemonPaths({ socket, agentDir }))).record,
 	});
 
 	const next = await connect(socket);
@@ -122,7 +124,11 @@ try {
 	model.release();
 	await model.close();
 	if (!keep) rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-	say("sandbox", { root, kept: keep, stderr: keep ? join(agentDir, "rpc-host-daemon", "stderr.log") : null });
+	say("sandbox", {
+		root,
+		kept: keep,
+		stderr: keep ? createHostDaemonPaths({ socket, agentDir }).stderrLog : null,
+	});
 }
 
 function alive(pid) {

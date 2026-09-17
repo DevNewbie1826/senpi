@@ -47,7 +47,7 @@ import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, isBunBinary, isBundledNode } from "../../config.ts";
 import { processIsLive, readProcessStartTime } from "../app-server/daemon/process.ts";
-import { createHostDaemonPaths, type HostDaemonPaths, readPidFile } from "./host-daemon-state.ts";
+import { createHostDaemonPaths, generationPaths, HOST_DAEMON_DIR_ENV, releaseGeneration } from "./host-daemon-state.ts";
 import {
 	HOST_CLEANUP_PATHS_ENV,
 	HOST_PUBLIC_SOCKET_ENV,
@@ -56,6 +56,7 @@ import {
 	HOST_WATCH_PPID_ENV,
 } from "./host-watchdog.ts";
 import { attachJsonlLineReader, MAX_RPC_LINE_CHARACTERS } from "./jsonl.ts";
+import { HOST_INSTANCE_ID_ENV } from "./protocol-identity.ts";
 import {
 	MAX_SOCKET_PATH_BYTES,
 	PUBLIC_SOCKET_IDENTITY_FILE,
@@ -406,7 +407,12 @@ export function spawnableChildLaunch(
 }
 
 export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void> {
-	const paths = createHostDaemonPaths(launch.agentDir ?? getAgentDir());
+	const paths = createHostDaemonPaths({ socket: launch.socket, agentDir: launch.agentDir ?? getAgentDir() });
+	// Which generation this supervisor is: the ensure that spawned it says so, and a DIRECT launch
+	// (the hidden supervisor route, with no ensure behind it) names itself so its child agrees.
+	const told = process.env[HOST_INSTANCE_ID_ENV];
+	const instanceId = told !== undefined && told.trim() !== "" ? told : randomUUID();
+	const generation = generationPaths(paths, instanceId);
 	const policy = resolveHostPolicy(await readSettingsFile(paths.settingsFile), process.env);
 	const publicSocket = launch.socket;
 	// A successor generation binds its own name and adopts the public one by rename; an ordinary
@@ -438,6 +444,10 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 		env: {
 			...process.env,
 			...(launch.agentDir ? { SENPI_CODING_AGENT_DIR: launch.agentDir } : {}),
+			// The child binds a PRIVATE socket, so it cannot derive this endpoint's daemon directory
+			// from what it listens on: it is told, and it claims its session paths there.
+			[HOST_DAEMON_DIR_ENV]: paths.dir,
+			[HOST_INSTANCE_ID_ENV]: instanceId,
 			[HOST_WATCH_FD_ENV]: String(CHILD_WATCH_FD),
 			[HOST_WATCH_PPID_ENV]: String(process.pid),
 			...(internal.dir ? { [HOST_SCRATCH_DIR_ENV]: internal.dir } : {}),
@@ -445,7 +455,7 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 			[HOST_CLEANUP_PATHS_ENV]: [
 				// A successor writes no registration of its own until the ensure that spawned it does,
 				// and the files under these paths still describe the generation being replaced.
-				...(successor ? [] : [paths.pidFile, paths.settingsFile]),
+				...(successor ? [] : [paths.pointerFile, generation.pidFile, paths.settingsFile]),
 				// POSIX public sockets are removed ownership-checked by the host child
 				// (token: the scratch-directory sidecar plus HOST_PUBLIC_SOCKET_ENV),
 				// never by path from a crash-path cleanup: a blind removal here would
@@ -589,10 +599,10 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 				// removed. (The host child applies the same rule to its crash path.)
 				await unlinkOwnedSocket(publicSocket, publicSocketIdentity, supervisorLog);
 			}
-			// Mirror ensureHost's cleanupState: the pidfile and settings describe a
-			// live host only; the stderr log stays for diagnostics. After a handoff they
-			// describe the SUCCESSOR, so only a registration naming this process is dropped.
-			await releaseOwnRegistration(paths);
+			// The registration describes a LIVE host only; the stderr log stays for diagnostics.
+			// After a handoff the pointer describes the SUCCESSOR, so this drops only the generation
+			// directory of the process that is leaving, and the pointer only while it still names it.
+			await releaseGeneration(paths, { instanceId, pid: process.pid });
 		} finally {
 			if (hardExit) clearTimeout(hardExit);
 			// Explicitly terminate after every supervisor shutdown trigger. Windows
@@ -758,14 +768,6 @@ async function adoptPublicSocket(
 	// rename(2) is atomic for readers of the path: every connect either reaches the old entry or
 	// this one, never nothing. The inode this supervisor bound simply answers to a second name.
 	await rename(bindSocket, publicSocket);
-}
-
-/** Drops the daemon registration only while it still names THIS process - never a successor's. */
-async function releaseOwnRegistration(paths: HostDaemonPaths): Promise<void> {
-	const registered = await readPidFile(paths).catch(() => undefined);
-	if (registered && registered.record.pid !== process.pid) return;
-	await rm(paths.pidFile, { force: true });
-	await rm(paths.settingsFile, { force: true });
 }
 
 /**
