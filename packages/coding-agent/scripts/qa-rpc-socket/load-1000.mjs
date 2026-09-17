@@ -16,24 +16,40 @@
  * No real provider is reachable: the only model is `mock/mock-model`, served by a
  * local HTTP server this script owns.
  *
+ * The report records WHICH runtime the host actually ran, never an assumption: the
+ * host's own argv read back with `ps`, the runtime `resolveSessionRuntime` selects for
+ * that argv, and the host's `get_protocol_info`. The worker runtime's admission bound
+ * (20) is the independent witness - a host that admitted 1,000 sessions is not it.
+ *
  * Usage:
  *   bun scripts/qa-rpc-socket/load-1000.mjs [--sessions 1000] [--concurrent 50]
- *     [--baseline 20] [--session-runtime in-process|worker] [--out <file.json>]
+ *     [--baseline 20] [--session-runtime in-process|worker] [--disable-builtin <id>]
+ *     [--out <file.json>]
  *
  * Exit 0 when every open succeeded; exit 1 (with `firstError` in the report) when
  * the host refused one - which is what `--session-runtime worker` does at its cap.
  */
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createConnection } from "node:net";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { cleanupAllAndWait, installCleanupHooks, startFakeModelServer, writeMockModelsJson } from "../qa-app-server/lib/env.mjs";
 import { trackChild } from "../qa-app-server/lib/cleanup.mjs";
+import { parseArgs, resolveSessionRuntime } from "../../src/cli/args.ts";
+import { connectJsonlSocket } from "./lib/jsonl-socket.mjs";
 
 const sessionCount = Number(flag("--sessions") ?? 1000);
 const concurrentStreams = Number(flag("--concurrent") ?? 50);
 const baselineStreams = Number(flag("--baseline") ?? 20);
 const sessionRuntime = flag("--session-runtime");
+const disabledBuiltin = flag("--disable-builtin");
+// Checkpoints the cost curve is sampled at, so "bounded pool" and "per-session thread"
+// are distinguishable from the report alone.
+const checkpoints = (flag("--curve") ?? "10,100,1000").split(",").map(Number);
+// Observation only: an env name=value the HOST is started with (never a fix).
+const hostEnv = Object.fromEntries(
+	process.argv.filter((token, index) => process.argv[index - 1] === "--host-env").map((pair) => pair.split("=")),
+);
 const outPath = flag("--out");
 const packageDir = resolve(import.meta.dirname, "..", "..");
 const READY_BUDGET_MS = 60_000;
@@ -48,6 +64,11 @@ async function main() {
 	const cwd = join(scratch, "cwd");
 	mkdirSync(agentDir);
 	mkdirSync(cwd);
+	// Causal cell: the same host with one builtin extension switched off, which is how the
+	// per-session thread was attributed to a component instead of to "a session".
+	if (disabledBuiltin) {
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ disabledBuiltinExtensions: [disabledBuiltin] }));
+	}
 	const socketPath = join(scratch, `load-${process.pid}.sock`);
 	const fake = await startFakeModelServer([{ text: "load-1000" }]);
 	writeMockModelsJson(agentDir, fake);
@@ -80,6 +101,7 @@ async function main() {
 				OMO_CODING_AGENT_DIR: agentDir,
 				SENPI_OFFLINE: "1",
 				PI_OFFLINE: "1",
+				...hostEnv,
 			},
 			stdio: ["ignore", "pipe", "pipe"],
 		},
@@ -89,12 +111,16 @@ async function main() {
 	host.stderr.on("data", (chunk) => (stderr += chunk.toString("utf8")));
 	await waitFor(() => stderr.includes("senpi rpc listening on"), READY_BUDGET_MS, () => `host never listened: ${stderr}`);
 
-	const client = await connect(socketPath);
-	const report = { sessions: 0, errors: 0, sessionRuntime: sessionRuntime ?? "cli-default", hostPid: host.pid };
+	const client = await connectJsonlSocket(socketPath, COMMAND_BUDGET_MS);
+	const report = { sessions: 0, errors: 0, hostPid: host.pid };
 	try {
+		report.runtime = describeRuntime(host.pid, await client.request({ type: "get_protocol_info" }));
+		if (disabledBuiltin) report.disabledBuiltin = disabledBuiltin;
 		report.threads = { before: threadCount(host.pid) };
 		report.rssMb = { before: residentMb(host.pid) };
+		report.fds = { before: descriptorCount(host.pid) };
 		const opened = [];
+		report.curve = [];
 		const openStarted = performance.now();
 		for (let index = 0; index < sessionCount; index++) {
 			const response = await client.request({ type: "open_session", cwd, kind: "worker", auto_title: false });
@@ -104,13 +130,17 @@ async function main() {
 				break;
 			}
 			opened.push(response.data.sessionId);
+			if (checkpoints.includes(opened.length)) report.curve.push(sample(host.pid, opened.length, report));
 		}
 		report.sessions = opened.length;
 		report.openMsPerSession = Math.round(performance.now() - openStarted) / Math.max(1, opened.length);
 		report.threads.after = threadCount(host.pid);
-		report.threads.perSession = Number(((report.threads.after - report.threads.before) / Math.max(1, opened.length)).toFixed(2));
 		report.rssMb.after = residentMb(host.pid);
-		report.rssMb.perSession = Number(((report.rssMb.after - report.rssMb.before) / Math.max(1, opened.length)).toFixed(2));
+		report.fds.after = descriptorCount(host.pid);
+		// NOT "flat": the measured per-session cost, whatever it turns out to be.
+		report.threadsPerSession = perSession(report.threads, opened.length);
+		report.rssMbPerSession = perSession(report.rssMb, opened.length);
+		report.fdsPerSession = perSession(report.fds, opened.length);
 		const listed = await client.request({ type: "list_sessions", include_workers: true });
 		report.listed = listed.data.sessions.length;
 		report.listMs = listed.elapsedMs;
@@ -148,78 +178,6 @@ async function main() {
 	return report;
 }
 
-/** One JSONL socket connection: correlated requests plus a per-session event tap. */
-async function connect(socketPath) {
-	const socket = createConnection(socketPath);
-	await new Promise((ready, fail) => {
-		socket.once("connect", ready);
-		socket.once("error", fail);
-	});
-	let serial = 0;
-	let buffer = "";
-	const pending = new Map();
-	const taps = new Set();
-	socket.on("data", (chunk) => {
-		buffer += chunk.toString("utf8");
-		for (let newline = buffer.indexOf("\n"); newline !== -1; newline = buffer.indexOf("\n")) {
-			const line = buffer.slice(0, newline);
-			buffer = buffer.slice(newline + 1);
-			if (!line) continue;
-			const record = JSON.parse(line);
-			if (record.id && pending.has(record.id)) {
-				pending.get(record.id)(record);
-				pending.delete(record.id);
-				continue;
-			}
-			if (!record.sessionId) continue;
-			for (const tap of [...taps]) if (tap.sessionId === record.sessionId) tap.accept(record);
-		}
-	});
-	const waitForRecord = (sessionId, accepts) =>
-		new Promise((resolve_, reject) => {
-			const timer = setTimeout(() => {
-				taps.delete(tap);
-				reject(new Error(`No matching record from ${sessionId}`));
-			}, COMMAND_BUDGET_MS);
-			const tap = {
-				sessionId,
-				accept: (record) => {
-					if (!accepts(record)) return;
-					clearTimeout(timer);
-					taps.delete(tap);
-					resolve_(record);
-				},
-			};
-			taps.add(tap);
-		});
-	const request = (command) => {
-		const id = `load-${++serial}`;
-		const started = performance.now();
-		const answered = new Promise((resolve_, reject) => {
-			const timer = setTimeout(() => reject(new Error(`No response for ${command.type} (${id})`)), COMMAND_BUDGET_MS);
-			pending.set(id, (record) => {
-				clearTimeout(timer);
-				resolve_({ ...record, elapsedMs: Number((performance.now() - started).toFixed(2)) });
-			});
-		});
-		socket.write(`${JSON.stringify({ ...command, id })}\n`);
-		return answered;
-	};
-	return {
-		request,
-		waitForRecord,
-		/** Milliseconds from issuing the prompt to that session's first streamed record. */
-		async timeToFirstEvent(sessionId, message) {
-			const started = performance.now();
-			const first = waitForRecord(sessionId, () => true).then(() => performance.now() - started);
-			const response = await request({ type: "prompt", sessionId, message });
-			if (response.success !== true) throw new Error(`prompt failed: ${JSON.stringify(response)}`);
-			return first;
-		},
-		dispose: () => socket.destroy(),
-	};
-}
-
 async function stopHost(host) {
 	if (host.exitCode !== null) return;
 	const exited = new Promise((done) => host.once("close", done));
@@ -247,13 +205,47 @@ function percentile(samples, rank) {
 	return Number((sorted[index] ?? Number.NaN).toFixed(2));
 }
 
-function threadCount(pid) {
-	return execFileSync("ps", ["-M", String(pid)], { encoding: "utf8" }).trim().split("\n").length - 1;
+/**
+ * What the host is, read off the host: its own argv, the runtime `resolveSessionRuntime`
+ * selects for that argv (production code, fed the observed command line), and what the
+ * host answers to `get_protocol_info`.
+ */
+function describeRuntime(pid, protocolInfo) {
+	// Home is rewritten to `~`: this report is an evidence artifact, not a local log.
+	const argv = ps(["-o", "command=", "-p", String(pid)]).replaceAll(homedir(), "~");
+	const flags = argv.split(/\s+/);
+	const firstFlag = flags.findIndex((token) => token.startsWith("--"));
+	return {
+		hostArgv: argv,
+		resolvedFromArgv: firstFlag === -1 ? "unknown" : resolveSessionRuntime(parseArgs(flags.slice(firstFlag))),
+		serverVersion: protocolInfo.data?.serverVersion,
+		capabilities: protocolInfo.data?.capabilities,
+	};
 }
 
-function residentMb(pid) {
-	return Math.round(Number(execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim()) / 1024);
+/** One point of the cost curve: what the HOST process holds at this session count. */
+function sample(pid, sessions, report) {
+	const threads = threadCount(pid);
+	const fds = descriptorCount(pid);
+	const rssMb = residentMb(pid);
+	const per = (value, before) => Number(((value - before) / sessions).toFixed(2));
+	return {
+		sessions,
+		threads,
+		fds,
+		rssMb,
+		threadsPerSession: per(threads, report.threads.before),
+		fdsPerSession: per(fds, report.fds.before),
+		rssMbPerSession: per(rssMb, report.rssMb.before),
+	};
 }
+
+const perSession = (pair, sessions) => Number(((pair.after - pair.before) / Math.max(1, sessions)).toFixed(2));
+const threadCount = (pid) => ps(["-M", String(pid)]).split("\n").length - 1;
+const residentMb = (pid) => Math.round(Number(ps(["-o", "rss=", "-p", String(pid)])) / 1024);
+const ps = (args) => execFileSync("ps", args, { encoding: "utf8" }).trim();
+const descriptorCount = (pid) =>
+	Number(execFileSync("/bin/sh", ["-c", `lsof -p ${pid} | wc -l`], { encoding: "utf8" }).trim()) - 1;
 
 function flag(name) {
 	const index = process.argv.indexOf(name);
