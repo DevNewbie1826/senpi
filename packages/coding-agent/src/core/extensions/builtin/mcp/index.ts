@@ -53,7 +53,7 @@ export function createMcpExtension(service: McpService, sessionOwned = true): Ex
 			},
 		};
 
-		registerMcpCommands(pi, service);
+		registerMcpCommands(pi, service, () => attachPromise);
 
 		installMcpNativeToolSearchGate(() => {
 			const setting = service.getNativeToolSearchSetting();
@@ -127,14 +127,12 @@ export function createMcpExtension(service: McpService, sessionOwned = true): Ex
 		);
 		pi.on("session_start", (event, ctx) => {
 			const work = onSessionStart(event, ctx);
-			// Reload's runner.emit("session_start") is on the hot-reload critical path
-			// (~260ms when this awaits reconnect). Attach is already single-flight via
-			// attachPromise + service.#attachQueue; before_agent_start awaits it.
-			if (event.reason === "reload") {
-				void work;
-				return;
-			}
-			return work;
+			// session_start is dispatched serially inside interactive startup, so awaiting attach here
+			// puts a cold server's boot and catalog handshake in front of the first frame: measured at
+			// 254ms median of a 292ms dispatch on a real config, against 0.2ms with no servers. Attach
+			// is single-flight via attachPromise + service.#attachQueue and before_agent_start awaits
+			// it, so the first turn still carries the full tool set; only the first paint stops waiting.
+			void work;
 		});
 		pi.on("before_agent_start", async (event, ctx) => {
 			try {

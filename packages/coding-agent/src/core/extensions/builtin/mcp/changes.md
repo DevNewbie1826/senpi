@@ -1,5 +1,26 @@
 # mcp Extension Changes
 
+## 2026-09-17 - Do not await attach inside session_start (senpi#1781)
+
+### What changed
+
+- `index.ts`: the `session_start` handler no longer returns its attach promise to the runner. Attach still starts there and stays single-flight; `before_agent_start` already awaited `attachPromise`, so the first turn's payload is unchanged.
+- `commands.ts`: `registerMcpCommands` takes a `pendingAttach` accessor and every `/mcp` subcommand awaits it, so the command reports attached state rather than a half-connected snapshot now that startup no longer blocks on it.
+
+### Why
+
+- `session_start` is dispatched serially by `ExtensionRunner`, so this handler was on the first-paint path. Per-handler attribution across all ~28 registered handlers measured this one at a 255 ms median of a 292 ms total dispatch against a real config, and 0.2 ms with no servers configured. Deferring it moved time-to-ready from a 1,014 ms median to 797 ms (n=10, interleaved arms).
+- The configured default-tool set still applies to late-registered MCP tools: `_refreshToolRegistry` filters by `_defaultToolNames` on every registration, not only in the one-shot pass that runs after the emit.
+
+### Contract re-specified
+
+- `test/suite/mcp-reload-deferral.test.ts` previously pinned "reload defers, startup awaits". That scope was deliberate but predated the measurement; the file now pins that **every** reason defers, and adds the invariant that makes it safe: `before_agent_start` holds until the startup attach completes, so turn 1 still carries the tool set. Both directions are mutation-proven.
+
+### Expected merge conflict zones
+
+- LOW: the `session_start` registration block in `index.ts` and the `registerMcpCommands` signature.
+- MEDIUM: `test/suite/mcp-reload-deferral.test.ts` — three of its four cases changed expectation.
+
 ## 2026-09-17 - Load the MCP SDK on first use, not at every CLI start (senpi#1781)
 
 ### What changed
