@@ -52,7 +52,21 @@ const bundledWorkspaces = [
 		sourceOnly: false,
 		requiredFiles: ["package.json", "dist/index.js", "dist/context/index.js"],
 	},
-	{ source: "packages/agent", packageName: "@earendil-works/pi-agent-core", targetParts: ["@earendil-works", "pi-agent-core"], sourceOnly: false },
+	// The agent-core dist reaches its own tree-sitter grammars through compile-time `type: "file"`
+	// imports, so a packed copy without `assets/` publishes specifiers that cannot resolve and
+	// breaks `bun build --compile` for every consumer (issue #1800).
+	{
+		source: "packages/agent",
+		packageName: "@earendil-works/pi-agent-core",
+		targetParts: ["@earendil-works", "pi-agent-core"],
+		sourceOnly: false,
+		requiredFiles: [
+			"package.json",
+			"dist/index.js",
+			"assets/tree-sitter/javascript.wasm",
+			"assets/tree-sitter/web-tree-sitter.wasm",
+		],
+	},
 	{ source: "packages/ai", packageName: "@earendil-works/pi-ai", targetParts: ["@earendil-works", "pi-ai"], sourceOnly: false },
 	{
 		source: "packages/pty",
@@ -129,6 +143,11 @@ function shouldCopyWorkspaceFile(sourceRoot, sourcePath, sourceOnly = false) {
 		path.startsWith(`dist/`) ||
 		path === "native" ||
 		path.startsWith(`native/`) ||
+		// A bundled workspace's dist can carry compile-time `type: "file"` imports that reach its
+		// own assets (pi-agent-core's tree-sitter grammars do). Dropping them here published a dist
+		// whose specifiers cannot resolve, which fails `bun build --compile` for every consumer.
+		path === "assets" ||
+		path.startsWith(`assets/`) ||
 		(sourceOnly && (path === "src" || path.startsWith("src/")))
 	);
 }

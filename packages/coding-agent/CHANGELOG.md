@@ -19,6 +19,8 @@
 ### Changed
 
 ### Fixed
+- The published package now ships `@earendil-works/pi-agent-core`'s tree-sitter assets. Its `dist` reaches those grammars through compile-time `type: "file"` imports, but publish staging copied only `dist`, `native` and the manifest files, so the tarball carried specifiers pointing five directories above the package at files that were never published. Any consumer bundling senpi with `bun build --compile` failed to resolve them. Staging now copies a bundled workspace's `assets` as well, and the pack gate requires those two grammar files so a future drop fails the release instead of the consumer. ([#1800](https://github.com/code-yeongyu/senpi/issues/1800))
+
 
 - A new session's first turn no longer goes out without an MCP server's instructions and tools. Taking attach off the first-paint path means `session_start` returns while a cold server is still booting, and the first turn's system prompt was assembled from whatever had landed by then - on a loaded machine that is an empty catalog, so the turn carried no `<mcp_instructions>` block and none of that server's tools, and the instructions stay missing for the rest of the session because they are captured once per session. The prompt build now awaits the attach's own completion signal, bounded at 5 s; a server still connecting past that no longer blocks the turn, and its catalog lands on a later turn. ([#1797](https://github.com/code-yeongyu/senpi/issues/1797))
 
