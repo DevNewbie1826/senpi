@@ -9,6 +9,7 @@ terminal/
 ├── index.ts             # Barrel: extension + settings + tool-name constants + shared key/regex helpers
 ├── extension.ts         # Registration entry — registers all six tools, wires lifecycle + reload bundles
 ├── manager.ts           # TerminalManager: session map ownership
+├── pty.lazy.ts          # Deferred import of @earendil-works/pi-pty / @xterm/headless
 ├── runtime-session.ts   # TerminalRuntimeSession: one live PTY
 ├── session-bundle.ts    # TerminalSessionBundle: reload parking/claiming across extension generations
 ├── monitor-registry.ts  # MonitorRegistry: registered watches over session output

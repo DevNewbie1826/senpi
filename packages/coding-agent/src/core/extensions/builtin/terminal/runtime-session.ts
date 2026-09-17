@@ -1,11 +1,14 @@
-import {
+import type {
 	TerminalScreen,
-	type TerminalScreenSnapshot,
+	TerminalScreenSnapshot,
 	TerminalSession,
-	type TerminalSessionExit,
-	type TerminalSessionOptions,
+	TerminalSessionExit,
+	TerminalSessionOptions,
 } from "@earendil-works/pi-pty";
+import { loadPty } from "./pty.lazy.ts";
 import { DEFAULT_SCROLLBACK, MAX_SESSION_OUTPUT_CHARS } from "./shared.ts";
+
+const pty = await loadPty();
 
 export interface TerminalRuntimeOptions extends TerminalSessionOptions {
 	readonly scrollback?: number;
@@ -34,12 +37,12 @@ export class TerminalRuntimeSession {
 
 	constructor(command: string, options: TerminalRuntimeOptions) {
 		this.command = command;
-		this.screen = new TerminalScreen({
+		this.screen = new pty.TerminalScreen({
 			cols: options.cols,
 			rows: options.rows,
 			scrollback: options.scrollback ?? DEFAULT_SCROLLBACK,
 		});
-		this.session = new TerminalSession(options);
+		this.session = new pty.TerminalSession(options);
 		this.unsubscribeData = this.session.onData((chunk) => {
 			const text = this.ingest(chunk);
 			if (text.length === 0) return;
