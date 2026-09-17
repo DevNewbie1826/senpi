@@ -18,6 +18,8 @@ it("accepts consumer-resolved platform optionals outside the packed bundle", () 
 			{ path: "package/node_modules/@earendil-works/chord/dist/context/index.js" },
 			{ path: "package/node_modules/@earendil-works/pi-agent-core/package.json" },
 			{ path: "package/node_modules/@earendil-works/pi-agent-core/dist/index.js" },
+			{ path: "package/node_modules/@earendil-works/pi-agent-core/assets/tree-sitter/javascript.wasm" },
+			{ path: "package/node_modules/@earendil-works/pi-agent-core/assets/tree-sitter/web-tree-sitter.wasm" },
 			{ path: "package/node_modules/@earendil-works/pi-ai/package.json" },
 			{ path: "package/node_modules/@earendil-works/pi-ai/dist/index.js" },
 			{ path: "package/node_modules/@earendil-works/pi-telemetry/package.json" },
