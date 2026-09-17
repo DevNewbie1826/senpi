@@ -1,5 +1,24 @@
 # changes
 
+## 2026-09-17 - Defer command and mode graphs out of main()'s import block (senpi#1781)
+
+### What changed
+
+- `packages/coding-agent/src/main.ts`: the app-server command tree, the RPC host cluster (rpc-mode, multi-session-host, host-lifecycle, interactive-host-runtime), the package-manager CLI, the `--list-tips` registry and the `--resume` session picker are `await import(...)`ed at the branch that owns them instead of at module load; the one-shot command dispatch and the supervisor launch moved into `src/cli/deferred-commands.ts` and `src/modes/rpc/supervisor-route.ts` so `main.ts` did not grow.
+- `main()` records `processStart->main` from `process.uptime()` as the first row of the PI_TIMING main table, and the `PI_STARTUP_BENCHMARK` branch exits 0 after draining stdout/stderr.
+
+### Why
+
+- Those graphs were evaluated before argv was even parsed: 92 of 2,780 resolved modules and about 147ms of import cost for code an interactive run never reaches. The pre-main phase was invisible because the timing table's clock starts inside `main()`, and a benchmark run never exited because interactive mode's terminal handles outlive its `stop()`.
+
+### Why an extension could not handle it
+
+- This is the host's own entry module; its import graph, timing instrumentation and benchmark exit all run before any extension exists.
+
+### Expected merge conflict zones
+
+- MEDIUM: the import block at the top of `main.ts`, the dispatch sequence at the start of `main()`, and the mode dispatch tail.
+
 ## 2026-09-17 - Skip completed directory-scan migrations on later boots (senpi#1781)
 
 ### What changed
