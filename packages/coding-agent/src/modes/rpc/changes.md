@@ -1,3 +1,26 @@
+## 2026-09-17 - A reopen waits out the teardown that still holds the path (#1782)
+
+### What changed
+
+- `session-registry.ts` (`RpcSessionRegistry.openSession`): before the reservation decision, an open for a `sessionPath` whose reservation is held by an entry in state `closing` awaits that entry's `closeCompletion` (`settleClosingReservation`), then re-reads the reservation set as before. The wait is bounded by `closeGraceMs` - the same window `closeMarkedSession` force-releases at - so a wedged disposal falls through to the ordinary `session_path_in_use` instead of an open that never answers. Nothing else in the open path moved: an `opening` entry still refuses, a fully open entry still attaches, and a released path still opens fresh (`attached` absent).
+- `worker-session-registry.ts` is deliberately unchanged: a worker's teardown ends with an OS thread exit that no host deadline bounds, and `test/suite/rpc-close-backpressure.test.ts` pins that an open must not block behind a wedged worker.
+- Docs: `docs/rpc.md` (the `session_path_in_use` row and Duplicate/idempotency) and the `rpc-mode.ts` D1 header carry the rule and the runtime it applies to.
+- Tests: `test/suite/rpc-inprocess-host.test.ts` gains "reopens a closed path while the previous session is still tearing down" - open, attach, the opener closes, the surviving connection drops, and the path is reopened WHILE the teardown is held at `waitForIdle` by the new `TeardownGate` in `test/suite/rpc-inprocess-host-support.ts`. The gate makes the teardown window deterministic instead of a race the test would usually win; RED without the fix is `open_session 0 failed: session_path_in_use`.
+
+### Why
+
+- The close/reopen contract silently depended on disposal latency. A session keeps its path reservation until its runtime is disposed, so `open_session { sessionPath }` issued right after that session ended was refused for a session that no longer exists - and no client can time the retry, because the disposal window is the host's, not the client's. Measured on a loaded machine, the path stayed refused for 300 ms - 1 s after the last attachment went away, on BOTH session runtimes. Waiting for the teardown the open would otherwise be refused by turns that race into a contract.
+- This is a PRE-EXISTING defect, not a regression of any change on this branch. `test/rpc-socket-host.test.ts > reopens the path after explicit close and dropped surviving attachment` fails on the `origin/main` baseline c32a67a2d8 itself - three consecutive runs there, plus three more on each of befc3cbdac, b2464c3560 and 58ccadbd7f, all `1 failed | 17 passed (18)` - because the case waits a fixed 100 ms for a teardown the host does not promise to finish in 100 ms. It passes or fails with the machine rather than with the code; the branch's added host-loop work only makes the loss reliable. Nothing here reverts or weakens a session-runtime, kind/context, retention or park behavior.
+- The in-process runtime is where this is safe to fix: its teardown is bounded by the host's own grace window (`closeMarkedSession` force-releases the entry at the deadline), so the wait has a ceiling the host controls. It is also the runtime a `--listen` socket host - the shared daemon - selects.
+
+### Why an extension could not handle it
+
+- The path reservation, the teardown window and the open's admission decision are registry internals below the extension boundary; an extension cannot observe a disposal in flight, let alone hold an open until it completes.
+
+### Expected merge conflict zones
+
+- LOW: the head of `RpcSessionRegistry.openSession` and the private method that follows `peek()`. Upstream has neither surface.
+
 ## 2026-09-17 - Per-session `open_session.auto_title` (#1782)
 
 ### What changed

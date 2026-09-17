@@ -171,11 +171,12 @@ export class RpcSessionRegistry {
 		this.validateProfile(profile);
 		this.syncRuntimeMetadata();
 		const sessionPath = profile.sessionPath ? canonicalPath(profile.sessionPath) : undefined;
+		if (sessionPath) await this.settleClosingReservation(sessionPath);
 		if (sessionPath && this.reservations.has(sessionPath)) {
 			// Attach-on-open: a live session outlives individual client attachments, so a
 			// resume (or a second surface) for an already-hosted path joins the existing
-			// runtime instead of failing. Entries still opening or closing keep the
-			// exclusive reservation and reject as before.
+			// runtime instead of failing. An entry still opening keeps the exclusive
+			// reservation and rejects as before.
 			const existing = [...this.entries].find(
 				([, entry]) => entry.reservationKey === sessionPath && entry.state === "open",
 			);
@@ -299,6 +300,36 @@ export class RpcSessionRegistry {
 			}
 			if (error instanceof RpcSessionRegistryError) throw error;
 			throw new RpcSessionRegistryError("open_failed", error instanceof Error ? error.message : undefined);
+		}
+	}
+
+	/**
+	 * Waits out a teardown already in flight for this path before the open decides.
+	 *
+	 * A close FREES the path, but the entry keeps its reservation until its runtime is
+	 * disposed, so an open landing inside that window used to be refused with
+	 * `session_path_in_use` for a session that no longer exists - making "reopen the
+	 * path I just closed" a race against disposal latency, which no client can time.
+	 * The open now waits for the teardown it would have been refused by and then opens
+	 * the file fresh. Bounded by the same grace window that bounds the teardown itself
+	 * (`closeMarkedSession` force-releases at that deadline), so a wedged disposal
+	 * still ends in the ordinary refusal instead of an open that never answers.
+	 */
+	private async settleClosingReservation(sessionPath: string): Promise<void> {
+		const closing = [...this.entries.values()].find(
+			(entry) => entry.reservationKey === sessionPath && entry.state === "closing",
+		);
+		if (!closing?.closeCompletion) return;
+		let deadline: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await Promise.race([
+				closing.closeCompletion,
+				new Promise<void>((resolve) => {
+					deadline = setTimeout(resolve, this.closeGraceMs);
+				}),
+			]);
+		} finally {
+			if (deadline) clearTimeout(deadline);
 		}
 	}
 

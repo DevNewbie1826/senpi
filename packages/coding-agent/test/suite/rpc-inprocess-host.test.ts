@@ -187,6 +187,38 @@ it("defaults socket hosts to the in-process runtime and keeps stdio hosts on wor
 	expect(invalid.diagnostics).toEqual([{ type: "error", message: "--session-runtime must be in-process or worker" }]);
 });
 
+it("reopens a closed path while the previous session is still tearing down", async () => {
+	// Given: a path opened by one connection and attached by a second, then closed by the
+	// opener - the session survives on the connection that is still attached.
+	const dir = await rigDir();
+	await using rig = createInProcessRig(dir);
+	const path = join(dir, "reopen.jsonl");
+	const session = opened(await rig.open("conn-a", { cwd: dir, sessionPath: path }), 0);
+	expect(opened(await rig.open("conn-b", { cwd: dir, sessionPath: path }), 0)).toMatchObject({ attached: true });
+	await rig.close("conn-a", session.sessionId);
+
+	// When: the surviving connection drops with the teardown held open, and the path is
+	// reopened while that teardown is still in flight.
+	rig.teardown.hold();
+	const dropped = rig.drop("conn-b");
+	await rig.settle();
+	expect(await rig.list()).toEqual([expect.objectContaining({ sessionId: session.sessionId, status: "closing" })]);
+	const reopening = rig.open("conn-c", { cwd: dir, sessionPath: path });
+	await rig.settle();
+	rig.teardown.release();
+	await dropped;
+
+	// Then: the open waited out the teardown and opened the file fresh, instead of being
+	// refused with `session_path_in_use` for a session that was already ending.
+	const reopened = opened(await reopening, 0);
+	expect(reopened.attached).toBeUndefined();
+	expect(reopened.sessionId).not.toBe(session.sessionId);
+	expect(reopened.state.sessionFile).toBe(session.state.sessionFile);
+	expect(await rig.list()).toEqual([
+		expect.objectContaining({ sessionId: reopened.sessionId, status: "open", attachments: 1 }),
+	]);
+});
+
 describe("session retention on the in-process runtime", () => {
 	it("keeps a retained session listed and re-attachable after its only connection drops", async () => {
 		// Given: a retained idle session owned by exactly one connection.
