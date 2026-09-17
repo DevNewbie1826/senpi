@@ -359,6 +359,10 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 		// kernel after the JavaScript handles are destroyed. Keep the normal drain
 		// path, but never let that platform-specific close stall orphan the host.
 		try {
+			// Dispose while connections are still registered so `session_closed`
+			// `{ reason: "host_shutdown" }` reaches clients before the sockets die.
+			await router.dispose();
+			await writer.flush();
 			for (const connection of connections.values()) {
 				connection.detach();
 				connection.close();
@@ -371,8 +375,6 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 					? Promise.race([closeServer(server), delay(WINDOWS_SHUTDOWN_HARD_EXIT_MS)])
 					: closeServer(server),
 			);
-			await router.dispose();
-			await writer.flush();
 			// Ownership-checked: unlink only the entry THIS process bound. After a
 			// takeover renamed a newer host's socket over the same path, the
 			// identity no longer matches and the replacement stays published.

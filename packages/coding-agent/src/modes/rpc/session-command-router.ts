@@ -10,7 +10,7 @@ import {
 } from "./custom-capability.ts";
 import { protocolIdentity } from "./protocol-identity.ts";
 import { sessionAutoTitleError, sessionContextError, sessionKindError } from "./rpc-input-validation.ts";
-import type { RpcCommand, RpcResponse } from "./rpc-types.ts";
+import type { RpcCommand, RpcResponse, RpcSessionClosedReason } from "./rpc-types.ts";
 import {
 	RPC_ERROR_INVALID_LAUNCH_PROFILE,
 	RPC_ERROR_INVALID_SESSION_CONTEXT,
@@ -280,8 +280,16 @@ export class SessionCommandRouter {
 			[...this.bindings.entries()].map(async ([sessionId, binding]) => {
 				const claim = this.tryClaimClose(sessionId, { drainAttachments: true });
 				if (!claim) return;
-				if (claim.finalizer) await this.finalizeClose(sessionId, binding);
-				else await this.finalizations.get(sessionId)?.promise;
+				if (claim.finalizer) {
+					await this.finalizeClose(sessionId, binding, () =>
+						this.writer.closeSession(
+							sessionId,
+							{ type: "response", command: "close_session", success: true, data: {} },
+							"host_shutdown",
+						),
+					);
+				} else await this.finalizations.get(sessionId)?.promise;
+				this.writer.forgetSession(sessionId);
 			}),
 		);
 		this.bindings.clear();
@@ -339,7 +347,7 @@ export class SessionCommandRouter {
 	 * (`session_parked`) instead of reporting a close nobody requested. The teardown
 	 * itself is identical - retention never outlives the idle window.
 	 */
-	private async evictIdleSession(sessionId: string, reason?: "handoff_parked"): Promise<void> {
+	private async evictIdleSession(sessionId: string, reason?: RpcSessionClosedReason): Promise<void> {
 		// Read before the claim: the entry is gone once the teardown completes, and a park
 		// record without the session's path would not be actionable (so a retained session
 		// with no file to reopen by ends as an ordinary close).
@@ -353,16 +361,15 @@ export class SessionCommandRouter {
 		this.forgetSessionOwnership(sessionId);
 		if (claim.finalizer) {
 			await this.finalizeClose(sessionId, binding, () =>
-				// A drain names ITS reason on the close record: a client that was attached learns the
-				// session was parked by a generation handoff and can reopen it by path, not that its
-				// session ended. (The full reason vocabulary lands with the wire-vocabulary change.)
-				parkedPath === undefined || reason !== undefined
-					? this.writer.closeSession(
+				// A drain names ITS reason on the close record. An idle sweep of a RETAINED
+				// session parks instead: the file reopens by path. Anything else is a close.
+				parkedPath !== undefined && reason === undefined
+					? this.writer.parkSession(sessionId, parkedPath)
+					: this.writer.closeSession(
 							sessionId,
 							{ type: "response", command: "close_session", success: true, data: {} },
-							reason,
-						)
-					: this.writer.parkSession(sessionId, parkedPath),
+							reason ?? "idle_evicted",
+						),
 			);
 		} else {
 			await this.finalizations.get(sessionId)?.promise;
@@ -705,7 +712,7 @@ export class SessionCommandRouter {
 			if (owner !== undefined) this.releaseOwnerAttachment(owner, command.sessionId);
 			if (claim.finalizer) {
 				await this.finalizeClose(command.sessionId, this.bindings.get(command.sessionId), () =>
-					reply.complete(true),
+					reply.complete(true, "client_close"),
 				);
 			} else {
 				await this.finalizations.get(command.sessionId)?.promise;
