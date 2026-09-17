@@ -4,9 +4,14 @@ import {
 	AUTO_TITLE_SESSIONS_CAPABILITY,
 	MEDIA_PLACEHOLDERS_CAPABILITY,
 	RETAIN_ON_DISCONNECT_CAPABILITY,
+	SESSION_CONTEXT_CAPABILITY,
+	SESSION_KIND_CAPABILITY,
 } from "./custom-capability.ts";
+import { sessionContextError, sessionKindError } from "./rpc-input-validation.ts";
 import type { RpcCommand, RpcResponse } from "./rpc-types.ts";
 import {
+	RPC_ERROR_INVALID_SESSION_CONTEXT,
+	RPC_ERROR_INVALID_SESSION_KIND,
 	RPC_ERROR_MISSING_SESSION_ID,
 	RPC_ERROR_OPEN_FAILED,
 	RPC_ERROR_SESSION_CLOSING,
@@ -121,9 +126,13 @@ export class SessionCommandRouter {
 				"multi_session",
 				AUTO_TITLE_SESSIONS_CAPABILITY,
 				MEDIA_PLACEHOLDERS_CAPABILITY,
-				// Host capability, not a client opt-in: only a multi-session host owns the
-				// attachment refcount `open_session.retain_on_disconnect` detaches from.
+				// Host capabilities, not client opt-ins: only a multi-session host owns the
+				// attachment refcount `open_session.retain_on_disconnect` detaches from, the
+				// per-session launch profile `context` travels on, and the session listing
+				// `kind` filters.
 				RETAIN_ON_DISCONNECT_CAPABILITY,
+				SESSION_CONTEXT_CAPABILITY,
+				SESSION_KIND_CAPABILITY,
 				...(this.connectionOptions?.capabilities ?? []),
 			]);
 			return {
@@ -139,14 +148,22 @@ export class SessionCommandRouter {
 				},
 			};
 		}
-		if (command.type === "list_sessions")
+		if (command.type === "list_sessions") {
+			// Worker sessions are machine-driven work: a client sees them only by asking, and
+			// the opaque context blob travels only on that listing, never to every connection.
+			const rows = this.registry.list();
+			const sessions =
+				command.include_workers === true
+					? rows
+					: rows.filter((row) => row.kind !== "worker").map(({ context: _context, ...row }) => row);
 			return {
 				id: command.id,
 				type: "response",
 				command: "list_sessions",
 				success: true,
-				data: { sessions: this.registry.list() },
+				data: { sessions },
 			};
+		}
 		if (command.type === "open_session") return this.openWithBarrier(command);
 		if (command.type === "close_session") return this.close(command);
 		if (command.type === "set_client_info" && !command.sessionId) {
@@ -288,6 +305,14 @@ export class SessionCommandRouter {
 		command: Extract<RpcCommand, { type: "open_session" }>,
 		owner?: string,
 	): Promise<RpcResponse | undefined> {
+		// The opaque per-session inputs are parsed HERE, at the wire boundary, so the
+		// registry, the runtime and the extensions downstream receive values already
+		// proven to satisfy every documented cap.
+		const kindError = sessionKindError(command.kind);
+		if (kindError) return error(command.id, "open_session", `${RPC_ERROR_INVALID_SESSION_KIND}: ${kindError}`);
+		const contextError = sessionContextError(command.context);
+		if (contextError)
+			return error(command.id, "open_session", `${RPC_ERROR_INVALID_SESSION_CONTEXT}: ${contextError}`);
 		let opened: OpenRpcSession | undefined;
 		try {
 			opened = await this.registry.openSession(
@@ -300,12 +325,15 @@ export class SessionCommandRouter {
 							? { provider: command.provider, modelId: command.modelId }
 							: this.defaults.creationModel,
 					initialThinkingLevel: command.thinkingLevel ?? this.defaults.initialThinkingLevel,
+					sessionKind: command.kind,
+					sessionContext: command.context,
 				},
 				// Host lifecycle policy, deliberately outside the immutable launch profile.
 				{ retainOnDisconnect: command.retain_on_disconnect === true },
 			);
 			const openedSession = opened;
 			const entry = this.registry.getForCommand(openedSession.sessionId, "open_session");
+			this.writer.setSessionKind(openedSession.sessionId, entry.kind);
 			if (owner !== undefined) {
 				if (!this.writer.hasRegisteredConnectionCapabilities(owner))
 					this.writer.setConnectionCapabilities(

@@ -28,9 +28,9 @@
  * | Command          | Params                                                                                          | Success data                                    | Notes |
  * | ---------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------- | ----- |
  * | `get_protocol_info` | -                                                                                             | `{ protocolVersion: 1, serverVersion, capabilities, mode: "classic"|"multi" }` | Answered in BOTH modes; side-effect-free capability probe. |
- * | `open_session`    | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: boolean }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there); `provider`/`modelId` applied only on create (resume restores the session's model); params form the immutable launch profile (D8). `retain_on_disconnect: true` (default false, host capability `retain_on_disconnect`) makes a dropped connection detach instead of closing the session. |
+ * | `open_session`    | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?`, `kind?`, `context?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: boolean }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there); `provider`/`modelId` applied only on create (resume restores the session's model); params form the immutable launch profile (D8). `retain_on_disconnect: true` (default false, host capability `retain_on_disconnect`) makes a dropped connection detach instead of closing the session. `kind: "interactive"|"worker"` (default `interactive`, host capability `session_kind`) sets the session's visibility class. `context` (host capability `session_context`) is an opaque `Record<string,string>` the host never interprets: at most 32 keys matching `^[a-z][a-z0-9_]*$`, each value <= 16 KiB, <= 32 KiB of JSON in total; it reaches that session's extensions as `pi.sessionContext` and nothing else. |
  * | `close_session`   | `sessionId`                                                                                    | `{}`                                            | Aborts active work and awaits teardown for the host grace window, then force-releases; the first closer's response is the LAST record tagged with that handle, while concurrent closes join and receive targeted success responses. |
- * | `list_sessions`   | -                                                                                               | `{ sessions: [{ sessionId, durableSessionId, sessionPath, cwd, name, status, attachments }] }` | Includes `opening`/`closing` entries with their status; `attachments` is the live client count (`0` = retained, detached). |
+ * | `list_sessions`   | `include_workers?` (default false)                                                              | `{ sessions: [{ sessionId, durableSessionId, sessionPath, cwd, name, status, attachments, kind, context? }] }` | Includes `opening`/`closing` entries with their status; `attachments` is the live client count (`0` = retained, detached). `kind: "worker"` rows are omitted unless `include_workers: true`, and `context` is published ONLY on that listing. |
  * | `get_steering_messages` / `get_follow_up_messages` / `clear_queue` | queue read or clear parameters | host-authoritative queue values | Interactive attach clients must not read bootstrap queues. |
  * | `abort_branch_summary` / `record_bash_result` / `set_label` | narrow mutation payloads | `{}` | Routes interactive runtime mutations to the owning host session. |
  * | every existing command | + `sessionId` (REQUIRED in multi mode)                                                      | unchanged                                       | Routed to that session. |
@@ -45,12 +45,18 @@
  * `unknown_session`, `session_closing`, `session_path_in_use`, `missing_session_id`
  * (session-scoped command without `sessionId` in multi mode), `multi_session_disabled`
  * (`open_session` in classic mode), `invalid_path` (relative `sessionPath`/`cwd`),
- * `open_failed: <detail>`.
+ * `open_failed: <detail>`, `invalid_session_context: <detail>` (a `context` past a
+ * documented cap), `invalid_session_kind: <detail>` (a `kind` that is neither
+ * `interactive` nor `worker`).
  *
  * Tagging: every response/event/`extension_ui_request` belonging to a session
  * carries top-level `sessionId` (routing handle). `get_protocol_info`/
  * `list_sessions` responses are untagged. Classic mode: nothing tagged
  * (byte-identical).
+ *
+ * Lifecycle visibility: content-free lifecycle records are broadcast to every
+ * connection, EXCEPT `session_closed` for a `kind: "worker"` session, which is
+ * delivered only to the connections attached to that session.
  *
  * Ordering guarantee (D9): strict FIFO per session; one total stdout order;
  * cross-session order unspecified; fair round-robin between sessions' queued

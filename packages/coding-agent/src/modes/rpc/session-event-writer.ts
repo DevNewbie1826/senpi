@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { SessionKind } from "../../core/extensions/types.ts";
 import { MEDIA_PLACEHOLDERS_CAPABILITY } from "./custom-capability.ts";
 import { serializeJsonLine } from "./jsonl.ts";
 import { omitInlineMedia } from "./media-placeholders.ts";
@@ -97,6 +98,8 @@ export class SessionEventWriter {
 	private readonly controlQueue: RecordQueue = { latestByKey: new Map(), ready: false };
 	private readonly readyQueues: RecordQueue[] = [];
 	private readonly sealedSessions = new Set<string>();
+	/** Sessions whose lifecycle records stay on their attached connections (`kind: "worker"`). */
+	private readonly workerSessions = new Set<string>();
 	private readonly writeRaw: RawWriter;
 	private readonly waitForBackpressure?: BackpressureWaiter;
 	private readonly scheduleFlush: FlushScheduler;
@@ -190,6 +193,17 @@ export class SessionEventWriter {
 
 	hasCapableConnection(sessionId: string): boolean {
 		return this.fanout.hasCapableConnection(sessionId);
+	}
+
+	/**
+	 * Records a session's visibility class. A worker session is machine-driven work that
+	 * only its attached connections track, so its lifecycle records are delivered to them
+	 * instead of broadcast; an interactive session keeps the broadcast every client (the
+	 * desktop mirror, the supervisor's idle observer) relies on.
+	 */
+	setSessionKind(sessionId: string, kind: SessionKind): void {
+		if (kind === "worker") this.workerSessions.add(sessionId);
+		else this.workerSessions.delete(sessionId);
 	}
 
 	/** Execute a connection's command with its response destination in context. */
@@ -324,6 +338,8 @@ export class SessionEventWriter {
 		const targetId = this.connectionContext.getStore();
 		const lifecycle = { type: "session_closed", sessionId };
 		if (this.fanout.isEmpty()) this.appendSessionRecord(sessionId, lifecycle);
+		else if (this.workerSessions.has(sessionId))
+			this.fanout.deliverToSession(sessionId, serializeJsonLine(lifecycle));
 		else this.fanout.broadcast(serializeJsonLine(lifecycle));
 		const taggedResponse = { ...response, sessionId };
 		const registered = targetId === undefined ? undefined : this.fanout.get(targetId);
@@ -413,6 +429,7 @@ export class SessionEventWriter {
 	 */
 	forgetSession(sessionId: string): void {
 		this.sealedSessions.delete(sessionId);
+		this.workerSessions.delete(sessionId);
 		this.fanout.forgetSession(sessionId);
 	}
 

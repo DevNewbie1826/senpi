@@ -38,6 +38,19 @@ export const QUESTION_CAPABILITY = "question";
 export const RETAIN_ON_DISCONNECT_CAPABILITY = "retain_on_disconnect";
 
 /**
+ * HOST capability: this host accepts `open_session.context`, hands it to that session's
+ * extensions as `pi.sessionContext`, and republishes it on `list_sessions { include_workers: true }`.
+ */
+export const SESSION_CONTEXT_CAPABILITY = "session_context";
+
+/**
+ * HOST capability: this host accepts `open_session.kind`, publishes `kind` on every
+ * `list_sessions` row, hides `worker` rows unless `include_workers` is set, and keeps a
+ * worker session's lifecycle records on the connections attached to it.
+ */
+export const SESSION_KIND_CAPABILITY = "session_kind";
+
+/**
  * Env var carrying client capabilities to a single-connection stdio RPC host
  * (comma-separated). A launcher may set it from a client handshake; a plain
  * stdio client leaves it unset and sees byte-identical default behavior.

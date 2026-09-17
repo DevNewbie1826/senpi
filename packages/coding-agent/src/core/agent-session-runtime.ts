@@ -6,6 +6,8 @@ import type { AgentSessionRuntimeDiagnostic, AgentSessionServices } from "./agen
 import type {
 	ProjectTrustContext,
 	ReplacedSessionContext,
+	SessionContext,
+	SessionKind,
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "./extensions/index.ts";
@@ -32,6 +34,14 @@ export interface AgentSessionLaunchProfile {
 	permissionPreset?: string;
 	creationModel?: { provider: string; modelId: string };
 	initialThinkingLevel?: string;
+	/**
+	 * Visibility class of this session (`open_session.kind`), absent for classic
+	 * launches. It reaches the extensions this session loads and nothing else: it
+	 * never takes part in auth, model or resource resolution.
+	 */
+	sessionKind?: SessionKind;
+	/** Opaque labels the opener attached (`open_session.context`), absent when none. */
+	sessionContext?: SessionContext;
 }
 
 /**

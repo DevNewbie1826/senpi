@@ -12,11 +12,12 @@ import type { PromptDisposition, SessionStats } from "../../core/agent-session.t
 import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { ServiceTier } from "../../core/extensions/builtin/service-tier.ts";
-import type { ContextUsage } from "../../core/extensions/types.ts";
+import type { ContextUsage, SessionKind } from "../../core/extensions/types.ts";
 import type { SessionEntry, SessionMessageEntry, SessionTreeNode, UsageTotals } from "../../core/session-manager.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import type { RpcSlashCommand } from "./rpc-command-surface.ts";
 
+export type { SessionContext, SessionKind } from "../../core/extensions/types.ts";
 export type { RpcCommandInvocationEvent } from "./rpc-command-invocation.ts";
 export type { RpcCommandsChangedEvent, RpcSlashCommand } from "./rpc-command-surface.ts";
 
@@ -181,6 +182,10 @@ export const RPC_ERROR_MULTI_SESSION_DISABLED = "multi_session_disabled";
 export const RPC_ERROR_INVALID_PATH = "invalid_path";
 export const RPC_ERROR_OPEN_FAILED = "open_failed";
 export const RPC_ERROR_MEDIA_NOT_FOUND = "media_not_found";
+/** `open_session.context` broke a documented cap (key count, key syntax, value or total bytes). */
+export const RPC_ERROR_INVALID_SESSION_CONTEXT = "invalid_session_context";
+/** `open_session.kind` was neither `interactive` nor `worker`; an unknown kind is never downgraded. */
+export const RPC_ERROR_INVALID_SESSION_KIND = "invalid_session_kind";
 // edit_assistant_message failures (mirror AssistantEditError.code / SessionStreamingError.code)
 export const RPC_ERROR_STREAMING = "streaming";
 export const RPC_ERROR_ENTRY_NOT_FOUND = "not_found";
@@ -198,6 +203,8 @@ export type RpcErrorCode =
 	| typeof RPC_ERROR_INVALID_PATH
 	| typeof RPC_ERROR_OPEN_FAILED
 	| typeof RPC_ERROR_MEDIA_NOT_FOUND
+	| typeof RPC_ERROR_INVALID_SESSION_CONTEXT
+	| typeof RPC_ERROR_INVALID_SESSION_KIND
 	| typeof RPC_ERROR_STREAMING
 	| typeof RPC_ERROR_ENTRY_NOT_FOUND
 	| typeof RPC_ERROR_NOT_ASSISTANT
@@ -225,9 +232,32 @@ export type RpcCommand =
 			 * `retain_on_disconnect`; older hosts ignore the field and close as before.
 			 */
 			retain_on_disconnect?: boolean;
+			/**
+			 * Visibility class of this session (default `interactive`). A `worker` session is
+			 * machine-driven work: it is omitted from `list_sessions` unless the caller asks
+			 * for workers, and its lifecycle records reach only connections attached to it.
+			 * Requires the host capability `session_kind`.
+			 */
+			kind?: SessionKind;
+			/**
+			 * Opaque labels for this session, readable by its own extensions as
+			 * `pi.sessionContext` and republished on `list_sessions { include_workers: true }`.
+			 * At most 32 keys matching `^[a-z][a-z0-9_]*$`, each value at most 16 KiB, at most
+			 * 32 KiB of JSON in total; anything else is refused with `invalid_session_context`.
+			 * The host never interprets them. Requires the host capability `session_context`.
+			 */
+			context?: Record<string, string>;
 	  }
 	| { id?: string; type: "close_session"; sessionId: string }
-	| { id?: string; type: "list_sessions" };
+	| {
+			id?: string;
+			type: "list_sessions";
+			/**
+			 * Include `kind: "worker"` rows, each with its `context` (default false). A
+			 * default listing publishes interactive sessions only and carries no `context`.
+			 */
+			include_workers?: boolean;
+	  };
 
 // ============================================================================
 // Auth provider info (get_auth_providers response)

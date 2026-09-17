@@ -1,5 +1,25 @@
 # changes
 
+## 2026-09-17 - Launch profile carries the session's kind and context to its resources (senpi#1782)
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session-runtime.ts`: `AgentSessionLaunchProfile` gains the optional `sessionKind` and `sessionContext`, the immutable per-session inputs an `open_session` selects. They are absent for classic launches.
+- `packages/coding-agent/src/core/resource-loader.ts`: `DefaultResourceLoaderOptions` gains the same two optional fields; the loader keeps one `ExtensionSessionProfile` (`sharedHostEnabled` + kind + context, defaults `interactive`/`{}`) and passes THAT to `loadExtensions` and `loadExtensionFromFactory`, replacing the bare `sharedHostEnabled` argument it used to thread through `loadExtensionFactories`.
+
+### Why
+
+- The per-session identity a shared RPC host accepts has to reach the extensions that session loads, and the resource loader is the only per-session construction seam between the launch profile and the extension API. Carrying one value object instead of a third boolean keeps the loader's signatures at their current arity.
+- It stops there on purpose: `main.ts` feeds it to `resourceLoaderOptions` only, never into the parsed CLI configuration, so it can never influence auth, model or flag resolution.
+
+### Why an extension could not handle it
+
+- Extensions are constructed BY the resource loader; the value has to exist before any extension factory runs.
+
+### Expected merge conflict zones
+
+- LOW: the `AgentSessionLaunchProfile` interface and the `DefaultResourceLoader` constructor/extension-loading helpers.
+
 ## 2026-09-17 - Inline skill mentions expand on submit (senpi#1778)
 
 ### What changed

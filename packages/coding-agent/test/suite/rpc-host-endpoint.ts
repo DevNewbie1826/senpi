@@ -19,12 +19,16 @@ const recordSchema = z
 				state: z.object({ sessionId: z.string(), sessionFile: z.string().optional() }).passthrough().optional(),
 				sessions: z
 					.array(
-						z.object({
-							sessionId: z.string(),
-							status: z.string(),
-							sessionPath: z.string().optional(),
-							attachments: z.number().optional(),
-						}),
+						// Passthrough: a suite asserting an additive row field (kind, context) must see
+						// what the host sent, not a copy this fixture silently stripped.
+						z
+							.object({
+								sessionId: z.string(),
+								status: z.string(),
+								sessionPath: z.string().optional(),
+								attachments: z.number().optional(),
+							})
+							.passthrough(),
 					)
 					.optional(),
 			})

@@ -1715,6 +1715,44 @@ export interface ResolvedCommand extends RegisteredCommand {
 }
 
 // ============================================================================
+// Session identity (per-session facts an extension is loaded with)
+// ============================================================================
+
+/**
+ * Engine-level visibility class of a session, chosen by whoever opened it
+ * (`open_session.kind`). `worker` sessions are machine-driven work (a task child, a
+ * team member) that clients do not list or mirror by default; every other session -
+ * classic launches, interactive opens, and any open that omits the field - is
+ * `interactive`.
+ */
+export type SessionKind = "interactive" | "worker";
+
+/**
+ * Opaque per-session labels the opener attached (`open_session.context`). The engine
+ * never interprets them: they carry no auth, no model and no resource decision, and
+ * exist so ONE host with ONE extension set can let an extension recognize the session
+ * it was loaded for.
+ */
+export type SessionContext = Readonly<Record<string, string>>;
+
+/** What a session opened without `context` sees - shared so no caller invents its own. */
+export const EMPTY_SESSION_CONTEXT: SessionContext = Object.freeze({});
+
+/** The per-session facts an extension factory may branch on at registration time. */
+export interface ExtensionSessionProfile {
+	readonly sharedHostEnabled: boolean;
+	readonly sessionKind: SessionKind;
+	readonly sessionContext: SessionContext;
+}
+
+/** The profile a classic launch (and any caller that names none) loads extensions with. */
+export const DEFAULT_EXTENSION_SESSION_PROFILE: ExtensionSessionProfile = Object.freeze({
+	sharedHostEnabled: false,
+	sessionKind: "interactive",
+	sessionContext: EMPTY_SESSION_CONTEXT,
+});
+
+// ============================================================================
 // Extension API
 // ============================================================================
 
@@ -1734,6 +1772,18 @@ export interface ExtensionAPI {
 	readonly cwd: string;
 	/** Effective shared-host capability for registration-time extension decisions. */
 	readonly sharedHostEnabled: boolean;
+	/**
+	 * Visibility class of the session this extension instance was loaded for
+	 * (`open_session.kind`). `interactive` for classic launches and every open that
+	 * omits the field.
+	 */
+	readonly sessionKind: SessionKind;
+	/**
+	 * Opaque labels the opener attached to this session (`open_session.context`), or
+	 * `{}` when it attached none. One extension set can therefore serve every session
+	 * of a shared host and still gate itself per session.
+	 */
+	readonly sessionContext: SessionContext;
 
 	// =========================================================================
 	// Event Subscription

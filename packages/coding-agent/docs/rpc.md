@@ -117,7 +117,9 @@ Socket event visibility is attachment-scoped for session content: each connectio
 attached to that connection, with every record tagged by its routing `sessionId`. Content-free lifecycle records
 (`agent_start`, `agent_settled`, `agent_idle`, `session_opened`, and `session_closed`) are broadcast to all registered
 connections, including the supervisor's unattached observer, so host lifecycle accounting remains accurate without exposing
-session content. Correlated responses and dialog extension UI
+session content. The one exception is `session_closed` for a session opened with `kind: "worker"`: it is delivered only to
+the connections attached to that session, so machine-driven work neither appears in nor disappears from a client that never
+asked for it. Every other lifecycle record, and every record of an `interactive` session, keeps today's broadcast. Correlated responses and dialog extension UI
 requests (select, confirm, input, and editor) are requester-only; other extension UI state records go to the session's
 attached connections. To observe a foreign session, open it by its existing
 `sessionPath`; the host attaches that connection during `open_session`.
@@ -133,6 +135,26 @@ filter to late joiners; a client that registers `rendered_components` while a sn
 factory-rendered records. On a shared socket host, `rendered_components` is registration-only: it is never inherited from the host environment and must be sent in `set_client_info` for each client connection. Registration applies to the sessions attached by that connection; closing one session removes only that session's width and capability association, while socket disposal removes all associations. Clients must re-register `width` and `capabilities` after every reconnect. When the last
 capable connection leaves a still-attached binding, live component renderers and footer data providers are disposed but
 their factories are retained; a later capable connection recreates and re-renders them.
+
+### Session kind and context (`open_session`)
+
+`open_session` accepts two additive, opaque per-session fields. Both are inert inside the host: they never take part in
+auth, model, extension or resource resolution, and they are never merged into the host's parsed CLI configuration.
+
+- `kind: "interactive" | "worker"` (default `interactive`) is the session's visibility class. A `worker` session is
+  machine-driven work (a task child, a team member): it is omitted from `list_sessions` unless the caller passes
+  `include_workers: true`, and its `session_closed` record reaches only the connections attached to it. An `interactive`
+  session behaves exactly as before. A value that is neither is refused with `invalid_session_kind` - an unknown kind is
+  never downgraded to `interactive`, because that would publish machine-driven work to every client.
+- `context: Record<string, string>` (default `{}`) is an opaque label map. The host stores it frozen for the session's
+  life, hands it to that session's extensions as `pi.sessionContext`, and republishes it only on
+  `list_sessions { include_workers: true }`. Caps, enforced at the boundary: at most 32 keys, every key matching
+  `^[a-z][a-z0-9_]*$`, every value at most 16 KiB, and at most 32 KiB of JSON in total. Anything else is refused with
+  `invalid_session_context: <detail>`, where the detail names the cap that was broken.
+
+One shared host therefore loads ONE extension set and still lets an extension recognize the session it was loaded for
+(`pi.sessionKind`, `pi.sessionContext`). Probe `session_kind` and `session_context` in `get_protocol_info` capabilities
+before relying on either: an older host ignores both fields and lists every session.
 
 ### Session auto-titling
 
@@ -332,10 +354,10 @@ containment, or containment of arbitrary native code. They are not an extension 
 
 | Command | Params | Success data | Notes |
 | --- | --- | --- | --- |
-| `get_protocol_info` | - | `{ protocolVersion: 1, serverVersion: string, capabilities: string[], mode: "classic"\|"multi" }` | Answered in BOTH modes; side-effect-free; the capability probe. Multi-session hosts include `multi_session` and `retain_on_disconnect` plus the negotiated launch capabilities. `retain_on_disconnect` is a HOST capability (a client never sends it) and is advertised only in multi-session mode, where the host owns the attachment refcount. |
-| `open_session` | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: true }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there, `session-manager.ts:926-940`); `provider`/`modelId` applied only on create (resume restores the session's model — mirrors `SenpiSessionRuntime.ts:198-200`); params form the immutable launch profile (D8). When the path is already held by a fully-open session, the open ATTACHES to it: same routing handle, `attached: true`, one more attachment counted; the runtime is torn down only when the last attachment closes. Idle sessions past the eviction window are closed by the host itself. `retain_on_disconnect: true` (default false) makes a dropped connection DETACH from this session instead of closing it — see "Retained sessions" below. |
+| `get_protocol_info` | - | `{ protocolVersion: 1, serverVersion: string, capabilities: string[], mode: "classic"\|"multi" }` | Answered in BOTH modes; side-effect-free; the capability probe. Multi-session hosts include `multi_session`, `retain_on_disconnect`, `session_kind` and `session_context` plus the negotiated launch capabilities. Those three are HOST capabilities (a client never sends them) and are advertised only in multi-session mode, where the host owns the attachment refcount and the per-session launch profile. |
+| `open_session` | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?`, `kind?`, `context?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: true }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there, `session-manager.ts:926-940`); `provider`/`modelId` applied only on create (resume restores the session's model — mirrors `SenpiSessionRuntime.ts:198-200`); params form the immutable launch profile (D8). When the path is already held by a fully-open session, the open ATTACHES to it: same routing handle, `attached: true`, one more attachment counted; the runtime is torn down only when the last attachment closes. Idle sessions past the eviction window are closed by the host itself. `retain_on_disconnect: true` (default false) makes a dropped connection DETACH from this session instead of closing it — see "Retained sessions" below. `kind` (default `interactive`) and the opaque `context` map are described under "Session kind and context" above; both are stored frozen for the session's life and never influence auth, model or resource resolution. |
 | `close_session` | `sessionId` | `{}` | Aborts active work, awaits agent idle + settled persistence for up to the host grace window (default 10s), then quarantines any worker that has not exited without releasing its path reservation; its response is the LAST record tagged with that handle for the first closer — no events after (test-pinned). An admitted concurrent close joins the same teardown and receives its own successful response; output saturation rejects admission with the bounded close-overflow/resync notice described above. |
-| `list_sessions` | - | `{ sessions: [{ sessionId, durableSessionId, sessionPath, cwd, name, status, attachments }] }` | Includes `opening`/`closing` entries. Internally quarantined workers remain externally `closing` until exit. `attachments` is the session's live client attachment count; `0` on an `open` row is a retained session with no client attached. |
+| `list_sessions` | `include_workers?` (default false) | `{ sessions: [{ sessionId, durableSessionId, sessionPath, cwd, name, status, attachments, kind, context? }] }` | Includes `opening`/`closing` entries. Internally quarantined workers remain externally `closing` until exit. `attachments` is the session's live client attachment count; `0` on an `open` row is a retained session with no client attached. Every row carries `kind`. Rows with `kind: "worker"` are omitted unless `include_workers: true`, and `context` is published ONLY on that listing — a default listing carries no `context` at all. |
 | every existing command | + `sessionId` (REQUIRED in multi mode) | unchanged | Routed to that session. |
 
 ### Identities (D6)
@@ -354,6 +376,8 @@ In the response `error` field, machine-matchable:
 - `multi_session_disabled` (`open_session` in classic mode)
 - `invalid_path` (relative `sessionPath`/`cwd`)
 - `open_failed: <detail>`
+- `invalid_session_context: <detail>` (`open_session.context` past a documented cap: more than 32 keys, a key that does not match `^[a-z][a-z0-9_]*$`, a non-string or >16 KiB value, or more than 32 KiB of JSON in total; the detail names the cap and its byte budget)
+- `invalid_session_kind: <detail>` (`open_session.kind` other than `interactive` or `worker`)
 - `media_not_found` (`get_media` for an unknown `toolCallId`, or a `contentIndex` that does not point at an image block)
 
 ### Tagging

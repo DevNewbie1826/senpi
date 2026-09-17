@@ -1,3 +1,29 @@
+## 2026-09-17 - Session kind and opaque per-session context; worker sessions hidden by default (#1782)
+
+### What changed
+
+- `rpc-types.ts`: `open_session` accepts two additive optional fields - `kind?: "interactive" | "worker"` (default `interactive`) and `context?: Record<string,string>` (default `{}`) - `list_sessions` accepts `include_workers?: boolean` (default false), and two stable error codes join `RpcErrorCode`: `RPC_ERROR_INVALID_SESSION_CONTEXT` (`invalid_session_context`) and `RPC_ERROR_INVALID_SESSION_KIND` (`invalid_session_kind`). The `SessionKind`/`SessionContext` types are re-exported from `../../core/extensions/types.ts`, which owns them because the extension API publishes them.
+- `rpc-input-validation.ts`: `sessionContextError(context)` and `sessionKindError(kind)` parse both fields at the wire boundary against `SESSION_CONTEXT_LIMITS` (32 keys, key `^[a-z][a-z0-9_]*$`, value <= 16 KiB, <= 32 KiB of JSON in total). The detail names the cap and its byte budget; an unknown `kind` is refused rather than downgraded to `interactive`.
+- `session-command-router.ts`: `open_session` validates both fields before the registry call and answers `invalid_session_context: <detail>` / `invalid_session_kind: <detail>`; it passes them into the launch profile (never into `RpcSessionOpenOptions`, which is host lifecycle policy), tells the writer the new session's kind, filters `kind: "worker"` rows out of a default `list_sessions` and strips `context` from every row of that listing, and advertises the host capabilities `session_context` and `session_kind`.
+- `session-registry.ts`: `RpcSessionEntry` gains frozen `kind` and `context`; `frozenProfile` (now exported) also freezes the supplied `context` object, `sessionIdentity(profile)` normalizes the pair once, and `list()` returns the shared `RpcSessionRow` type with `kind` and `context` on every row. `worker-session-registry.ts` stores and publishes the same pair through the same two helpers.
+- `session-event-writer.ts` + `session-event-fanout.ts`: `setSessionKind(sessionId, kind)` records a session's visibility class, and `closeSession` delivers a worker session's `session_closed` through the new `SessionEventFanout.deliverToSession` (attached connections only) instead of `broadcast`. Interactive sessions keep today's broadcast, and no other lifecycle record changed, so the desktop mirror and the supervisor's unattached idle observer are unaffected.
+- `custom-capability.ts`: `SESSION_CONTEXT_CAPABILITY` and `SESSION_KIND_CAPABILITY` host strings. `rpc-mode.ts` and `packages/coding-agent/docs/rpc.md` carry the updated D1 tables, the new error codes and a "Session kind and context" section.
+
+### Why
+
+- One machine-wide daemon serves interactive clients and machine-driven work (task children, team members) from the SAME process and the SAME extension set. Without a visibility class, every desktop that lists sessions mirrors every subagent, and every connection sees subagent lifecycle churn; without an opaque per-session map, an extension loaded once per session cannot tell which session it is serving, and the alternative (per-session extension sets or CLI flags on the wire) would make the host's launch profile client-controlled.
+- `context` is deliberately inert: it is stored frozen, handed to that session's extensions, and republished only on `list_sessions { include_workers: true }`. It never reaches `CliRuntimeConfiguration.parsed`, so it cannot move a model, an auth decision or a CLI flag. It is bounded at the boundary because the host holds it per session and republishes it per listing.
+- `context` is withheld from a default listing because an opener may put routing detail in it (omo puts `role`, `task_id` and team ids); only a caller that asked for workers gets the blob.
+- Only `session_closed` becomes attached-only. `agent_start`/`agent_settled`/`agent_idle`/`session_opened` stay broadcast for every kind, because the host's own occupancy accounting reads them from an unattached observer.
+
+### Why an extension could not handle it
+
+- The wire contract, the session registry and the event fanout are host infrastructure below the extension boundary, and the point of the change is to give extensions a per-session identity they cannot construct themselves.
+
+### Expected merge conflict zones
+
+- LOW: the `open_session`/`list_sessions` members of `RpcCommand` in `rpc-types.ts`, the capability set and the `list_sessions` arm of `SessionCommandRouter.handle`, the `RpcSessionEntry` literal in both registries, and the `session_closed` emission in `SessionEventWriter.closeSession`. Upstream has none of these surfaces.
+
 ## 2026-09-17 - Socket hosts run their sessions in the host process (#1782)
 
 ### What changed

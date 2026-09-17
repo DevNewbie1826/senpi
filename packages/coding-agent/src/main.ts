@@ -781,6 +781,11 @@ export function createCliRuntimeFactory(
 					enableEnv: isTruthyEnvFlag(envValue("ENABLE_SHARED_HOST")),
 					settingEnabled: runtimeSettingsManager.getExperimentalSharedHost(),
 				}),
+				// Per-session identity reaches the extensions this session loads and stops
+				// there: it is deliberately NOT merged into `parsed`, so it can never move
+				// a model, an auth decision or a CLI flag.
+				sessionKind: launchProfile?.sessionKind,
+				sessionContext: launchProfile?.sessionContext,
 				additionalExtensionPaths: resolvedExtensionPaths,
 				additionalSkillPaths: resolvedSkillPaths,
 				additionalPromptTemplatePaths: resolvedPromptTemplatePaths,

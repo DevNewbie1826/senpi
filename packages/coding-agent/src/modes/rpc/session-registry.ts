@@ -7,7 +7,8 @@ import {
 	type CreateAgentSessionRuntimeFactory,
 	createAgentSessionRuntime,
 } from "../../core/agent-session-runtime.ts";
-import type { SessionStartEvent } from "../../core/extensions/types.ts";
+import type { SessionContext, SessionKind, SessionStartEvent } from "../../core/extensions/types.ts";
+import { EMPTY_SESSION_CONTEXT } from "../../core/extensions/types.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import { beginSessionClose, closeMarkedSession, closeSession, type SessionTeardownHost } from "./session-teardown.ts";
 import type { SessionWorkerClient } from "./session-worker-client.ts";
@@ -24,6 +25,10 @@ export interface RpcSessionEntry {
 	state: RpcSessionState;
 	runtime?: SessionRuntime;
 	worker?: SessionWorkerClient;
+	/** Visibility class chosen by the open, frozen for the entry's life. */
+	readonly kind: SessionKind;
+	/** Frozen opaque labels the open attached; `{}` when it attached none. */
+	readonly context: SessionContext;
 	/** Resolves replacement against the runtime currently owned by this entry. */
 	switchSession?: SessionRuntime["switchSession"];
 	/** Rebind callback installed by the shared RPC connection handler. */
@@ -86,6 +91,19 @@ export interface RpcSessionOpenOptions {
 	retainOnDisconnect?: boolean;
 }
 
+/** One `list_sessions` row. `context` is published only to a listing that asked for workers. */
+export interface RpcSessionRow {
+	sessionId: string;
+	durableSessionId?: string;
+	sessionPath?: string;
+	cwd: string;
+	name?: string;
+	status: Exclude<RpcSessionState, "quarantined">;
+	attachments: number;
+	kind: SessionKind;
+	context: SessionContext;
+}
+
 export interface OpenRpcSession {
 	sessionId: string;
 	durableSessionId: string;
@@ -100,11 +118,25 @@ function canonicalPath(path: string): string {
 	return `${realpathSync(dirname(absolutePath))}/${basename(absolutePath)}`;
 }
 
-function frozenProfile(profile: RpcSessionLaunchProfile): Readonly<RpcSessionLaunchProfile> {
+/** Freezes an open's launch inputs, including the nested objects a client supplied. */
+export function frozenProfile(profile: RpcSessionLaunchProfile): Readonly<RpcSessionLaunchProfile> {
 	return Object.freeze({
 		...profile,
 		...(profile.creationModel ? { creationModel: Object.freeze({ ...profile.creationModel }) } : {}),
+		...(profile.sessionContext ? { sessionContext: Object.freeze({ ...profile.sessionContext }) } : {}),
 	});
+}
+
+/**
+ * The visibility class and labels an entry keeps for its life, normalized once here so no
+ * lifecycle, listing or delivery decision has to re-apply the defaults. Reads the already
+ * frozen profile, so the entry and the runtime share one frozen context object.
+ */
+export function sessionIdentity(profile: Readonly<RpcSessionLaunchProfile>): {
+	readonly kind: SessionKind;
+	readonly context: SessionContext;
+} {
+	return { kind: profile.sessionKind ?? "interactive", context: profile.sessionContext ?? EMPTY_SESSION_CONTEXT };
 }
 
 /** Process-local lifecycle owner for multi-session RPC runtimes. */
@@ -187,6 +219,7 @@ export class RpcSessionRegistry {
 			state: "opening",
 			scope: new ProviderScope(),
 			profile: storedProfile,
+			...sessionIdentity(storedProfile),
 			sessionPath,
 			reservationKey: sessionPath,
 			cwd: storedProfile.cwd,
@@ -313,15 +346,7 @@ export class RpcSessionRegistry {
 		return closeMarkedSession(this.teardownHost, handle);
 	}
 
-	list(): Array<{
-		sessionId: string;
-		durableSessionId?: string;
-		sessionPath?: string;
-		cwd: string;
-		name?: string;
-		status: Exclude<RpcSessionState, "quarantined">;
-		attachments: number;
-	}> {
+	list(): RpcSessionRow[] {
 		this.syncRuntimeMetadata();
 		return [...this.entries].map(([sessionId, entry]) => ({
 			sessionId,
@@ -329,6 +354,8 @@ export class RpcSessionRegistry {
 			sessionPath: entry.sessionPath,
 			cwd: entry.cwd,
 			name: entry.runtime?.session.sessionManager.getSessionName(),
+			kind: entry.kind,
+			context: entry.context,
 			// A closing entry has already released its last attachment; never publish that as negative.
 			attachments: Math.max(0, entry.attachments),
 			status: entry.state === "quarantined" ? "closing" : entry.state,

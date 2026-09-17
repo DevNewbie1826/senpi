@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-17 - Per-session kind and context reach the session's resources only (senpi#1782)
+
+### What changed
+
+- `packages/coding-agent/src/main.ts`: the runtime factory forwards `launchProfile.sessionKind` and `launchProfile.sessionContext` into `resourceLoaderOptions`, beside `sharedHostEnabled`. The `runtimeParsed` override block is untouched, so neither value enters `CliRuntimeConfiguration.parsed`.
+
+### Why
+
+- A shared host's `open_session` selects those two per-session values, and the only thing that may observe them is the session's own extension set (`pi.sessionKind` / `pi.sessionContext`). Routing them through `parsed` would let a client's opaque labels reach model, auth and flag resolution, which is exactly what the field must never do.
+
+### Why an extension could not handle it
+
+- The factory runs before any extension of that session exists; it is where the per-session resource loader is configured.
+
+### Expected merge conflict zones
+
+- LOW: the `resourceLoaderOptions` literal inside `createCliRuntimeFactory`.
+
 ## 2026-09-17 - Socket RPC hosts stop allocating a worker per session (senpi#1782)
 
 ### What changed
