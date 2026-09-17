@@ -344,4 +344,76 @@ footer\`)`,
 			expect(parseJavaScriptResult(run.result)).toBe("a-)");
 		});
 	});
+
+	it("rejects a top-level declaration that would replace a platform global", async () => {
+		await withJavaScriptKernel(async (kernel) => {
+			const poison = await runJavaScriptCell(kernel, 'const fetch = "shadowed";');
+
+			expect(poison.result.ok).toBe(false);
+			if (!poison.result.ok) {
+				expect(poison.result.error.message).toContain("fetch");
+				expect(poison.result.error.message).toMatch(/rename/i);
+			}
+
+			const probe = await runJavaScriptCell(kernel, "return typeof fetch");
+			expect(parseJavaScriptResult(probe.result)).toBe("function");
+		});
+	});
+
+	it("rejects let and var declarations that would replace a platform global", async () => {
+		await withJavaScriptKernel(async (kernel) => {
+			for (const code of ["let URL = 1;", "var URL = 1;"]) {
+				const poison = await runJavaScriptCell(kernel, code);
+				expect(poison.result.ok).toBe(false);
+			}
+
+			const probe = await runJavaScriptCell(kernel, "return typeof URL");
+			expect(parseJavaScriptResult(probe.result)).toBe("function");
+		});
+	});
+
+	it("rejects destructured bindings that would replace a platform global", async () => {
+		await withJavaScriptKernel(async (kernel) => {
+			const arrayPoison = await runJavaScriptCell(kernel, 'const [fetch] = ["shadowed"];');
+			expect(arrayPoison.result.ok).toBe(false);
+
+			const objectPoison = await runJavaScriptCell(kernel, "const { URL } = { URL: 1 };");
+			expect(objectPoison.result.ok).toBe(false);
+			if (!objectPoison.result.ok) expect(objectPoison.result.error.message).toContain("URL");
+
+			const probe = await runJavaScriptCell(kernel, "return [typeof fetch, typeof URL]");
+			expect(parseJavaScriptResult(probe.result)).toEqual(["function", "function"]);
+		});
+	});
+
+	it("rejects a declaration that would replace a kernel prelude global", async () => {
+		await withJavaScriptKernel(async (kernel) => {
+			const poison = await runJavaScriptCell(kernel, 'const print = "shadowed";');
+			expect(poison.result.ok).toBe(false);
+
+			const probe = await runJavaScriptCell(kernel, "return typeof print");
+			expect(parseJavaScriptResult(probe.result)).toBe("function");
+		});
+	});
+
+	it("still allows re-declaring a global an earlier cell created", async () => {
+		await withJavaScriptKernel(async (kernel) => {
+			await runJavaScriptCell(kernel, "const shadowGuardReuse = 1;");
+			const redeclare = await runJavaScriptCell(kernel, "const shadowGuardReuse = 2;");
+			expect(redeclare.result.ok).toBe(true);
+
+			const probe = await runJavaScriptCell(kernel, "return shadowGuardReuse");
+			expect(parseJavaScriptResult(probe.result)).toBe(2);
+		});
+	});
+
+	it("does not intercept explicit globalThis assignments", async () => {
+		await withJavaScriptKernel(async (kernel) => {
+			const run = await runJavaScriptCell(
+				kernel,
+				"globalThis.shadowGuardExplicit = 42; return globalThis.shadowGuardExplicit;",
+			);
+			expect(parseJavaScriptResult(run.result)).toBe(42);
+		});
+	});
 });

@@ -1,5 +1,18 @@
 # senpi-codemode fork changes
 
+## 2026-09-17 - Reject cell declarations that would replace kernel globals (senpi#1784)
+
+### What changed
+
+- `src/kernels/js/worker-shadow-guard.js` (new) lazily snapshots `globalThis` own names at the first guard call — the first cell's transform, when prelude globals exist but no cell-created global does — and reports the first binding that would replace a protected global.
+- `src/kernels/js/worker-indirect-eval.js` calls the guard from `rewriteDeclaration` before emitting `globalThis[...]` assignments; a colliding top-level `const`/`let`/`var` (plain or destructured) now fails the cell with an error naming the identifier, the rename remedy, and the explicit `globalThis.<name>` escape hatch.
+- `test/kernel-js-persistence.test.ts` covers plain/let/var/destructured rejection, native-global survival in the next cell, prelude-global protection, re-declaration of cell-created globals, and explicit `globalThis` assignments staying untouched.
+- `scripts/qa-js-shadow-guard.ts` (new) drives the real kernel end to end: guard error text, native-global survival, destructured rejection, and re-declaration.
+
+### Why
+
+- Hoisting a declaration named after an existing global (`const fetch = ...`, `const [fetch] = ...`) silently replaced the platform or prelude global for every later cell; sessions wedged with confusing TypeErrors far from the cause and only a kernel reset recovered. The guard rejects the declaration before execution, so the failure is loud, local, and actionable.
+
 ## 2026-09-16 - Bind kernel-tools types to the host declaration (senpi#1731)
 
 ### What changed
