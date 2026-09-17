@@ -11,7 +11,6 @@ import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import { setCapabilityOverrides } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { handleAppServerCommand } from "./cli/app-server-command.ts";
 import { type Args, type Mode, normalizeSessionName, parseArgs, printHelp } from "./cli/args.ts";
 import {
 	type AuthCheckResult,
@@ -30,15 +29,14 @@ import {
 	validateAuthCommandArgs,
 } from "./cli/auth-command.ts";
 import { resolveCredentialForPrint } from "./cli/credential-print.ts";
+import { dispatchAppServerCommand, dispatchConfigCommand, dispatchPackageCommand } from "./cli/deferred-commands.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { resolveHelpExtensionFlags } from "./cli/help-extension-flags.ts";
 import { helpFlagsScope, isPlainHelpRequest, resolveHelpProjectTrust } from "./cli/help-fast-path.ts";
 import { writeHelpFlagsCache } from "./cli/help-flags-cache.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
 import { listModels } from "./cli/list-models.ts";
-import { listTips } from "./cli/list-tips.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
-import { selectSession } from "./cli/session-picker.ts";
 import {
 	createStartupLoadingIndicator,
 	pauseIndicatorDuringPrompts,
@@ -78,19 +76,15 @@ import {
 import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { shouldJoinSharedHost } from "./core/shared-host-policy.ts";
-import { printTimings, resetTimings, time } from "./core/timings.ts";
+import { printTimings, recordTiming, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
 import { builtInExtensions } from "./extensions/index.ts";
 import { getFromSourceRealConfigWarning } from "./from-source-config-guard.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
-import { createInteractiveHostRuntime } from "./modes/interactive/interactive-host-runtime.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { runPrintMode } from "./modes/print-mode.ts";
 import { AUTO_TITLE_SESSIONS_CAPABILITY, parseClientCapabilities } from "./modes/rpc/custom-capability.ts";
-import { findInternalSupervisorArgs, parseSupervisorArgs, runHostSupervisor } from "./modes/rpc/host-lifecycle.ts";
-import { runMultiSessionHost } from "./modes/rpc/multi-session-host.ts";
-import { runRpcMode } from "./modes/rpc/rpc-mode.ts";
-import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
+import { dispatchInternalSupervisor } from "./modes/rpc/supervisor-route.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
 
@@ -520,6 +514,7 @@ export async function createSessionManager(
 
 	if (parsed.resume) {
 		try {
+			const { selectSession } = await import("./cli/session-picker.ts");
 			const selectedPath = await selectSession(
 				(onProgress) => SessionManager.list(cwd, sessionDir, onProgress),
 				(onProgress) => SessionManager.listAll(sessionDir, onProgress),
@@ -890,6 +885,9 @@ export function createCliRuntimeFactory(
 
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
+	// The pre-main phase - runtime boot, cli.js, and this module's static import graph - is already
+	// over when the first statement runs, so it is read from the process clock rather than measured.
+	recordTiming("processStart->main", Math.round(process.uptime() * 1000));
 	const extensionFactories = [...builtInExtensions, ...(options?.extensionFactories ?? [])];
 	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(envValue("OFFLINE"));
 	if (offlineMode) {
@@ -902,19 +900,9 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	// Internal launch surface used by bundled/rebranded runtimes. It is deliberately
-	// not accepted by parseArgs, so existing CLI modes remain unchanged. A rebranded
-	// wrapper may prepend its own `--extension <dir>` before forwarding argv, so the
-	// route is matched through the bounded scan rather than at argv[0] alone.
-	const supervisorArgs = findInternalSupervisorArgs(args);
-	if (supervisorArgs) {
-		const launch = parseSupervisorArgs(supervisorArgs);
-		if (!launch) {
-			// Fail closed: an internal protocol fault must never fall through to the
-			// public parser and surface as a confusing "Unknown option" error.
-			console.error("invalid internal RPC host supervisor arguments");
-			process.exit(2);
-		}
-		await runHostSupervisor(launch);
+	// not accepted by parseArgs, so existing CLI modes remain unchanged. The route and
+	// the RPC host graph behind it live in ./modes/rpc/supervisor-route.ts.
+	if (await dispatchInternalSupervisor(args)) {
 		return;
 	}
 
@@ -932,7 +920,7 @@ export async function main(args: string[], options?: MainOptions) {
 	applyHttpProxySettings(bootstrapSettingsManager.getGlobalSettings().httpProxy);
 	configureHttpDispatcher();
 
-	if (await handlePackageCommand(args, { extensionFactories })) {
+	if (await dispatchPackageCommand(args, { extensionFactories })) {
 		const exitCode = process.exitCode ?? 0;
 		if (process.platform === "win32" && exitCode === 0 && args[0] === "update") {
 			// We normally prefer process.exit(0) for package commands so bad extensions cannot keep
@@ -945,11 +933,11 @@ export async function main(args: string[], options?: MainOptions) {
 		return;
 	}
 
-	if (await handleConfigCommand(args, { extensionFactories })) {
+	if (await dispatchConfigCommand(args, { extensionFactories })) {
 		return;
 	}
 
-	if (await handleAppServerCommand(args)) {
+	if (await dispatchAppServerCommand(args)) {
 		return;
 	}
 
@@ -1038,6 +1026,7 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	if (parsed.listTips) {
+		const { listTips } = await import("./cli/list-tips.ts");
 		listTips();
 		process.exit(0);
 	}
@@ -1092,6 +1081,7 @@ export async function main(args: string[], options?: MainOptions) {
 		if (options?.extensionFactories?.length)
 			throw new Error("Shared RPC workers require file-backed extensions; inline factories cannot cross isolates");
 		const workerConfiguration = { parsed, cwd, agentDir, appMode };
+		const { runMultiSessionHost } = await import("./modes/rpc/multi-session-host.ts");
 		printTimings();
 		await runMultiSessionHost({
 			agentDir,
@@ -1192,6 +1182,7 @@ export async function main(args: string[], options?: MainOptions) {
 		})
 	) {
 		const socket = envValue("RPC_SOCKET") ?? resolve(agentDir, "rpc", "rpc.sock");
+		const { createInteractiveHostRuntime } = await import("./modes/interactive/interactive-host-runtime.ts");
 		selectedRuntime = await createInteractiveHostRuntime(runtime, {
 			socket,
 			agentDir,
@@ -1280,6 +1271,7 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	if (appMode === "rpc") {
+		const { runRpcMode } = await import("./modes/rpc/rpc-mode.ts");
 		printTimings();
 		await runRpcMode(runtime);
 	} else if (appMode === "interactive") {
@@ -1314,7 +1306,9 @@ export async function main(args: string[], options?: MainOptions) {
 			if (process.stderr.writableLength > 0) {
 				await new Promise<void>((resolve) => process.stderr.once("drain", resolve));
 			}
-			return;
+			// Benchmark runs leave the TUI's terminal handles active, so returning here only parks the
+			// loop; the measurement is complete, so the process ends with it.
+			process.exit(0);
 		}
 
 		printTimings();
