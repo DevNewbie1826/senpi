@@ -152,6 +152,7 @@ export async function startWorkerHost(
 		...stdio,
 		cwd,
 		scratch,
+		agentDir,
 		child,
 		dispose,
 		socketPath,

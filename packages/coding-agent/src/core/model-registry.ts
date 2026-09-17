@@ -111,12 +111,13 @@ export class ModelRegistry {
 	async getApiKeyAndHeaders(model: Model<Api>): Promise<ResolvedRequestAuth> {
 		try {
 			const resolution = await this.runtime.getAuth(model);
-			const compatibility = this.runtime.getCompatibilityRequestConfig(model, resolution?.env);
+			const compatibility = this.runtime.getCompatibilityRequestConfig(model);
 			if (!resolution) {
 				if (compatibility.authHeader) {
 					return { ok: false, error: `No API key found for "${model.provider}"` };
 				}
-				return { ok: true, headers: compatibility.headers, extraBody: compatibility.extraBody };
+				const headers = await this.runtime.getCompatibilityRequestHeaders(model);
+				return { ok: true, headers, extraBody: compatibility.extraBody };
 			}
 			return {
 				ok: true,

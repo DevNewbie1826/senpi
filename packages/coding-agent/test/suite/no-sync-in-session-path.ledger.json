@@ -160,16 +160,9 @@
 		{
 			"file": "src/core/footer-data-provider.ts",
 			"api": "readFileSync",
-			"symbol": "resolveGitBranchAsync",
+			"symbol": "readBranchFromHead",
 			"count": 1,
-			"note": "`.git/HEAD` (bytes)"
-		},
-		{
-			"file": "src/core/footer-data-provider.ts",
-			"api": "readFileSync",
-			"symbol": "resolveGitBranchSync",
-			"count": 1,
-			"note": "`.git/HEAD` (bytes)"
+			"note": "`.git/HEAD` (bytes); the sync and async branch readers now share this one read, the git probe itself is async"
 		},
 		{
 			"file": "src/core/footer-data-provider.ts",

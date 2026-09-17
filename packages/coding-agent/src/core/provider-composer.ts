@@ -354,7 +354,7 @@ function composeOAuthAuth(
 		toAuth: async (credential) => {
 			const auth = await oauth.toAuth(credential);
 			const env = credential.env;
-			const headers = resolveHeadersOrThrow(
+			const headers = await resolveHeadersOrThrow(
 				rawHeaders,
 				`provider "${providerId}"`,
 				typeof env === "object" && env !== null ? (env as Record<string, string>) : undefined,
@@ -544,7 +544,7 @@ export function resolveConfiguredModelHeaders(
 	config: ModelsJsonProvider | undefined,
 	extension: ProviderConfigInput | undefined,
 	env?: Record<string, string>,
-): Record<string, string> | undefined {
+): Promise<Record<string, string> | undefined> {
 	return resolveHeadersOrThrow(
 		rawModelHeaders(model, config, extension),
 		`model "${model.provider}/${model.id}"`,
@@ -552,25 +552,38 @@ export function resolveConfiguredModelHeaders(
 	);
 }
 
+/**
+ * Request shape a compatibility provider needs beside its credential. Headers are NOT
+ * part of it: a configured header value can be a `!command`, and resolving one requires
+ * a shell - see `resolveCompatibilityRequestHeaders`.
+ */
 export interface CompatibilityRequestConfig {
-	headers?: ProviderHeaders;
 	extraBody?: Record<string, unknown>;
 	upstreamModelId?: string;
 	serviceTier?: "auto" | "flex" | "priority";
 	authHeader: boolean;
 }
 
-export function resolveCompatibilityRequestConfig(
+/** Configured provider and model headers, resolved off the event loop. */
+export async function resolveCompatibilityRequestHeaders(
 	model: Model<Api>,
 	config: ModelsJsonProvider | undefined,
 	extension: ProviderConfigInput | undefined,
 	env?: Record<string, string>,
-): CompatibilityRequestConfig {
-	const configured = resolveHeadersOrThrow(
+): Promise<ProviderHeaders | undefined> {
+	const configured = await resolveHeadersOrThrow(
 		{ ...configuredHeaders(config, extension), ...rawModelHeaders(model, config, extension) },
 		`model "${model.provider}/${model.id}"`,
 		env,
 	);
+	return model.headers || configured ? { ...model.headers, ...configured } : undefined;
+}
+
+export function resolveCompatibilityRequestConfig(
+	model: Model<Api>,
+	config: ModelsJsonProvider | undefined,
+	extension: ProviderConfigInput | undefined,
+): CompatibilityRequestConfig {
 	const modelDefinition = config?.models?.find((entry) => entry.id === model.id);
 	const extensionModel = extension?.models?.find((entry) => entry.id === model.id);
 	const configuredExtraBody = {
@@ -579,7 +592,6 @@ export function resolveCompatibilityRequestConfig(
 		...rawModelExtraBody(model, config, extension),
 	};
 	return {
-		headers: model.headers || configured ? { ...model.headers, ...configured } : undefined,
 		extraBody: Object.keys(configuredExtraBody).length > 0 ? configuredExtraBody : undefined,
 		upstreamModelId: extensionModel?.upstreamModelId ?? modelDefinition?.upstreamModelId ?? model.upstreamModelId,
 		serviceTier: extensionModel?.serviceTier ?? modelDefinition?.serviceTier ?? model.serviceTier,

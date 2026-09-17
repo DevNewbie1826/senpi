@@ -55,6 +55,7 @@ import {
 	configuredRequestAuthStatus,
 	type ProviderConfigInput,
 	resolveCompatibilityRequestConfig,
+	resolveCompatibilityRequestHeaders,
 	resolveConfiguredModelHeaders,
 	validateExtensionProvider,
 } from "./provider-composer.ts";
@@ -548,8 +549,20 @@ export class ModelRuntime implements Models {
 	}
 
 	/** @internal Compatibility fallback for ModelRegistry when provider auth is unconfigured. */
-	getCompatibilityRequestConfig(model: Model<Api>, env?: Record<string, string>): CompatibilityRequestConfig {
+	getCompatibilityRequestConfig(model: Model<Api>): CompatibilityRequestConfig {
 		return resolveCompatibilityRequestConfig(
+			model,
+			this.config.getProvider(model.provider),
+			this.extensionProviders.get(model.provider),
+		);
+	}
+
+	/** @internal Configured headers for a request the provider could not authenticate. */
+	getCompatibilityRequestHeaders(
+		model: Model<Api>,
+		env?: Record<string, string>,
+	): Promise<ProviderHeaders | undefined> {
+		return resolveCompatibilityRequestHeaders(
 			model,
 			this.config.getProvider(model.provider),
 			this.extensionProviders.get(model.provider),
@@ -594,7 +607,7 @@ export class ModelRuntime implements Models {
 		if (typeof providerOrModel === "string") return this.models.getAuth(providerOrModel, overrides);
 		const resolution = await this.models.getAuth(providerOrModel, overrides);
 		if (!resolution) return undefined;
-		const configuredHeaders = resolveConfiguredModelHeaders(
+		const configuredHeaders = await resolveConfiguredModelHeaders(
 			providerOrModel,
 			this.config.getProvider(providerOrModel.provider),
 			this.extensionProviders.get(providerOrModel.provider),
@@ -716,7 +729,7 @@ export class ModelRuntime implements Models {
 			ProviderRequestOptions & { extraBody?: Record<string, unknown> };
 		let headers = mergeHeaders(resolution.auth.headers, providerOptions.headers);
 		if (transformHeaders) headers = await transformHeaders(headers ?? {});
-		const compatibility = this.getCompatibilityRequestConfig(model, resolution.env);
+		const compatibility = this.getCompatibilityRequestConfig(model);
 		const extraBody =
 			compatibility.extraBody || providerOptions.extraBody
 				? { ...compatibility.extraBody, ...providerOptions.extraBody }

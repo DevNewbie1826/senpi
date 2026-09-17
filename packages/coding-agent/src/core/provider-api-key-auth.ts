@@ -78,7 +78,7 @@ export function composeApiKeyAuth(
 			const result = await resolveBaseAuth(providerId, inherited, rawKey, input);
 			const explicitEnv = { ...(input.credential?.env ?? {}), ...(result?.env ?? {}) };
 			const headerEnv = await configContextEnv(Object.values(rawHeaders ?? {}), input.ctx, explicitEnv);
-			const headers = resolveHeadersOrThrow(rawHeaders, `provider "${providerId}"`, headerEnv);
+			const headers = await resolveHeadersOrThrow(rawHeaders, `provider "${providerId}"`, headerEnv);
 			if (!result && !hasCredentialHeaders(headers)) return undefined;
 			return {
 				...result,
@@ -122,7 +122,7 @@ function ambientOnlyAuth(
 		if (!result || (input.credential?.key && input.credential.key !== result.auth.apiKey)) return undefined;
 		const explicitEnv = { ...(input.credential?.env ?? {}), ...(result.env ?? {}) };
 		const headerEnv = await configContextEnv(Object.values(rawHeaders ?? {}), input.ctx, explicitEnv);
-		const headers = resolveHeadersOrThrow(rawHeaders, `provider "${providerId}"`, headerEnv);
+		const headers = await resolveHeadersOrThrow(rawHeaders, `provider "${providerId}"`, headerEnv);
 		return {
 			...result,
 			auth: withConfiguredAuth(result.auth, headers, authHeader),
@@ -184,7 +184,7 @@ async function resolveBaseAuth(
 	}
 	if (rawKey === undefined) return inherited?.resolve(input);
 	const env = await configContextEnv([rawKey], input.ctx);
-	const key = resolveConfigValueOrThrow(rawKey, `API key for provider "${providerId}"`, env);
+	const key = await resolveConfigValueOrThrow(rawKey, `API key for provider "${providerId}"`, env);
 	return inherited
 		? inherited.resolve({ ...input, credential: { type: "api_key", key } })
 		: { auth: { apiKey: key }, source: "configured API key" };
