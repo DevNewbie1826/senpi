@@ -1,3 +1,25 @@
+## 2026-09-17 - Test hosts are reaped with their sandbox, and the protocol fixture will not outlive it (#1782)
+
+### What changed
+
+- `test/fixtures/rpc-host-fixture.mjs`: two self-terminating bindings. The fixture exits when the socket path it serves disappears (POSIX; on win32 the sandbox directory holding its secret is the equivalent evidence), and when it has been reparented because the process that started it is gone. Both are checked on one unref'd 500 ms interval, so the fixture is never the reason a test process stays alive. Measured: a SIGKILLed parent leaves the fixture dead in ~50 ms.
+- `test/helpers/spawned-host-reaper.ts` (new): `killAndWait(child)` (kill AND await the exit, so teardown cannot outrun it), `reapProcessesUnder(root)` (SIGKILL every process whose argv names a per-test `mkdtemp` sandbox AND every descendant of those processes, then wait for each pid to disappear), plus the shared `processAlive`/`waitForPidGone` the three host suites had copied between them. Descendants have to be included because a supervisor's host CHILD is named by its own private socket rather than by the sandbox, while it keeps writing into that sandbox until it notices its supervisor is gone - which lands after the removal and recreates the directory just deleted (observed: five leftover sandbox directories per handoff-suite run, with no process left in them). `processAlive` reads `ps -o stat=` and treats a ZOMBIE as gone: a host whose supervisor was SIGKILLed has no parent left to reap it, so its pid stays addressable for a moment after it exits.
+- `test/rpc-host-ensure.test.ts`, `test/suite/regressions/1290-rpc-host-ensure-startup-error.test.ts`, `test/rpc-host-lifecycle.test.ts`, `test/rpc-host-handoff.test.ts`: every sandbox is swept before it is removed, and children are awaited rather than merely signalled. The ensure suite also gains two cases for the fixture's own bindings ("exits when the socket it serves disappears", "exits when the process that started it is gone").
+
+### Why
+
+- Measured on a developer machine: 19 live `rpc-host-fixture.mjs` processes, the oldest 10 h 39 m old, while `<tmp>/senpi-host-ensure-*` held ZERO directories - hosts outliving the sandboxes they were started in. Every leaked process carried `-unreadable-identity-` in its argv, which names the cause exactly: that case registers a host with `processStartTime: null` on purpose (the probe was starved), and the teardown's pidfile-based stop requires a string start time, so it skipped the very host the case had just started. The child itself was spawned by `ensureHost` - detached, pid only - so the suite held no handle either.
+- The fix is two independent guards because each covers what the other cannot. The sandbox sweep reaps hosts no registration can name, including ones production code spawned; the fixture's own watch covers the case where no teardown runs at all, such as a SIGKILLed test runner or a crashed worker.
+- A suite that strands hosts for hours also makes this plan's zombie claim unverifiable, since the measurement it rests on counts processes of exactly this kind.
+
+### Why an extension could not handle it
+
+- Test-only: a fixture process and the teardown of the suites that spawn it. No production code changed.
+
+### Expected merge conflict zones
+
+- LOW: one new test helper plus the `afterEach` blocks of four suites. Anything upstream that also rewrites those teardowns conflicts there.
+
 ## 2026-09-17 - A newer generation takes the socket while the old one drains (#1782)
 
 ### What changed

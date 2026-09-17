@@ -37,6 +37,7 @@ import {
 	socketSecretPath,
 } from "../src/modes/rpc/socket-transport.ts";
 import { hermeticProviderEnv, MOCK_MODEL, MOCK_PROVIDER, writeRpcModelsJson } from "./helpers/rpc-hermetic.ts";
+import { processAlive, reapProcessesUnder } from "./helpers/spawned-host-reaper.ts";
 
 const roots: string[] = [];
 const peers: JsonlPeer[] = [];
@@ -51,7 +52,12 @@ afterEach(async () => {
 	for (const peer of peers.splice(0)) peer.destroy();
 	for (const model of models.splice(0)) await model.close();
 	for (const entry of managed.splice(0)) await stopHostProcess(entry.pidFile, entry.pidFilePath);
-	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+	for (const root of roots.splice(0)) {
+		// Supervisors are detached and a failed ensure leaves no registration to stop them by; the
+		// sandbox path names every process this file started, so nothing outlives its directory.
+		await reapProcessesUnder(root);
+		rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
 	// Budget: teardown liveness probe (~1s) + SIGTERM exit wait (30s) + SIGKILL
 	// escalation (2s) per host, with headroom; the old 30s cap already sat below
 	// the pre-existing 33s worst case.
@@ -555,30 +561,6 @@ function listInternalSocketDirs(ownerPid: number): string[] {
 				return false;
 			}
 		});
-}
-
-function processAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-	} catch {
-		return false;
-	}
-	// A host whose supervisor was SIGKILLed loses its parent, so nothing reaps it the instant it
-	// exits: for a short window the pid stays addressable as a ZOMBIE. The process is gone - only
-	// its exit status has not been collected - so a liveness probe must not report it as running.
-	return !isZombie(pid);
-}
-
-function isZombie(pid: number): boolean {
-	if (process.platform === "win32") return false;
-	try {
-		return execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" })
-			.trim()
-			.startsWith("Z");
-	} catch {
-		// `ps` exits non-zero once the pid is gone entirely, which is the ordinary outcome.
-		return false;
-	}
 }
 
 /** Direct children of `pid`. `pgrep` is POSIX-only, so Windows queries CIM. */

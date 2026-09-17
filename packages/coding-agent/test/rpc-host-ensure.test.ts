@@ -20,6 +20,7 @@ import {
 	sendSocketHandshake,
 	socketSecretPath,
 } from "../src/modes/rpc/socket-transport.ts";
+import { killAndWait, processesUnder, reapProcessesUnder, waitForPidGone } from "./helpers/spawned-host-reaper.ts";
 
 const roots: string[] = [];
 const children: ChildProcess[] = [];
@@ -33,12 +34,17 @@ const HANDOFF_CAPABILITIES = `${CAPABILITIES},${GENERATION_HANDOFF_CAPABILITY}`;
 const LEGACY_VERSION = "2026.9.16-3";
 
 afterEach(async () => {
-	for (const child of children.splice(0)) await stopChild(child);
+	for (const child of children.splice(0)) await killAndWait(child);
 	for (const root of roots.splice(0)) {
 		await stopManagedRoot(root);
-		await rm(root, { recursive: true, force: true });
+		// Most hosts here are spawned by PRODUCTION code: detached, with only a pid handed back, and
+		// some cases deliberately leave a registration the teardown above cannot act on (an unguarded
+		// pidfile, an ensure that cleaned its own state). The sandbox path still names every one of
+		// them, and the wait is what keeps the removal below from racing a host that is still writing.
+		await reapProcessesUnder(root);
+		await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
-});
+}, 60_000);
 
 describe("ensureHost", () => {
 	it("serializes concurrent starts for one socket across agent directories", async () => {
@@ -496,6 +502,50 @@ describe("generation handoff", () => {
 	}, 20_000);
 });
 
+// The fixture serves a filesystem socket and is reaped through `pgrep`; win32 has neither.
+describe.skipIf(process.platform === "win32")("protocol fixture self-termination", () => {
+	it("exits when the socket it serves disappears", async () => {
+		// Most fixture hosts are spawned DETACHED by production code, so a case that leaves an
+		// unusable registration behind has no handle to stop them with. Their sandbox going away is
+		// the signal that nothing needs them any more.
+		const qa = await scratch("fixture-socket-gone");
+		const host = await spawnFixture(qa);
+
+		await rm(qa.socket, { force: true });
+
+		expect(await waitForPidGone(host, 15_000)).toBe(true);
+	}, 30_000);
+
+	it("exits when the process that started it is gone", async () => {
+		// A SIGKILLed test runner cannot run any teardown at all; the fixture notices that it has
+		// been reparented and leaves on its own.
+		const qa = await scratch("fixture-orphan");
+		const launcher = spawn(
+			process.execPath,
+			[
+				"-e",
+				"const { spawn } = require('node:child_process');" +
+					"spawn(process.execPath, process.argv.slice(1), { detached: true, stdio: 'ignore' }).unref();" +
+					"setInterval(() => {}, 1000);",
+				fixture,
+				qa.socket,
+				VERSION,
+				CAPABILITIES,
+				"answer",
+			],
+			{ stdio: "ignore" },
+		);
+		children.push(launcher);
+		await waitForProtocol(qa.socket);
+		const host = processesUnder(qa.root).find((pid) => pid !== launcher.pid);
+		expect(host).toBeGreaterThan(0);
+
+		await killAndWait(launcher);
+
+		expect(await waitForPidGone(host ?? 0, 15_000)).toBe(true);
+	}, 30_000);
+});
+
 describe("legacy client against a daemon directory with no flat pidfile", () => {
 	it("fails closed instead of taking the host over", async () => {
 		// D11: the published v2026.9.16-3 ensure logic, replayed below, is what is deployed on user
@@ -647,6 +697,18 @@ function ensureFixtureHost(qa: Qa, overrides: Overrides = {}) {
 	});
 }
 
+/** A fixture host nobody registers, answering on its sandbox socket. Returns its pid. */
+async function spawnFixture(qa: Qa): Promise<number> {
+	const child = spawn(process.execPath, [fixture, qa.socket, VERSION, CAPABILITIES, "answer"], {
+		detached: true,
+		stdio: "ignore",
+	});
+	children.push(child);
+	if (child.pid === undefined) throw new Error("fixture did not spawn");
+	await waitForProtocol(qa.socket);
+	return child.pid;
+}
+
 async function startManagedFixture(
 	qa: Qa,
 	options: {
@@ -773,13 +835,6 @@ async function stopManagedRoot(root: string): Promise<void> {
 	} catch (error: unknown) {
 		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
 	}
-}
-
-async function stopChild(child: ChildProcess): Promise<void> {
-	if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
-	try {
-		process.kill(child.pid, "SIGKILL");
-	} catch {}
 }
 
 describe("processMatchesPidFile", () => {

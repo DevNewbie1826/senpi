@@ -19,6 +19,8 @@ import {
 } from "../../src/modes/rpc/socket-transport.ts";
 import { hermeticProviderEnv, MOCK_MODEL, MOCK_PROVIDER } from "./rpc-hermetic.ts";
 
+export { processAlive, reapProcessesUnder, waitForPidGone } from "./spawned-host-reaper.ts";
+
 export type WireRecord = Record<string, unknown>;
 
 export interface GenerationScratch {
@@ -62,25 +64,6 @@ export function generationEnv(qa: GenerationScratch): Record<string, string> {
 		SENPI_RUNTIME: "node",
 		SENPI_CODING_AGENT_SESSION_DIR: qa.sessionDir,
 	};
-}
-
-export function processAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (cause) {
-		return cause instanceof Error && "code" in cause && cause.code !== "ESRCH";
-	}
-}
-
-/** A pid we did not spawn publishes no exit event, so liveness is the one bounded poll here. */
-export async function waitForPidGone(pid: number, timeoutMs: number): Promise<boolean> {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() <= deadline) {
-		if (!processAlive(pid)) return true;
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	return !processAlive(pid);
 }
 
 export async function socketInode(socketPath: string): Promise<number | undefined> {

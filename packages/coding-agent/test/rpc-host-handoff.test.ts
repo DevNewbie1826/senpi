@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { readFile, rm, stat } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
@@ -15,13 +14,12 @@ import {
 	HeldAnthropicModel,
 	JsonlPeer,
 	openedSessionId,
-	processAlive,
 	socketInode,
 	supervisorLaunch,
 	type WireRecord,
-	waitForPidGone,
 } from "./helpers/rpc-generation-support.ts";
 import { writeRpcModelsJson } from "./helpers/rpc-hermetic.ts";
+import { processAlive, reapProcessesUnder, waitForPidGone } from "./helpers/spawned-host-reaper.ts";
 
 const scratches: GenerationScratch[] = [];
 const peers: JsonlPeer[] = [];
@@ -47,10 +45,7 @@ afterEach(async () => {
 	for (const qa of scratches.splice(0)) {
 		// A refused handoff spawns a successor this case never registered; every process whose argv
 		// names this sandbox is one of ours, so the sweep is exact rather than pattern-lucky.
-		for (const pid of processesUnder(qa.root)) {
-			process.kill(pid, "SIGKILL");
-			await waitForPidGone(pid, 20_000);
-		}
+		await reapProcessesUnder(qa.root);
 		await rm(qa.root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 	}
 	firstPids.clear();
@@ -257,19 +252,6 @@ async function pidFile(qa: GenerationScratch): Promise<WireRecord> {
 
 function recordedPid(record: WireRecord): number {
 	return typeof record.pid === "number" ? record.pid : 0;
-}
-
-/** Every live process whose command line names this sandbox directory. */
-function processesUnder(root: string): number[] {
-	try {
-		return execFileSync("pgrep", ["-f", root], { encoding: "utf8" })
-			.split("\n")
-			.map((line) => Number(line.trim()))
-			.filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
-	} catch {
-		// pgrep exits non-zero when nothing matches, which is the ordinary outcome.
-		return [];
-	}
 }
 
 async function jsonlLines(path: string): Promise<string[]> {
