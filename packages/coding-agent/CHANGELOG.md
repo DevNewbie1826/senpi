@@ -19,6 +19,8 @@
 ### Changed
 
 ### Fixed
+- The z.ai Coding Plan tests follow the provider's current catalog. Upstream retired `glm-4.7`, `glm-5.1`, `glm-5.2`, `glm-5.2-highspeed`, `glm-5-turbo` and `glm-5v-turbo` from `zai-coding-cn` in favour of the `glm-5.3` family, so assertions naming the retired ids stopped type-checking the moment the release regenerated the catalog, which blocked publishing. The suites now assert models both providers actually carry, and the `glm-5.3` reasoning map (`off: null`, `low: "low"`) rather than the `5.2` shape.
+
 - The published package now ships `@earendil-works/pi-agent-core`'s tree-sitter assets. Its `dist` reaches those grammars through compile-time `type: "file"` imports, but publish staging copied only `dist`, `native` and the manifest files, so the tarball carried specifiers pointing five directories above the package at files that were never published. Any consumer bundling senpi with `bun build --compile` failed to resolve them. Staging now copies a bundled workspace's `assets` as well, and the pack gate requires those two grammar files so a future drop fails the release instead of the consumer. ([#1800](https://github.com/code-yeongyu/senpi/issues/1800))
 
 
