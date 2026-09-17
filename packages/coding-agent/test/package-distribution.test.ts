@@ -6,6 +6,7 @@ interface CodingAgentPackageJson {
 	main: string;
 	files: string[];
 	exports: Record<string, Record<string, string>>;
+	scripts: Record<string, string>;
 }
 
 const packageJson = JSON.parse(
@@ -20,6 +21,15 @@ describe("package distribution entrypoints", () => {
 		expect(packageJson.exports["."].import).toBe("./dist/index.js");
 		expect(packageJson.exports["./client"].import).toBe("./dist/client/index.js");
 		expect(packageJson.exports["./rpc-entry"].import).toBe("./dist/rpc-entry.js");
+	});
+
+	// The release build is the only producer of `dist/bundle/`: `bin.pi` points into it, the
+	// packed tarball ships whatever `dist` holds, and nothing else in the repo runs the bundler.
+	// Wiring it into the package `build` script is what makes a published tarball executable.
+	test("builds the bundle that bin.pi resolves to as part of the package build", () => {
+		expect(packageJson.scripts["build:bundle"]).toContain("scripts/build-coding-agent-bundle.mjs");
+		expect(packageJson.scripts.build).toContain("build:bundle");
+		expect(packageJson.files).toContain("dist");
 	});
 
 	// Regression for #9132, expressed on the fork's distribution shape: internal experimental

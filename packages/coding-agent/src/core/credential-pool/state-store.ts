@@ -161,6 +161,25 @@ export class CredentialSlotRepository {
 		return createHmac("sha256", key).update(`${envVarName}\0${envValue}`).digest("hex");
 	}
 
+	/**
+	 * The stored-lane twin of the env revision rule: binds a slot's health to
+	 * the material that earned it, so a re-login or token refresh replacing the
+	 * material retires the block. HMAC over the installation key, never raw
+	 * material (omo#7084).
+	 */
+	async storedCredentialRevision(
+		providerId: string,
+		slotName: string,
+		material: { key?: string; access?: string; refresh?: string },
+	): Promise<string> {
+		const key = await this.installationKey();
+		return createHmac("sha256", key)
+			.update(
+				`${providerId}\0${slotName}\0${material.key ?? ""}\0${material.access ?? ""}\0${material.refresh ?? ""}`,
+			)
+			.digest("hex");
+	}
+
 	async listSlots(providerId: string, laneId: string): Promise<Record<string, CredentialSlotState>> {
 		return this.withDocument((document) => ({
 			result: { ...document.providers[providerId]?.lanes[laneId]?.slots },

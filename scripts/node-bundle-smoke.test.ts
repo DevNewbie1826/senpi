@@ -1,4 +1,4 @@
-import { beforeAll, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { on, once } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -9,10 +9,42 @@ import { z } from "zod";
 
 const repo = resolve(import.meta.dir, "..");
 const cli = join(repo, "packages/coding-agent/dist/bundle/cli.js");
+const version = z
+	.object({ version: z.string() })
+	.parse(JSON.parse(readFileSync(join(repo, "packages/coding-agent/package.json"), "utf8"))).version;
+// `bin.pi` ships this one file, and whichever runtime installed the package executes it: npm
+// installs run it on Node through its shebang, `bun install -g` runs the same file on Bun.
+const runtimes = ["node", "bun"] as const;
 const responseSchema = z.object({
 	type: z.string(), id: z.string().optional(), success: z.boolean().optional(),
 	data: z.unknown().optional(), error: z.unknown().optional(),
 });
+// An external extension: TypeScript the bundle must compile at load time, with a type-only
+// import of a package that is not installed beside it.
+const extensionSource = `import type { ExtensionAPI } from "@code-yeongyu/senpi";
+import type { SelectItem } from "@earendil-works/pi-tui";
+
+const flag: SelectItem = { value: "bundle-smoke", label: "Registered by an external TypeScript extension" };
+
+export default function bundleSmokeExtension(pi: ExtensionAPI): void {
+	pi.registerFlag(flag.value, { description: flag.label, type: "boolean", default: false });
+}
+`;
+
+/** Isolated agent state: no inherited config, no provider request, no user extensions. */
+function createState(): string {
+	const state = mkdtempSync(join(tmpdir(), "senpi-bundle-smoke-"));
+	mkdirSync(join(state, "home"));
+	writeFileSync(join(state, "settings.json"), JSON.stringify({ disabledBuiltinExtensions: ["codemode"] }));
+	return state;
+}
+
+function hermeticEnv(state: string): Record<string, string> {
+	return {
+		PATH: process.env.PATH ?? "", HOME: join(state, "home"), TMPDIR: state,
+		SENPI_CODING_AGENT_DIR: state, PI_OFFLINE: "1",
+	};
+}
 
 beforeAll(() => {
 	const result = spawnSync("node", ["scripts/build-coding-agent-bundle.mjs"], {
@@ -21,59 +53,110 @@ beforeAll(() => {
 	expect(result.status, result.stderr).toBe(0);
 }, 130_000);
 
-test("reports the package version when the Node bundle is launched", () => {
-	// Given
-	const manifest = z.object({ version: z.string() }).parse(JSON.parse(readFileSync(join(repo, "packages/coding-agent/package.json"), "utf8")));
-	// When
-	const result = spawnSync("node", [cli, "--version"], { encoding: "utf8", timeout: 30_000 });
-	// Then
-	expect(result.status, result.stderr).toBe(0);
-	expect(result.stdout.trim()).toBe(manifest.version);
-});
-
-test("opens and closes a shared session when the Node bundle receives RPC commands", async () => {
-	// Given: isolated state, with no provider request or user extensions.
-	const state = mkdtempSync(join(tmpdir(), "senpi-node-bundle-"));
-	mkdirSync(join(state, "home"));
-	writeFileSync(join(state, "settings.json"), JSON.stringify({ disabledBuiltinExtensions: ["codemode"] }));
-	const child = spawn("node", [cli, "--mode", "rpc", "--multi-session"], {
-		cwd: state, stdio: ["pipe", "pipe", "pipe"], env: {
-			PATH: process.env.PATH, HOME: join(state, "home"), TMPDIR: state,
-			SENPI_CODING_AGENT_DIR: state, PI_OFFLINE: "1",
-		},
+describe.each(runtimes)("the Node bundle under %s", (runtime) => {
+	test("reports the package version when the bundle is launched", () => {
+		// Given / When
+		const result = spawnSync(runtime, [cli, "--version"], { encoding: "utf8", timeout: 30_000 });
+		// Then
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.stdout.trim()).toBe(version);
 	});
-	const exit = once(child, "exit", { signal: AbortSignal.timeout(90_000) });
-	let stderr = "";
-	child.stderr.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-16000); });
-	const lines = createInterface({ input: child.stdout });
-	const request = async (command: { readonly type: string; readonly sessionId?: string; readonly cwd?: string }) => {
-		const responses = on(lines, "line", { close: ["close"], signal: AbortSignal.timeout(30_000) });
-		child.stdin.write(`${JSON.stringify({ id: command.type, ...command })}\n`);
+
+	// Custom exec arguments (a profiler or inspector flag, anything in NODE_OPTIONS) are applied at
+	// process start, so the entry replays them onto a fresh process. The unbundled entry respawns its
+	// sibling `cli-main`; the bundle inlined that module and has no such file, so the respawn has to
+	// target the bundle itself.
+	test("runs under custom exec arguments instead of looking for an inlined sibling", () => {
+		// Given
+		const state = createState();
 		try {
-			for await (const args of responses) {
-				const response = responseSchema.parse(JSON.parse(z.string().parse(args[0])));
-				if (response.id !== command.type) continue;
-				expect(response.success, `${JSON.stringify(response)}\n${stderr}`).toBe(true);
-				return response.data;
-			}
-			throw new Error(`RPC closed before response: ${stderr}`);
+			// When
+			const result = spawnSync(runtime, ["--cpu-prof", "--cpu-prof-dir", state, cli, "--model", "nope/nope", "-p", "hi"], {
+				encoding: "utf8", env: hermeticEnv(state), timeout: 60_000,
+			});
+			// Then: the agent ran and rejected the model, rather than the entry failing to resolve itself.
+			const output = `${result.stdout}${result.stderr}`;
+			expect(output, output).not.toContain("Module not found");
+			expect(output, output).toContain("nope/nope");
 		} finally {
-			await responses.return();
+			rmSync(state, { recursive: true, force: true });
 		}
-	};
-	try {
-		// When: exercise the worker's real prepare/commit/bind/close lifecycle.
-		const opened = z.object({ sessionId: z.string() }).parse(await request({ type: "open_session", cwd: state }));
-		const snapshot = await request({ type: "get_state", sessionId: opened.sessionId });
-		const closed = await request({ type: "close_session", sessionId: opened.sessionId });
-		// Then: the worker answered a session command and the host acknowledged close.
-		// Physical worker exit is asynchronous after the close response.
-		expect(z.object({ isStreaming: z.boolean() }).parse(snapshot).isStreaming).toBe(false);
-		expect(closed).toEqual({});
-	} finally {
-		child.kill("SIGKILL");
-		await exit;
-		lines.close();
-		rmSync(state, { recursive: true, force: true });
-	}
-}, 100_000);
+	}, 70_000);
+
+	test("prints help and exits successfully", () => {
+		// Given
+		const state = createState();
+		try {
+			// When
+			const result = spawnSync(runtime, [cli, "--help"], { encoding: "utf8", env: hermeticEnv(state), timeout: 30_000 });
+			// Then
+			expect(result.status, result.stderr).toBe(0);
+			expect(result.stdout.length).toBeGreaterThan(0);
+		} finally {
+			rmSync(state, { recursive: true, force: true });
+		}
+	});
+
+	test("loads an external TypeScript extension and lists the flag it registers", () => {
+		// Given: a fresh agent dir, so the help fast path misses its per-extension-set cache and
+		// the bundle really compiles and runs the extension.
+		const state = createState();
+		const extensionDir = mkdtempSync(join(tmpdir(), "senpi-bundle-extension-"));
+		const extension = join(extensionDir, "extension.ts");
+		writeFileSync(extension, extensionSource);
+		try {
+			// When
+			const result = spawnSync(runtime, [cli, "--extension", extension, "--help"], {
+				encoding: "utf8", env: hermeticEnv(state), timeout: 60_000,
+			});
+			// Then
+			expect(result.status, result.stderr).toBe(0);
+			expect(result.stdout).toContain("--bundle-smoke");
+		} finally {
+			rmSync(extensionDir, { recursive: true, force: true });
+			rmSync(state, { recursive: true, force: true });
+		}
+	});
+
+	test("opens and closes a shared session when the bundle receives RPC commands", async () => {
+		// Given: isolated state, with no provider request or user extensions.
+		const state = createState();
+		const child = spawn(runtime, [cli, "--mode", "rpc", "--multi-session"], {
+			cwd: state, stdio: ["pipe", "pipe", "pipe"], env: hermeticEnv(state),
+		});
+		const exit = once(child, "exit", { signal: AbortSignal.timeout(90_000) });
+		let stderr = "";
+		child.stderr.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-16000); });
+		const lines = createInterface({ input: child.stdout });
+		const request = async (command: { readonly type: string; readonly sessionId?: string; readonly cwd?: string }) => {
+			const responses = on(lines, "line", { close: ["close"], signal: AbortSignal.timeout(30_000) });
+			child.stdin.write(`${JSON.stringify({ id: command.type, ...command })}\n`);
+			try {
+				for await (const args of responses) {
+					const response = responseSchema.parse(JSON.parse(z.string().parse(args[0])));
+					if (response.id !== command.type) continue;
+					expect(response.success, `${JSON.stringify(response)}\n${stderr}`).toBe(true);
+					return response.data;
+				}
+				throw new Error(`RPC closed before response: ${stderr}`);
+			} finally {
+				await responses.return();
+			}
+		};
+		try {
+			// When: exercise the worker's real prepare/commit/bind/close lifecycle.
+			const opened = z.object({ sessionId: z.string() }).parse(await request({ type: "open_session", cwd: state }));
+			const snapshot = await request({ type: "get_state", sessionId: opened.sessionId });
+			const closed = await request({ type: "close_session", sessionId: opened.sessionId });
+			// Then: the worker answered a session command and the host acknowledged close.
+			// Physical worker exit is asynchronous after the close response.
+			expect(z.object({ isStreaming: z.boolean() }).parse(snapshot).isStreaming).toBe(false);
+			expect(closed).toEqual({});
+		} finally {
+			child.kill("SIGKILL");
+			await exit;
+			lines.close();
+			rmSync(state, { recursive: true, force: true });
+		}
+	}, 100_000);
+});

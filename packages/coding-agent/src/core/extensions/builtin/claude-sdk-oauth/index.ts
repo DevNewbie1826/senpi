@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getModels } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../../../../config.ts";
+import { FileAuthStorageBackend } from "../../../auth-storage.ts";
 import type { ExtensionAPI } from "../../types.ts";
 import { registerClaudeAccountCommand } from "./account-command.ts";
 import { CLAUDE_SDK_OAUTH_PROVIDER_ID } from "./account-management.ts";
@@ -82,6 +83,18 @@ export function registerClaudeSdkOauthExtension(pi: ExtensionAPI, deps: ClaudeSd
 				return credential && typeof credential.access === "string"
 					? { access: credential.access, refresh: credential.refresh, expires: credential.expires }
 					: undefined;
+			},
+			removeAnthropicCredential: async () => {
+				// The import is a move, not a copy: one single-use grant must never
+				// live in two stores that refresh it independently (omo#7084).
+				const backend = new FileAuthStorageBackend();
+				await backend.withLockAsync(async (current) => {
+					if (current === undefined) return { result: undefined };
+					const data = JSON.parse(current) as Record<string, unknown>;
+					if (!("anthropic" in data)) return { result: undefined };
+					delete data.anthropic;
+					return { result: undefined, next: JSON.stringify(data, null, 2) };
+				});
 			},
 		}),
 	});

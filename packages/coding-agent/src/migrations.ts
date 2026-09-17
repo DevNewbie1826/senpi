@@ -10,6 +10,7 @@ import { getAgentDir, getBinDir } from "./config.ts";
 import { migrateKeybindingsConfig } from "./core/keybindings.ts";
 import { migrateExtensionSystem } from "./extension-system-migration.ts";
 import { migrateLegacySenpiDirs } from "./legacy-senpi-dir-migration.ts";
+import { readCompletedScanMigrations, SCAN_MIGRATIONS, writeCompletedScanMigrations } from "./migrations-state.ts";
 import { stripBom } from "./utils/text.ts";
 
 const MIGRATION_GUIDE_URL =
@@ -233,10 +234,18 @@ export function runMigrations(cwd: string): {
 	// branded install only populates once this copy-forward has happened.
 	migrateEngineStateForBrand();
 	const migratedAuthProviders = migrateAuthToAuthJson();
-	migrateLegacySenpiDirs(cwd);
-	migrateSessionsFromAgentRoot();
+	const completed = readCompletedScanMigrations();
+	if (!completed.has("migrateLegacySenpiDirs")) {
+		migrateLegacySenpiDirs(cwd);
+	}
+	if (!completed.has("migrateSessionsFromAgentRoot")) {
+		migrateSessionsFromAgentRoot();
+	}
 	migrateToolsToBin();
 	migrateKeybindingsConfigFile();
 	const deprecationWarnings = migrateExtensionSystem(cwd);
+	if (completed.size !== SCAN_MIGRATIONS.length) {
+		writeCompletedScanMigrations(SCAN_MIGRATIONS);
+	}
 	return { migratedAuthProviders, deprecationWarnings };
 }

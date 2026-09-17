@@ -32,13 +32,6 @@
 		{
 			"file": "src/utils/tools-manager.ts",
 			"api": "spawnSync",
-			"symbol": "commandExists",
-			"count": 1,
-			"note": "`<tool> --version` probe, memoized per tool. Pre-existing."
-		},
-		{
-			"file": "src/utils/tools-manager.ts",
-			"api": "spawnSync",
 			"symbol": "runExtractionCommand",
 			"count": 1,
 			"note": "archive extraction for an on-demand tool download, 60s timeout, off the hot path (first use of a missing bundled tool). Pre-existing."

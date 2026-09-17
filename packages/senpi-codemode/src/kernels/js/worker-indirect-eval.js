@@ -1,3 +1,5 @@
+import { findShadowedGlobalName } from "./worker-shadow-guard.js";
+
 export function indirectEval(source, filename) {
 	const withPragma = filename ? `${source}\n//# sourceURL=${filename}` : source;
 	const geval = globalThis.eval;
@@ -265,6 +267,12 @@ function rewriteDeclaration(code, declarationStart, start, end, keyword) {
 		const bindings = [];
 		collectPatternNames(pattern, bindings);
 		if (bindings.length === 0) return undefined;
+		const shadowed = findShadowedGlobalName(bindings);
+		if (shadowed !== undefined) {
+			throw new Error(
+				`eval cell declares top-level \`${shadowed}\`, but a global with that name already exists in the JS kernel. Persisting it would replace that global for every later cell. Rename the binding (for example \`${shadowed}Local\`), or assign globalThis.${shadowed} explicitly if replacing it is truly intended.`,
+			);
+		}
 		if (preserveDeclaration) {
 			for (const name of bindings) assignments.push(`globalThis[${JSON.stringify(name)}] = ${name};`);
 			continue;

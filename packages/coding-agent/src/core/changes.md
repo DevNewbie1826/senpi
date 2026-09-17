@@ -45,6 +45,68 @@
 - MEDIUM: the exported signatures in `resolve-config-value.ts` (every consumer now awaits) and the `headers` field of `CompatibilityRequestConfig`.
 - LOW: the branch-resolution block of `footer-data-provider.ts`, the policy-slot loop in `rotation-stream.ts`, the header lines in `provider-api-key-auth.ts` / `provider-composer.ts`.
 
+## 2026-09-17 - Time the interactive startup seams and overlap the two startup branches (senpi#1781)
+
+### What changed
+
+- `packages/coding-agent/src/core/timings.ts`: adds the `tui` namespace to `TimingLabel`, takes its marks from `performance.now()` instead of `Date.now()`, and rounds only when printing or formatting.
+- `packages/coding-agent/src/core/startup-branch-join.ts` (new): settles two independent startup branches and rethrows the primary branch's error first, so the model-runtime failure still wins when both fail and neither branch leaves an unhandled rejection.
+- `packages/coding-agent/src/core/agent-session-services.ts`: runs `ModelRuntime.create` and `DefaultResourceLoader.reload` concurrently through that join; the drain, refresh and flag diagnostics stay after it, so their order is unchanged.
+
+### Why
+
+- The largest startup phase was reported as one opaque number, and a whole-millisecond clock cannot resolve the 20-60 ms items that remain. The first instrumented run showed the session rebind is 91% of that phase.
+- The model runtime and the resource loader share no objects: the loader is constructed from cwd, agent dir and the settings manager, while the runtime reads auth and the model catalogs. Sequencing them cost the I/O wait they could have shared.
+
+### Why an extension could not handle it
+
+- Startup instrumentation and service construction both run before the extension host exists.
+
+### Expected merge conflict zones
+
+- LOW: the `TimingLabel` union and the print helpers in `timings.ts`; MEDIUM: the services construction order in `agent-session-services.ts`.
+
+## 2026-09-17 - Record a pre-main phase and stop resolving !command keys at startup (senpi#1781)
+
+### What changed
+
+- `packages/coding-agent/src/core/timings.ts` exports `recordTiming(label, ms, namespace)`, which appends an entry with a caller-supplied duration and leaves the namespace cursor alone, so `main()` can report the phase that ended before its first instrumented statement.
+- `packages/coding-agent/src/core/provider-api-key-auth.ts`: `composeApiKeyAuth.check` treats a stored credential as winning only when it actually carries a key, so a models.json `!command` or env `apiKey` is classified without calling `inherited.resolve`; `resolveBaseAuth` falls through to the configured command when the stored credential is keyless, so the first request path still executes the helper.
+
+### Why
+
+- The pre-main phase (runtime boot, `cli.js`, the entry import graph) is over before any instrumented statement runs, so it can only be read from `process.uptime()`; `time()` can only express "now minus the last mark".
+- A CPU profile of an interactive boot showed `execSync` through `executeWithDefaultShell` and `resolveConfigValueOrThrow` reached from `resolveBaseAuth`: a keyless stored credential skipped the classification branch and ran the helper during startup.
+
+### Why an extension could not handle it
+
+- Startup timing instrumentation is host-internal, and provider composition plus `!command` resolution live in core auth.
+
+### Expected merge conflict zones
+
+- LOW: the new export in `timings.ts`; `composeApiKeyAuth.check` and `resolveBaseAuth` in `provider-api-key-auth.ts`.
+
+## 2026-09-17 - Read only the frontmatter prefix during skill discovery (senpi#1781)
+
+### What changed
+
+- New `packages/coding-agent/src/core/skill-discovery.ts` owns `collectSkillEntries` / `collectAutoSkillEntries` (moved out of `package-manager.ts`) and `readSkillMarkdownSource`.
+- `readSkillMarkdownSource` reads at most 8 KiB, slices at the closing `---` when that delimiter is inside the prefix (falling back to the rest of the file when it is not), and never feeds the markdown body to the YAML parser.
+- `packages/coding-agent/src/core/skills.ts` `loadSkillFromFile` uses that reader, and the directory walk skips `node_modules`, `.git` and dot-prefixed names.
+
+### Why
+
+- The startup `skills` phase read whole `SKILL.md` bodies only to parse their frontmatter. Extracting the walk also keeps `package-manager.ts` from growing further.
+
+### Why an extension could not handle it
+
+- Skill discovery and frontmatter parsing run in the host resource loader before any extension is bound.
+
+### Expected merge conflict zones
+
+- MEDIUM: `collectSkillEntries` used to live in `package-manager.ts`, so upstream edits to that walk must land in `skill-discovery.ts`.
+- LOW: the `loadSkillFromFile` read path in `skills.ts`.
+
 ## 2026-09-17 - Inline skill mentions expand on submit (senpi#1778)
 
 ### What changed

@@ -148,6 +148,24 @@
 
 - LOW: the `--listen`/`--multi-session` parse branches and the RPC block of `printHelp` in `src/cli/args.ts`; the `appMode === "rpc" && parsed.multiSession` block in `src/main.ts`; the argv array and options type in `test/suite/rpc-worker-host-support.ts`. `createHostCore`, both registries and the router are untouched.
 
+## 2026-09-17 - Supervisor launch routes through its own module (senpi#1781)
+
+### What changed
+
+- New `packages/coding-agent/src/modes/rpc/supervisor-route.ts` owns the internal-supervisor argument detection and launch, so `main.ts` reaches `host-lifecycle` (and the rest of the RPC host cluster) only through an `await import(...)` on the supervisor branch.
+
+### Why
+
+- `host-lifecycle`, `rpc-mode` and `multi-session-host` were static imports of `main.ts`, adding 35 modules to every interactive boot that never runs an RPC host.
+
+### Why an extension could not handle it
+
+- Mode routing happens in the host entry before extensions load.
+
+### Expected merge conflict zones
+
+- LOW: the new module; MEDIUM where `main.ts` detects supervisor arguments.
+
 ## 2026-09-17 - Socket credit on queue acceptance, dead-peer stall budget, deliverable cut notice (#1774)
 
 ### What changed

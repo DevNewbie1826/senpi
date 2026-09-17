@@ -1,3 +1,25 @@
+## 2026-09-17 - Load pi-pty on the first terminal session (senpi#1781)
+
+### What changed
+
+- New `pty.lazy.ts` owns the single deferred `import("@earendil-works/pi-pty")`; `manager.ts` and `runtime-session.ts` keep type-only pi-pty imports.
+- `TerminalManager.create` awaits `loadPty()` before constructing the session registry and the runtime session; the constructor no longer builds a registry, and the synchronous get/list/stop/teardown/reserve paths treat an unloaded registry as empty.
+- `SessionRegistryCapacityError` is re-exported as a type; `isCapacityError` matches `instanceof` against the loaded class and falls back to the error name before pi-pty has loaded.
+- `runtime-session.ts` top-level-awaits `loadPty()` so its synchronous constructor still works, and `manager.ts` dynamic-imports it so that await never joins the engine startup graph.
+
+### Why
+
+- pi-pty's `dist/screen.js` imports `@xterm/headless` at module evaluation, whose initialization spent about 458ms in `RegExp.prototype.test` on every CLI boot even when no terminal session was ever created.
+
+### Why an extension could not handle it
+
+- The terminal builtin is the in-tree owner of the PTY session graph; an outside extension cannot change its static imports.
+
+### Expected merge conflict zones
+
+- MEDIUM: the `manager.ts` constructor, `create`, `isCapacityError` and the capacity-error re-export.
+- LOW: `runtime-session.ts` constructor imports.
+
 ## 2026-09-15 - Monitor bounds: paused watch zero-poll, capped line buffer (#1698)
 
 ### What changed

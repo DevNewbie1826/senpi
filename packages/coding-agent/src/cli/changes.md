@@ -36,6 +36,24 @@
 
 - LOW: the flag list in `Args`, the `--multi-session`/`--auto-title-sessions`/`--listen` parse branches, and the RPC block of `printHelp`.
 
+## 2026-09-17 - One-shot command dispatch owns its own module (senpi#1781)
+
+### What changed
+
+- New `packages/coding-agent/src/cli/deferred-commands.ts` holds the dispatch for the commands that exit before a session exists (package manager, config, app-server, list-models, list-tips, credential print, export), each loading its implementation with `await import(...)` at its own branch.
+
+### Why
+
+- `main.ts` imported every one of those trees at module load, so an interactive run paid for command code it never reached; extracting the dispatch also keeps `main.ts` from growing while the imports move.
+
+### Why an extension could not handle it
+
+- Command dispatch happens before the extension host is constructed.
+
+### Expected merge conflict zones
+
+- LOW: the new module; MEDIUM where `main.ts` calls into it.
+
 ## 2026-09-16 - Startup spinner draws its first frame synchronously (oh-my-openagent#8371)
 
 ### What changed

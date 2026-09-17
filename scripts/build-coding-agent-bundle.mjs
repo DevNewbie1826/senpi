@@ -26,6 +26,8 @@ const allowedExternalPackages = new Set([
 	"@earendil-works/pi-pty",
 	// Runtime-guarded Bun lock adapter; Node uses node:sqlite instead.
 	"bun:sqlite",
+	// Runtime-guarded host child reaper bindings; a Node host turns the reaper off.
+	"bun:ffi",
 	// linkedom's optional native canvas stays package-relative, with its JS fallback.
 	"canvas",
 	// Optional native accelerators. Their callers fall back to JavaScript when absent.
@@ -95,7 +97,14 @@ function commonBuildOptions() {
 		banner,
 		bundle: true,
 		define: { PI_BUNDLED_NODE: "true" },
-		external: ["@earendil-works/chord", "@silvia-odwyer/photon-node", "@earendil-works/pi-pty", "bun:sqlite", "canvas"],
+		external: [
+			"@earendil-works/chord",
+			"@silvia-odwyer/photon-node",
+			"@earendil-works/pi-pty",
+			"bun:sqlite",
+			"bun:ffi",
+			"canvas",
+		],
 		format: "esm",
 		legalComments: "none",
 		logLevel: "warning",

@@ -62,6 +62,15 @@ function summarizationReasoningOptions(model: Model<any>): Record<string, unknow
 	}
 }
 
+/**
+ * Whether `summarizationReasoningOptions` pins anything for this model. The
+ * empty-stop retry drops that pin, so it is only worth a request when there is
+ * one to drop; otherwise the retry would replay the identical prompt.
+ */
+export function hasSummarizationReasoningOverride(model: Model<any>): boolean {
+	return Object.keys(summarizationReasoningOptions(model)).length > 0;
+}
+
 export function getSummaryText(message: Message): string {
 	const content = Array.isArray(message.content)
 		? message.content
@@ -96,6 +105,8 @@ function summarizationStream(
 export async function generateSummaryMessage(options: {
 	context: SpeculativeCompactionContext;
 	forbidToolCalls?: boolean;
+	/** Skip the model's reasoning override (effort pin, or `thinkingEnabled: false` on Anthropic); retry path for relays that return empty text when it is pinned. */
+	omitReasoningOptions?: boolean;
 	/** Resolved per-attempt duration budget; falls back to the size-adaptive default. */
 	maxDurationMs?: number;
 	messages: AgentMessage[];
@@ -156,7 +167,7 @@ export async function generateSummaryMessage(options: {
 			},
 			maxTokens: summaryMaxTokens(options.snapshot.model, options.snapshot.contextWindow),
 			signal: requestController.signal,
-			...summarizationReasoningOptions(options.snapshot.model),
+			...(options.omitReasoningOptions ? {} : summarizationReasoningOptions(options.snapshot.model)),
 			...(options.forbidToolCalls ? { toolChoice: "none" as const } : {}),
 		});
 		// Settlement rides inside the watchdog: a provider whose iterator ends

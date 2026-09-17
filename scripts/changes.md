@@ -1,5 +1,60 @@
 # changes
 
+## 2026-09-17 - Keep the Bun-only reaper bindings out of the release bundle (senpi#1782)
+
+### What changed
+
+- `scripts/build-coding-agent-bundle.mjs`: `bun:ffi` joins `bun:sqlite` in `external` and in `allowedExternalPackages`, so esbuild leaves the specifier unresolved instead of failing the build, and the external-import audit still refuses any specifier that is not on that list.
+
+### Why
+
+- The socket host's child reaper loads its `waitid`/`waitpid` bindings through `await import("bun:ffi")` behind a runtime gate (`loadChildReaperSyscalls` returns undefined on Node and win32 before the specifier is reached). The bundler cannot resolve a Bun builtin, so the shipped bundle build failed the moment the reaper landed beside it; externalizing the specifier is the same treatment the runtime-guarded `bun:sqlite` lock adapter already gets.
+
+### Why an extension could not handle it
+
+- Bundling runs in the build, before any runtime or extension exists.
+
+### Expected merge conflict zones
+
+- LOW: the `allowedExternalPackages` set and the `external` array in `build-coding-agent-bundle.mjs`.
+
+## 2026-09-17 - Smoke the bundled entry under custom exec arguments (senpi#1781)
+
+### What changed
+
+- `scripts/node-bundle-smoke.test.ts`: a scenario per runtime launches the bundle with a profiler flag and asserts the agent ran (it rejects the unknown model) instead of failing to resolve its own entry.
+
+### Why
+
+- The bundle inlines `cli-main`, so the sibling the respawn path used to resolve does not exist; nothing covered that path until it broke.
+
+### Why an extension could not handle it
+
+- Packaging and process-structure coverage runs before any runtime exists.
+
+### Expected merge conflict zones
+
+- LOW: the scenario list in `node-bundle-smoke.test.ts`.
+
+## 2026-09-17 - Smoke the shipped bundle under both runtimes (senpi#1781)
+
+### What changed
+
+- `scripts/node-bundle-smoke.test.ts` runs as a runtime matrix (node and bun) over the bundle it builds: `--version` equals the package version, `--help` exits 0, an external TypeScript extension in a temp directory is loaded with `--extension` and its flag appears in help, and an RPC `--multi-session` host opens, reports state for, and closes a session.
+- `scripts/AGENTS.md` documents `build-coding-agent-bundle.mjs` as a build entry point and its ordering rule.
+
+### Why
+
+- The bundle is now produced by the package build and shipped, so its runtime behavior needs coverage on both runtimes rather than a single node smoke.
+
+### Why an extension could not handle it
+
+- Build and packaging scripts run before any runtime or extension exists.
+
+### Expected merge conflict zones
+
+- LOW: the scenario list in `node-bundle-smoke.test.ts`.
+
 ## 2026-09-16 - Verify and externalize the grammar engine's assets (#1685)
 
 ### What changed
