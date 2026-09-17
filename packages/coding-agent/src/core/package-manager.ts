@@ -46,6 +46,7 @@ import { envValue } from "./brand.ts";
 import { isStdoutTakenOver } from "./output-guard.ts";
 import { readPiManifest } from "./pi-manifest.ts";
 import type { PackageSource, SettingsManager } from "./settings-manager.ts";
+import { collectAutoSkillEntries, collectSkillEntries } from "./skill-discovery.ts";
 import type { SourceScope } from "./source-info.ts";
 
 const NETWORK_TIMEOUT_MS = 10000;
@@ -363,91 +364,6 @@ function collectFiles(
 	}
 
 	return files;
-}
-
-type SkillDiscoveryMode = "pi" | "agents";
-
-function collectSkillEntries(
-	dir: string,
-	mode: SkillDiscoveryMode,
-	ignoreMatcher?: IgnoreMatcher,
-	rootDir?: string,
-): string[] {
-	const entries: string[] = [];
-	if (!existsSync(dir)) return entries;
-
-	const root = rootDir ?? dir;
-	const ig = ignoreMatcher ?? ignore();
-	addIgnoreRules(ig, dir, root);
-
-	try {
-		const dirEntries = readdirSync(dir, { withFileTypes: true });
-
-		for (const entry of dirEntries) {
-			if (entry.name !== "SKILL.md") {
-				continue;
-			}
-
-			const fullPath = join(dir, entry.name);
-			let isFile = entry.isFile();
-			if (entry.isSymbolicLink()) {
-				try {
-					isFile = statSync(fullPath).isFile();
-				} catch {
-					continue;
-				}
-			}
-
-			const relPath = toPosixPath(relative(root, fullPath));
-			if (isFile && !ig.ignores(relPath)) {
-				entries.push(fullPath);
-				return entries;
-			}
-		}
-
-		for (const entry of dirEntries) {
-			if (entry.name.startsWith(".")) continue;
-			if (entry.name === "node_modules") continue;
-
-			const fullPath = join(dir, entry.name);
-			let isDir = entry.isDirectory();
-			let isFile = entry.isFile();
-
-			if (entry.isSymbolicLink()) {
-				try {
-					const stats = statSync(fullPath);
-					isDir = stats.isDirectory();
-					isFile = stats.isFile();
-				} catch {
-					continue;
-				}
-			}
-
-			const relPath = toPosixPath(relative(root, fullPath));
-			const shouldIncludeMarkdownFile =
-				isFile &&
-				entry.name.endsWith(".md") &&
-				!ig.ignores(relPath) &&
-				((mode === "pi" && dir === root) || (mode === "agents" && dir !== root));
-			if (shouldIncludeMarkdownFile) {
-				entries.push(fullPath);
-				continue;
-			}
-
-			if (!isDir) continue;
-			if (ig.ignores(`${relPath}/`)) continue;
-
-			entries.push(...collectSkillEntries(fullPath, mode, ig, root));
-		}
-	} catch {
-		// Ignore errors
-	}
-
-	return entries;
-}
-
-function collectAutoSkillEntries(dir: string, mode: SkillDiscoveryMode): string[] {
-	return collectSkillEntries(dir, mode);
 }
 
 function findGitRepoRoot(startDir: string): string | null {

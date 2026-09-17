@@ -22,6 +22,13 @@ cell grid. Prefixes encode role:
   the `npm_execpath` basename), pnpm-only `npm_config_*` scrubbing, execpath-aware spawning that
   forwards SIGINT/SIGTERM/SIGHUP to the child, and per-manager forwarded-argument shaping.
 - `build-all.mjs`: PM-agnostic build orchestrator in dependency phases, built on `package-manager.mjs`.
+- `build-coding-agent-bundle.mjs`: esbuild release bundle of the compiled coding-agent (and the
+  `packages/ai` lazy loaders it reaches). `packages/coding-agent`'s `build:bundle` script runs it as
+  the last step of that package's `build`, so every root build emits
+  `packages/coding-agent/dist/bundle/` — the tree `bin.pi` resolves to and the npm tarball ships
+  (`bin.senpi` stays on the unbundled `dist/cli.js`). It consumes compiled `dist/` output from
+  `packages/ai` and `packages/coding-agent`, so it runs after those builds, never before them.
+  `node-bundle-smoke.test.ts` rebuilds it and runs the bundled CLI under both Node and Bun.
 - `run-workspaces.mjs`: root -> workspace script runner
   (`node scripts/run-workspaces.mjs [--if-present] [--workspace <name|path>]... <script> [-- <args>]`):
   resolves the root `workspaces` field, runs `<pm> run <script>` per workspace sequentially in path

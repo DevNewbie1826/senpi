@@ -1,5 +1,26 @@
 # mcp Extension Changes
 
+## 2026-09-17 - Load the MCP SDK on first use, not at every CLI start (senpi#1781)
+
+### What changed
+
+- New `sdk.lazy.ts` holds memoized loaders for the SDK submodules the builtin needs (client, stdio and streamable-HTTP transports, auth, types); a failed load is not cached so a later attempt retries, and concurrent callers share the in-flight promise.
+- New `transport-sdk.ts` owns the SDK-typed transport construction that `transport.ts` used to import statically, new `notification-schemas.ts` declares the subscribed notification schemas locally, and new `needs-auth.ts` recognizes an unauthorized error without importing the SDK's error class.
+- `connection.ts`, `health.ts`, `diagnose.ts`, `elicitation.ts`, `notifications.ts`, `resources.ts`, `logging.ts`, `wrap.ts` and the OAuth modules keep type-only SDK imports and await the loaders on their already-async paths.
+
+### Why
+
+- The SDK is 210 files / ~1.16 MB and the mcp builtin is statically reachable from the builtin barrel, so every start parsed and evaluated the whole SDK (about 70ms of module evaluation) although attach is already deferred to first use. Removing those static edges takes 213 modules out of the startup graph.
+
+### Why an extension could not handle it
+
+- The mcp builtin is the in-tree owner of the SDK graph; an outside extension cannot change its static imports.
+
+### Expected merge conflict zones
+
+- MEDIUM: `transport.ts` (the construction moved to `transport-sdk.ts`) and the notification-schema imports in `notifications.ts` / `resources.ts` / `logging.ts`.
+- LOW: the unauthorized-error checks in `connection.ts` and `health.ts`.
+
 ## stubSwap stubs promote themselves on the first by-name call (2026-09-14, senpi#1682)
 
 ### What changed

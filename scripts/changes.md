@@ -1,5 +1,24 @@
 # changes
 
+## 2026-09-17 - Smoke the shipped bundle under both runtimes (senpi#1781)
+
+### What changed
+
+- `scripts/node-bundle-smoke.test.ts` runs as a runtime matrix (node and bun) over the bundle it builds: `--version` equals the package version, `--help` exits 0, an external TypeScript extension in a temp directory is loaded with `--extension` and its flag appears in help, and an RPC `--multi-session` host opens, reports state for, and closes a session.
+- `scripts/AGENTS.md` documents `build-coding-agent-bundle.mjs` as a build entry point and its ordering rule.
+
+### Why
+
+- The bundle is now produced by the package build and shipped, so its runtime behavior needs coverage on both runtimes rather than a single node smoke.
+
+### Why an extension could not handle it
+
+- Build and packaging scripts run before any runtime or extension exists.
+
+### Expected merge conflict zones
+
+- LOW: the scenario list in `node-bundle-smoke.test.ts`.
+
 ## 2026-09-16 - Verify and externalize the grammar engine's assets (#1685)
 
 ### What changed

@@ -1,5 +1,24 @@
 # Core Extensions Changes
 
+## 2026-09-17 - Native Bun extension imports on every bun runtime (senpi#1781)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/loader.ts` selects `createBunExtensionImporter(VIRTUAL_MODULES)` when `isBunBinary || isBunRuntime` (the module-local `usesNativeBunImports`) instead of only inside a compiled binary, and the same predicate gates the live-runtime factory retention in `initializeExtension` so a plain bun runtime keeps its generation graph reachable exactly as the compiled binary does.
+- Node runtimes (Node SEA, the esbuild-bundled Node distribution, unbundled dist installs) keep the lazily imported jiti path with their existing `virtualModules` / `alias` / `tsconfigPaths` options and `moduleCache: false`.
+
+### Why
+
+- The Bun APIs the native importer needs (`Bun.Transpiler`, `Bun.resolveSync`, `Bun.plugin`) exist on any bun process, not only in `$bunfs`. Gating on the binary alone made every bun-global install re-run jiti + Babel over the bundled codemode extension (136 TypeScript files) and every user `.ts` extension on each boot: about 467ms of Babel plus 118ms of jiti cache writes per start.
+
+### Why an extension could not handle it
+
+- The loader resolves and evaluates extension modules before any extension code exists; an extension cannot choose the transformer that loads it.
+
+### Expected merge conflict zones
+
+- MEDIUM: the runtime-detection block and `createExtensionModuleImporter()` in `loader.ts`, plus the retention branch in `initializeExtension`.
+
 ## 2026-09-16 - Type kernelTools as the shipped invoke-scope surface (senpi#1731)
 
 ### What changed

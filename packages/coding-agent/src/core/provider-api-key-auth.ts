@@ -53,13 +53,10 @@ export function composeApiKeyAuth(
 						key: await interaction.prompt({ type: "secret", message: "Enter API key" }),
 					})),
 		check: async (input) => {
-			if (input.credential) {
+			if (input.credential?.key) {
 				const inheritedCheck = await inherited?.check?.(input);
 				if (inheritedCheck) return inheritedCheck;
-				if (input.credential.key) return { type: "api_key", source: "stored credential" };
-				const resolved = await inherited?.resolve(input);
-				if (resolved) return { type: "api_key", source: resolved.source };
-				return checkConfiguredHeaderAuth(rawHeaders, input.ctx, headerSource);
+				return { type: "api_key", source: "stored credential" };
 			}
 			if (rawKey !== undefined) {
 				if (isCommandConfigValue(rawKey)) return { type: "api_key", source: "configured API key" };
@@ -175,15 +172,13 @@ async function resolveBaseAuth(
 	rawKey: string | undefined,
 	input: Parameters<ApiKeyAuth["resolve"]>[0],
 ): Promise<AuthResult | undefined> {
-	if (input.credential) {
+	if (input.credential?.key) {
 		return inherited
 			? inherited.resolve(input)
-			: input.credential.key
-				? { auth: { apiKey: input.credential.key }, env: input.credential.env, source: "stored credential" }
-				: undefined;
+			: { auth: { apiKey: input.credential.key }, env: input.credential.env, source: "stored credential" };
 	}
 	if (rawKey === undefined) return inherited?.resolve(input);
-	const env = await configContextEnv([rawKey], input.ctx);
+	const env = await configContextEnv([rawKey], input.ctx, input.credential?.env);
 	const key = resolveConfigValueOrThrow(rawKey, `API key for provider "${providerId}"`, env);
 	return inherited
 		? inherited.resolve({ ...input, credential: { type: "api_key", key } })
