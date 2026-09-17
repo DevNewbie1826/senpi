@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { processBunRuntimeOptions, resolveBunReexec } from "./bun-runtime.js";
 import { enableStartupCompileCache } from "./compile-cache.js";
-import { APP_NAME, DISPLAY_VERSION, getPackageDir } from "./config.js";
+import { APP_NAME, DISPLAY_VERSION, getPackageDir, isBundledNode } from "./config.js";
 import { hasInheritedInspectorOption, releaseInheritedInspectorForChild } from "./inspector-policy.js";
 import { handleBootstrapSelfUpdate } from "./self-update-bootstrap.js";
 // Upstream's `cli/setup.ts` helper is deliberately not used here: this launcher only decides the
@@ -80,6 +80,8 @@ function isMissingBundledWorkspaceDependencies(packageDir) {
         return !existsSync(join(packageDir, "node_modules", "@earendil-works", name, "dist", "index.js"));
     });
 }
+/** Marks the child a bundled entry spawned for its exec arguments, so it never spawns again. */
+const ISOLATED_CHILD_ENV = "SENPI_CLI_ISOLATED_CHILD";
 /**
  * Decide whether the agent needs its own process.
  *
@@ -92,15 +94,26 @@ function isMissingBundledWorkspaceDependencies(packageDir) {
  * anything the agent spawns can inherit it.
  */
 function requiresIsolatedProcess() {
+    // The bundled entry re-executes itself rather than a sibling, so the child would otherwise see the
+    // same exec arguments and spawn again forever. The marker is read before anything else runs.
+    if (process.env[ISOLATED_CHILD_ENV] === "1")
+        return false;
     return process.execArgv.length > 0 || hasInheritedInspectorOption();
 }
 async function spawnFullCli() {
     const extension = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
-    const fullCliPath = fileURLToPath(new URL(`./cli-main${extension}`, import.meta.url));
+    // The bundle inlines `cli-main`, so no sibling module exists next to it: resolving one produced
+    // `Module not found .../dist/bundle/cli-main.js` for every launch carrying exec arguments. The
+    // bundled entry therefore replays the arguments onto a copy of itself, marked so the child loads
+    // the agent in process. An unbundled install keeps spawning its sibling exactly as before.
+    const fullCliPath = isBundledNode
+        ? fileURLToPath(import.meta.url)
+        : fileURLToPath(new URL(`./cli-main${extension}`, import.meta.url));
     releaseInheritedInspectorForChild();
+    const childEnvironment = isBundledNode ? { ...process.env, [ISOLATED_CHILD_ENV]: "1" } : process.env;
     return await new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [...process.execArgv, fullCliPath, ...args], {
-            env: process.env,
+            env: childEnvironment,
             stdio: "inherit",
         });
         child.on("error", (error) => {

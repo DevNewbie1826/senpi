@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-17 - The bundled entry replays exec arguments onto itself (senpi#1781)
+
+### What changed
+
+- `packages/coding-agent/src/cli.ts`: `spawnFullCli()` resolves the respawn target from `isBundledNode` - the bundle re-executes its own `import.meta.url`, an unbundled install keeps spawning the sibling `cli-main`. The bundled child carries `SENPI_CLI_ISOLATED_CHILD=1`, which `requiresIsolatedProcess()` reads first so it loads the agent in process instead of spawning again.
+
+### Why
+
+- The bundle inlines `cli-main`, so no sibling module exists beside it. Once the package build started emitting the bundle and the launcher preferred it, every launch carrying custom exec arguments (a profiler or inspector flag, anything in `NODE_OPTIONS`) failed with `Module not found .../dist/bundle/cli-main.js` before any agent code ran.
+
+### Why an extension could not handle it
+
+- Process structure is decided by the entry module before the extension host exists.
+
+### Expected merge conflict zones
+
+- LOW: `requiresIsolatedProcess()` and `spawnFullCli()` in `cli.ts`.
+
 ## 2026-09-17 - Defer command and mode graphs out of main()'s import block (senpi#1781)
 
 ### What changed

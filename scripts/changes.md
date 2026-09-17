@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-17 - Smoke the bundled entry under custom exec arguments (senpi#1781)
+
+### What changed
+
+- `scripts/node-bundle-smoke.test.ts`: a scenario per runtime launches the bundle with a profiler flag and asserts the agent ran (it rejects the unknown model) instead of failing to resolve its own entry.
+
+### Why
+
+- The bundle inlines `cli-main`, so the sibling the respawn path used to resolve does not exist; nothing covered that path until it broke.
+
+### Why an extension could not handle it
+
+- Packaging and process-structure coverage runs before any runtime exists.
+
+### Expected merge conflict zones
+
+- LOW: the scenario list in `node-bundle-smoke.test.ts`.
+
 ## 2026-09-17 - Smoke the shipped bundle under both runtimes (senpi#1781)
 
 ### What changed

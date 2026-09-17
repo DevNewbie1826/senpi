@@ -62,6 +62,27 @@ describe.each(runtimes)("the Node bundle under %s", (runtime) => {
 		expect(result.stdout.trim()).toBe(version);
 	});
 
+	// Custom exec arguments (a profiler or inspector flag, anything in NODE_OPTIONS) are applied at
+	// process start, so the entry replays them onto a fresh process. The unbundled entry respawns its
+	// sibling `cli-main`; the bundle inlined that module and has no such file, so the respawn has to
+	// target the bundle itself.
+	test("runs under custom exec arguments instead of looking for an inlined sibling", () => {
+		// Given
+		const state = createState();
+		try {
+			// When
+			const result = spawnSync(runtime, ["--cpu-prof", "--cpu-prof-dir", state, cli, "--model", "nope/nope", "-p", "hi"], {
+				encoding: "utf8", env: hermeticEnv(state), timeout: 60_000,
+			});
+			// Then: the agent ran and rejected the model, rather than the entry failing to resolve itself.
+			const output = `${result.stdout}${result.stderr}`;
+			expect(output, output).not.toContain("Module not found");
+			expect(output, output).toContain("nope/nope");
+		} finally {
+			rmSync(state, { recursive: true, force: true });
+		}
+	}, 70_000);
+
 	test("prints help and exits successfully", () => {
 		// Given
 		const state = createState();
