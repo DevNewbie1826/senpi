@@ -56,6 +56,10 @@ export interface HostProtocolInfo {
 	/** Informational only. Nothing in this module compares it. */
 	readonly serverVersion: string;
 	readonly capabilities: readonly string[];
+	/** Which host PROCESS answered. A handoff is complete exactly when this value changes. */
+	readonly instanceId?: string;
+	/** Which generation of the daemon that process is; `0` until the first handoff. */
+	readonly generation?: number;
 	readonly engineVersion?: string;
 	readonly engineOrdinal?: EngineOrdinal;
 	readonly launch_profile?: RpcLaunchProfile;
@@ -239,6 +243,9 @@ export function parseHostProtocolInfo(data: unknown): HostProtocolInfo | undefin
 		protocolVersion: typeof data.protocolVersion === "number" ? data.protocolVersion : 0,
 		serverVersion: data.serverVersion,
 		capabilities: data.capabilities,
+		...(typeof data.instanceId === "string" && { instanceId: data.instanceId }),
+		...(typeof data.generation === "number" &&
+			Number.isSafeInteger(data.generation) && { generation: data.generation }),
 		...(typeof data.engineVersion === "string" && { engineVersion: data.engineVersion }),
 		...(ordinal && { engineOrdinal: ordinal }),
 		...(launchProfile && { launch_profile: launchProfile }),

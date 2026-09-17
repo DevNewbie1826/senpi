@@ -386,6 +386,9 @@ export {
 	type EnsureHostOptions,
 	ensureHost,
 	GENERATION_HANDOFF_CAPABILITY,
+	type HandoffHostOptions,
+	type HandoffRefusal,
+	type HandoffResult,
 	HOST_PROTOCOL_VERSION,
 	type HostAction,
 	type HostDaemonPaths,
@@ -396,6 +399,8 @@ export {
 	HostEnsureRefusedError,
 	type HostProtocolInfo,
 	type HostRefusalReason,
+	type HostUpgradePolicy,
+	handoffHost,
 	InteractiveMode,
 	type InteractiveModeOptions,
 	isTransportGoneError,
@@ -403,7 +408,9 @@ export {
 	type ModelInfo,
 	PINNED_HOST_CLIENT_CAPABILITIES,
 	type PrintModeOptions,
+	type ProbeHostOptions,
 	parseHostProtocolInfo,
+	probeHost,
 	REQUIRED_HOST_CAPABILITIES,
 	RpcClient,
 	type RpcClientEvent,
@@ -419,6 +426,9 @@ export {
 	RpcTransportGoneError,
 	runPrintMode,
 	runRpcMode,
+	type StopHostOptions,
+	type StopHostResult,
+	stopHost,
 } from "./modes/index.ts";
 // UI components for extensions
 export {

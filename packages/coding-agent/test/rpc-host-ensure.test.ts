@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -11,8 +11,9 @@ import {
 	readProcessStartTime,
 	waitForStartTime,
 } from "../src/modes/app-server/daemon/process.ts";
-import { HostEnsureRefusedError } from "../src/modes/rpc/host-decision.ts";
+import { GENERATION_HANDOFF_CAPABILITY, HostEnsureRefusedError } from "../src/modes/rpc/host-decision.ts";
 import { createHostDaemonPaths, defaultHostLaunch, ensureHost } from "../src/modes/rpc/host-ensure.ts";
+import { handoffHost } from "../src/modes/rpc/host-handoff.ts";
 import {
 	readSocketSecret,
 	resolveSocketTransportAddress,
@@ -26,6 +27,8 @@ const fixture = join(import.meta.dirname, "fixtures", "rpc-host-fixture.mjs");
 const incompatibleProtocolFixture = join(import.meta.dirname, "fixtures", "rpc-incompatible-protocol-host.ts");
 /** What a host must advertise before any client may attach: protocol capabilities, never a version. */
 const CAPABILITIES = "multi_session,extension_events,session_context,session_kind";
+/** A host that can drain into a successor generation: the only kind a client may ever hand off from. */
+const HANDOFF_CAPABILITIES = `${CAPABILITIES},${GENERATION_HANDOFF_CAPABILITY}`;
 /** The published release whose ensure logic is replayed in the legacy fail-closed proof. */
 const LEGACY_VERSION = "2026.9.16-3";
 
@@ -394,6 +397,105 @@ describe("ensureHost", () => {
 	}, 30_000);
 });
 
+describe("generation handoff", () => {
+	it("never hands off by default, even to an older host that can drain", async () => {
+		// The default upgrade policy is `never`: finding an older, drainable host is not a reason to
+		// replace it. Only a caller that explicitly asks for an upgrade may start a second generation.
+		const qa = await scratch("default-never");
+		const running = await startManagedFixture(qa, {
+			capabilities: HANDOFF_CAPABILITIES,
+			identity: fixtureIdentity({ engineOrdinal: [2026, 1, 1, 0, 0] }),
+		});
+		const before = await stat(qa.socket);
+
+		const result = await ensureHost({
+			agentDir: qa.agentDir,
+			socket: qa.socket,
+			hostArgs: ["--provider", "mock"],
+			_test: { launch: refuseToSpawn },
+		});
+
+		expect(result).toEqual({ pid: running.pid, socket: qa.socket, reused: true });
+		expect(await stat(qa.socket)).toMatchObject({ ino: before.ino });
+		expect(await processMatchesPidFile(running.pidFile, readProcessStartTime)).toBe(true);
+	}, 20_000);
+
+	it("spawns nothing when the running generation is newer than this build", async () => {
+		// d2: an older client that arrives after a handoff attaches to the newer generation. A handoff
+		// is monotonic - it only ever moves forward - so this client must not start a third generation.
+		const qa = await scratch("older-client");
+		const running = await startManagedFixture(qa, {
+			capabilities: HANDOFF_CAPABILITIES,
+			identity: fixtureIdentity({ engineOrdinal: [9999, 1, 1, 0, 0] }),
+		});
+		const before = await stat(qa.socket);
+
+		const result = await ensureHost({
+			agentDir: qa.agentDir,
+			socket: qa.socket,
+			upgrade: "if-engine-differs",
+			_test: { launch: refuseToSpawn },
+		});
+
+		expect(result).toEqual({ pid: running.pid, socket: qa.socket, reused: true });
+		expect(await stat(qa.socket)).toMatchObject({ ino: before.ino });
+	}, 20_000);
+
+	it("refuses to hand off from a legacy host that cannot drain", async () => {
+		// b4: a host from before the drain handler has no SIGUSR1 handler at all, so signalling it would
+		// KILL it. It is neither renamed nor signalled - it keeps owning the socket it is serving.
+		const qa = await scratch("legacy-host");
+		const running = await startManagedFixture(qa, {
+			identity: fixtureIdentity({ engineOrdinal: [2026, 1, 1, 0, 0] }),
+		});
+		const before = await stat(qa.socket);
+
+		const decision = await handoffHost({
+			socket: qa.socket,
+			agentDir: qa.agentDir,
+			_test: { launch: refuseToSpawn },
+		});
+
+		expect(decision).toMatchObject({ action: "refuse", reason: "handoff_unsupported", upgradeable: false });
+		expect(await stat(qa.socket)).toMatchObject({ ino: before.ino });
+		expect(await processMatchesPidFile(running.pidFile, readProcessStartTime)).toBe(true);
+	}, 20_000);
+
+	it("refuses an upgrade on win32, where a pipe can neither be renamed nor drained", async () => {
+		const qa = await scratch("win32-refuse");
+		await startManagedFixture(qa, { capabilities: HANDOFF_CAPABILITIES, identity: fixtureIdentity({}) });
+
+		const decision = await handoffHost({
+			socket: qa.socket,
+			agentDir: qa.agentDir,
+			_test: { launch: refuseToSpawn, platform: "win32" },
+		});
+
+		expect(decision).toMatchObject({ action: "refuse", reason: "upgrade_unsupported" });
+	}, 20_000);
+
+	it("leaves a daemon on another socket running when this agent directory ensures a second one", async () => {
+		// b2: today's daemon directory holds ONE pidfile per agent directory, so an ensure for a
+		// different socket read the running daemon's record as its own and stopped it. A record that
+		// names another endpoint is not this ensure's host, whoever wrote it.
+		const qa = await scratch("other-socket");
+		const running = await startManagedFixture(qa);
+		const otherSocket = join(qa.root, "other.sock");
+
+		const second = await ensureHost({
+			agentDir: qa.agentDir,
+			socket: otherSocket,
+			_test: {
+				spawn: { command: process.execPath, args: [fixture, otherSocket, VERSION, CAPABILITIES, "answer"] },
+			},
+		});
+
+		expect(second.reused).toBe(false);
+		expect(second.pid).not.toBe(running.pid);
+		expect(await processMatchesPidFile(running.pidFile, readProcessStartTime)).toBe(true);
+	}, 20_000);
+});
+
 describe("legacy client against a daemon directory with no flat pidfile", () => {
 	it("fails closed instead of taking the host over", async () => {
 		// D11: the published v2026.9.16-3 ensure logic, replayed below, is what is deployed on user
@@ -454,20 +556,61 @@ async function legacyEnsureHostLocked(args: {
 
 describe("defaultHostLaunch", () => {
 	it("re-enters through the internal supervisor route in compiled binaries", () => {
-		expect(defaultHostLaunch("/tmp/qa.sock", ["--provider", "mock"], true)).toEqual({
+		expect(defaultHostLaunch(["--socket", "/tmp/qa.sock", "--provider", "mock"], true)).toEqual({
 			command: process.execPath,
 			args: ["--internal-rpc-host-supervisor", "--socket", "/tmp/qa.sock", "--provider", "mock"],
 		});
 	});
 
+	it("forwards a generation bind and its replace guard to the supervisor", () => {
+		expect(
+			defaultHostLaunch(["--socket", "/tmp/qa.sock", "--bind", "/tmp/qa.sock.next-1", "--replace", "16:42"], true),
+		).toEqual({
+			command: process.execPath,
+			args: [
+				"--internal-rpc-host-supervisor",
+				"--socket",
+				"/tmp/qa.sock",
+				"--bind",
+				"/tmp/qa.sock.next-1",
+				"--replace",
+				"16:42",
+			],
+		});
+	});
+
 	it("re-enters through the host-lifecycle script outside compiled binaries", () => {
-		const launch = defaultHostLaunch("/tmp/qa.sock", ["--provider", "mock"], false);
+		const launch = defaultHostLaunch(["--socket", "/tmp/qa.sock", "--provider", "mock"], false);
 		expect(launch.command).toBe(process.execPath);
 		const args = launch.args.slice(process.execArgv.length);
 		expect(args[0]).toMatch(/host-lifecycle\.(ts|js)$/);
 		expect(args.slice(1)).toEqual(["--socket", "/tmp/qa.sock", "--provider", "mock"]);
 	});
 });
+
+/** Every spawn seam a case that must NOT start a generation passes; firing it fails that case. */
+const refuseToSpawn = (): never => {
+	throw new Error("a host was spawned when none should have been");
+};
+
+/** A `get_protocol_info` identity for a fixture host, defaulting to a build older than this tree. */
+function fixtureIdentity(overrides: {
+	engineOrdinal?: readonly number[];
+	instanceId?: string;
+	generation?: number;
+}): Record<string, unknown> {
+	const engineOrdinal = overrides.engineOrdinal ?? [2026, 1, 1, 0, 0];
+	return {
+		instanceId: overrides.instanceId ?? "fixture-instance",
+		generation: overrides.generation ?? 0,
+		engineVersion: `${engineOrdinal.slice(0, 3).join(".")}`,
+		engineOrdinal,
+		launch_profile: {
+			profile_id: "fixture-profile",
+			core: { extensions: [], multi_session: true, session_runtime: "in-process" },
+		},
+	};
+}
 
 type Qa = { root: string; agentDir: string; socket: string };
 /** Who the pidfile claims wrote it: this process, this process's pid after a reboot recycled it, or the host itself. */
@@ -506,11 +649,23 @@ function ensureFixtureHost(qa: Qa, overrides: Overrides = {}) {
 
 async function startManagedFixture(
 	qa: Qa,
-	options: { serverVersion?: string; capabilities?: string; writer?: Writer } = {},
+	options: {
+		serverVersion?: string;
+		capabilities?: string;
+		writer?: Writer;
+		identity?: Record<string, unknown>;
+	} = {},
 ): Promise<Managed> {
 	const child = spawn(
 		process.execPath,
-		[fixture, qa.socket, options.serverVersion ?? VERSION, options.capabilities ?? CAPABILITIES, "answer"],
+		[
+			fixture,
+			qa.socket,
+			options.serverVersion ?? VERSION,
+			options.capabilities ?? CAPABILITIES,
+			"answer",
+			JSON.stringify(options.identity ?? {}),
+		],
 		{ detached: true, stdio: "ignore" },
 	);
 	await waitForProtocol(qa.socket);
@@ -539,7 +694,12 @@ async function register(qa: Qa, child: ChildProcess, writer: Writer): Promise<Ma
 	await mkdir(paths.dir, { recursive: true });
 	await writeFile(
 		paths.pidFile,
-		`${JSON.stringify({ pid: child.pid, processStartTime, writer: await writerRecord(writer, child.pid) })}\n`,
+		`${JSON.stringify({
+			pid: child.pid,
+			processStartTime,
+			socket: qa.socket,
+			writer: await writerRecord(writer, child.pid),
+		})}\n`,
 		{ mode: 0o600 },
 	);
 	await writeFile(paths.settingsFile, `${JSON.stringify({ socket: qa.socket })}\n`, { mode: 0o600 });

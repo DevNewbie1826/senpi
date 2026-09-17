@@ -963,6 +963,18 @@ export type RpcSessionParkedEvent = {
 	sessionPath: string;
 };
 
+/**
+ * Why a `session_closed` record was emitted, when the host names a reason.
+ *
+ * `handoff_parked`: a GENERATION HANDOFF drained this host and put the session back on disk once
+ * its turn settled. The session was not ended - `open_session { sessionPath }` reopens it in the
+ * new generation - so a client that reconnects should resume rather than report a loss.
+ *
+ * Optional on the wire and open to new members: a client that does not recognise a reason treats
+ * the record exactly as it treated a reason-less one.
+ */
+export type RpcSessionClosedReason = "handoff_parked";
+
 /** Emitted after the loaded skill, extension, or MCP inventory changes. */
 export interface RpcLoadedSurfacesChangedEvent {
 	type: "loaded_surfaces_changed";

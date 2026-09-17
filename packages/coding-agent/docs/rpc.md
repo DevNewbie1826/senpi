@@ -193,6 +193,60 @@ Two invariants are encoded here, and every client is expected to keep them:
   compared (a build without git metadata, a host that reports none) is EQUAL, and since a handoff requires
   STRICTLY greater, such a pair attaches instead of upgrading.
 
+### Generation handoff (`handoffHost`, `probeHost`, `stopHost`)
+
+An engine upgrade must not end the work the running daemon is doing: one machine-wide host holds every
+client's sessions. A GENERATION HANDOFF replaces the process while its sessions keep running.
+
+1. The successor is spawned with `--socket <public> --bind <public>.next-<generation>` and binds the BIND
+   path. It never binds the live public path, and the bind path is refused before the bind when it would
+   exceed the platform's 103-byte socket-path limit.
+2. Once its host answers, the successor renames its own entry over the public path - but only while that
+   path still refers to the exact socket the handoff was decided against (`--replace <dev>:<ino>`). A path
+   taken over by anything else aborts the handoff: nothing is renamed, nothing is unlinked, and the
+   running host keeps serving.
+3. `handoffHost` then registers the successor (pidfile + `settings.json { socket, generation }`) and sends
+   the predecessor SIGUSR1 = DRAIN: stop accepting, keep every connection already proxied, park each
+   retained session as soon as its turn settles, and exit through the ordinary idle path. Attached clients
+   see `session_closed { reason: "handoff_parked" }` for a parked session and reopen it with
+   `open_session { sessionPath }`.
+
+Two guards decide whether a handoff is attempted at all, and both fail closed:
+
+- The running host must advertise `generation_handoff`. SIGUSR1 TERMINATES a process that installed no
+  handler for it, so a host from before the drain existed is never signalled - `handoffHost` answers
+  `{ action: "refuse", reason: "handoff_unsupported" }` and `decideHostAction` reports `upgradeable: false`.
+- The pidfile must prove which process serves the socket (pid + start time, and the record's `socket` must
+  be this endpoint). An unprovable owner refuses with `unknown_owner` rather than signalling a stranger (I1).
+
+On win32 a named pipe can be neither renamed nor drained: `handoffHost` refuses with `upgrade_unsupported`
+and `decideHostAction` never yields `handoff` there. Upgrades apply after `stopHost({ drain: true })` or an
+idle exit.
+
+`ensureHost` performs a handoff only when asked: `upgrade: "if-engine-differs"` (default `"never"`) makes it
+run `decideHostAction` under policy `upgrade` with the launch profile its own `hostArgs` describe. A refused
+handoff ATTACHES to the running host - an upgrade that cannot happen never becomes a stop.
+
+`ensureHost` also takes `hostArgs` (CLI arguments forwarded through the supervisor to the host process) and
+`env` (a `null` value removes an inherited variable) as public options.
+
+`stopHost({ socket, agentDir, drain?, force? })` ends a generation: `drain: true` is always permitted (it
+ends no work, it only stops the host from taking new work), while a hard stop requires a host that reports
+no open sessions, or `force: true`. `probeHost({ socket })` returns the running host's `get_protocol_info`
+answer, or `undefined` when nothing is serving the endpoint.
+
+#### Session paths across generations (`reservations/`)
+
+During a handoff two hosts are alive at once, so the in-process path reservation cannot keep them off one
+JSONL file. Every generation records each open session path in
+`<agentDir>/rpc-host-daemon/reservations/<sha256(canonical path)[:16]>.json` as
+`{ instanceId, pid, processStartTime, sessionPath }`, and removes it when the session closes or parks. An
+`open_session { sessionPath }` that finds a LIVE foreign claim answers
+`session_path_in_use` with `errorData { owner, retry_after_ms: 2000 }`; a claim whose owner is gone (a killed
+host, a reboot, a recycled pid with a different start time) is ignored. So a reopen during a handoff waits
+for the previous writer to finish rather than corrupting its transcript, and a session file is never
+permanently unopenable.
+
 ### Child reaping on a socket host (`SENPI_RPC_HOST_REAPER`)
 
 A socket host reaps the exited child processes that no thread is left to wait on. A `worker_threads` Worker owns the
@@ -347,7 +401,10 @@ session contents; neither runtime provides process-fatal OOM containment. The ho
   `session_parked { sessionId, sessionPath }` and there is no `close_session` response, because nothing closed the session -
   the routing handle was released while the session itself stays on disk and reopens with `open_session { sessionPath }`
   (as a NEW handle). A client that does not know `session_parked` ignores it and learns the handle is gone from its next
-  command's `unknown_session`. "Session-owned
+  command's `unknown_session`. A GENERATION HANDOFF parks the same sessions for the same reason, but names itself in
+  the record it emits: `session_closed { sessionId, reason: "handoff_parked" }`, so a client can tell "the host handed
+  over, reopen by path" from "this session ended". `reason` is optional on the wire; a client that does not know a
+  value treats the record exactly as a reason-less one. "Session-owned
   work" is the complete activity contract, not just a streaming turn: an agent run, a running bash command,
   background terminal jobs and any other published wake source (terminal monitors, loop-guard holds), compaction,
   and barrier-held session work all defer eviction, and the idle clock restarts when that work settles. An evicted
@@ -511,7 +568,7 @@ In the response `error` field, machine-matchable:
 
 - `unknown_session`
 - `session_closing`
-- `session_path_in_use` (path held by an opening or quarantined owner; a fully-open current owner is attached instead, an owner whose teardown is already in flight is waited out on the in-process runtime, and a path a live owner has superseded is released rather than held)
+- `session_path_in_use` (path held by an opening or quarantined owner; a fully-open current owner is attached instead, an owner whose teardown is already in flight is waited out on the in-process runtime, and a path a live owner has superseded is released rather than held). A path held by ANOTHER GENERATION of the daemon carries `errorData { owner: { instanceId, pid, processStartTime, sessionPath }, retry_after_ms: 2000 }`: the previous generation is still writing that file and is parking it, so the open is a retry, not a failure
 - `session_reservation_limit` (this worker already holds 64 live session paths; the open or session replacement was refused without disturbing the existing session)
 - `missing_session_id` (session-scoped command without `sessionId` in multi mode)
 - `multi_session_disabled` (`open_session` in classic mode)

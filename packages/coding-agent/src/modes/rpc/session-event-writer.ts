@@ -3,7 +3,7 @@ import type { SessionKind } from "../../core/extensions/types.ts";
 import { MEDIA_PLACEHOLDERS_CAPABILITY } from "./custom-capability.ts";
 import { serializeJsonLine } from "./jsonl.ts";
 import { omitInlineMedia } from "./media-placeholders.ts";
-import type { RpcSessionParkedEvent } from "./rpc-types.ts";
+import type { RpcSessionClosedReason, RpcSessionParkedEvent } from "./rpc-types.ts";
 import {
 	RENDERED_COMPONENT_RECORD,
 	SessionEventFanout,
@@ -346,12 +346,14 @@ export class SessionEventWriter {
 	 * Existing records retain FIFO order; this response is therefore that
 	 * session's final stdout record.
 	 */
-	closeSession(sessionId: string, response: object): void {
+	closeSession(sessionId: string, response: object, reason?: RpcSessionClosedReason): void {
 		if (this.sealedSessions.has(sessionId)) return;
 		this.sealedSessions.add(sessionId);
 		this.fanout.forgetSession(sessionId);
 		const targetId = this.connectionContext.getStore();
-		const lifecycle = { type: "session_closed", sessionId };
+		// `reason` tells an attached client WHY the handle ended, so a park it can reopen by path is
+		// not read as a session that is gone. Absent unless the caller names one; clients tolerate that.
+		const lifecycle = { type: "session_closed", sessionId, ...(reason && { reason }) };
 		if (this.fanout.isEmpty()) this.appendSessionRecord(sessionId, lifecycle);
 		else if (this.workerSessions.has(sessionId))
 			this.fanout.deliverToSession(sessionId, serializeJsonLine(lifecycle));

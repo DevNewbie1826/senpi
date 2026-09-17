@@ -214,19 +214,19 @@ async function ensure(qa, { idleExitMs, hostArgs = [], env = {} }) {
 		socket: qa.socket,
 		agentDir: qa.agentDir,
 		policy: { idleExitMs },
+		hostArgs,
+		env: {
+			...hermeticEnv({
+				PI_OFFLINE: "1",
+				PI_TELEMETRY: "0",
+				SENPI_RUNTIME: "node",
+				SENPI_CODING_AGENT_DIR: qa.agentDir,
+				SENPI_CODING_AGENT_SESSION_DIR: qa.sessionDir,
+			}),
+			...env,
+		},
 		_test: {
 			readinessTimeoutMs: 60_000,
-			env: {
-				...hermeticEnv({
-					PI_OFFLINE: "1",
-					PI_TELEMETRY: "0",
-					SENPI_RUNTIME: "node",
-					SENPI_CODING_AGENT_DIR: qa.agentDir,
-					SENPI_CODING_AGENT_SESSION_DIR: qa.sessionDir,
-				}),
-				...env,
-			},
-			hostArgs,
 			spawn: {
 				command: process.execPath,
 				args: [join(here, "..", "..", "src", "modes", "rpc", "host-lifecycle.ts"), "--socket", qa.socket, ...hostArgs],

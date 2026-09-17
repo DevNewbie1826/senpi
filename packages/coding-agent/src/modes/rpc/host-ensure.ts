@@ -1,73 +1,77 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, open, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { ENV_AGENT_DIR, getAgentDir, isBunBinary } from "../../config.ts";
+import { dirname, join } from "node:path";
+import { ENV_AGENT_DIR, getAgentDir } from "../../config.ts";
 import { engineBuildIdentity } from "../../core/engine-build-identity.ts";
 import {
 	type DaemonPidFile,
 	ProcessIdentityUnreadableError,
-	parseDaemonPidFile,
 	processIsLive,
 	processMatchesPidFile,
 	readProcessStartTime,
 	waitForStartTime,
 } from "../app-server/daemon/process.ts";
+import { RPC_CLIENT_CAPABILITIES_ENV } from "./custom-capability.ts";
 import {
-	CUSTOM_UNSUPPORTED_CAPABILITY,
-	EXTENSION_EVENTS_CAPABILITY,
-	RPC_CLIENT_CAPABILITIES_ENV,
-} from "./custom-capability.ts";
+	createHostDaemonPaths,
+	type HostDaemonPaths,
+	type RegisteredHost,
+	readPidFile,
+	writeHostSettings,
+	writePidFile,
+	writtenByThisProcess,
+} from "./host-daemon-state.ts";
 import {
 	decideHostAction,
 	HOST_PROTOCOL_VERSION,
+	type HostDecision,
 	type HostDecisionClient,
 	HostEnsureRefusedError,
 	type HostProtocolInfo,
-	parseHostProtocolInfo,
 	REQUIRED_HOST_CAPABILITIES,
 } from "./host-decision.ts";
-import {
-	DEFAULT_HOST_IDLE_EXIT_MS,
-	type HostColdStart,
-	type HostLifecyclePolicyInput,
-	INTERNAL_SUPERVISOR_FLAG,
-} from "./host-lifecycle.ts";
+import { handoffHost } from "./host-handoff.ts";
+import { defaultHostLaunch, PINNED_HOST_CLIENT_CAPABILITIES } from "./host-launch.ts";
+import { DEFAULT_HOST_IDLE_EXIT_MS, type HostColdStart, type HostLifecyclePolicyInput } from "./host-lifecycle.ts";
+import { probeProtocolInfo } from "./host-probe.ts";
 import { acquireOwnershipSafeLock } from "./ownership-safe-lock.ts";
-import {
-	createSocketSecret,
-	readSocketSecret,
-	resolveSocketTransportAddress,
-	sendSocketHandshake,
-	socketSecretPath,
-} from "./socket-transport.ts";
+import { hostLaunchProfile } from "./protocol-identity.ts";
+import { createSocketSecret, resolveSocketTransportAddress, socketSecretPath } from "./socket-transport.ts";
 
+export { createHostDaemonPaths, type HostDaemonPaths } from "./host-daemon-state.ts";
+export { defaultHostLaunch, PINNED_HOST_CLIENT_CAPABILITIES } from "./host-launch.ts";
+export { type ProbeHostOptions, probeHost } from "./host-probe.ts";
 export type { HostColdStart, HostLifecyclePolicyInput };
 
-export interface HostDaemonPaths {
-	readonly dir: string;
-	readonly pidFile: string;
-	readonly lockFile: string;
-	readonly settingsFile: string;
-	readonly stderrLog: string;
-}
+/**
+ * What an ensure may do to a host that is already running.
+ *
+ * `never` (the default) attaches or starts, and touches nothing that is already serving the
+ * socket. `if-engine-differs` additionally allows a GENERATION HANDOFF when `decideHostAction`
+ * finds this build strictly newer and its extension set a superset of the running host's - the
+ * running host then drains instead of dying, so no session is ever ended by an upgrade.
+ */
+export type HostUpgradePolicy = "never" | "if-engine-differs";
 
 export interface EnsureHostOptions {
 	readonly socket: string;
 	readonly agentDir?: string;
 	/** Host lifecycle policy recorded in settings.json (env overrides win at runtime). */
 	readonly policy?: HostLifecyclePolicyInput;
+	/** Extra CLI arguments forwarded through the supervisor to the host process. */
+	readonly hostArgs?: readonly string[];
+	/** Environment for the spawned host; a `null` value removes an inherited variable. */
+	readonly env?: Readonly<Record<string, string | null>>;
+	/** Whether a newer build may take the socket over from the running host. Defaults to `never`. */
+	readonly upgrade?: HostUpgradePolicy;
 	readonly _test?: {
 		readonly readinessTimeoutMs?: number;
 		readonly stopTimeoutMs?: number;
 		readonly spawn?: { readonly command: string; readonly args: readonly string[] };
-		/** Extra env merged over process.env for the spawned host (hermetic test/QA wiring). */
-		readonly env?: Readonly<Record<string, string>>;
-		/** Extra CLI args forwarded through the supervisor to the host process. */
-		readonly hostArgs?: readonly string[];
+		/** Builds the spawnable command from supervisor argv; tests point it at the source entry. */
+		readonly launch?: (args: readonly string[]) => { readonly command: string; readonly args: readonly string[] };
 		/** Runs after endpoint ownership is locked; deterministic concurrency-test gate. */
 		readonly afterLockAcquired?: () => Promise<void>;
 		/**
@@ -107,24 +111,6 @@ const LOCK_BUSY_WAIT_MS = 100;
 const lockOptions = {
 	retries: { retries: ENSURE_LOCK_WAIT_MS / LOCK_BUSY_WAIT_MS, minTimeout: 20, maxTimeout: LOCK_BUSY_WAIT_MS },
 } as const;
-/**
- * Every ensured host starts with this installation-wide profile, independent of
- * the first caller. In particular, extension_events must remain available when
- * a terminal client starts the shared host before the desktop connects.
- */
-export const PINNED_HOST_CLIENT_CAPABILITIES = [EXTENSION_EVENTS_CAPABILITY, CUSTOM_UNSUPPORTED_CAPABILITY] as const;
-
-export function createHostDaemonPaths(agentDir = getAgentDir()): HostDaemonPaths {
-	const dir = join(agentDir, "rpc-host-daemon");
-	return {
-		dir,
-		pidFile: join(dir, "host.pid"),
-		lockFile: join(dir, "daemon.lock"),
-		settingsFile: join(dir, "settings.json"),
-		stderrLog: join(dir, "stderr.log"),
-	};
-}
-
 export async function ensureHost(options: EnsureHostOptions): Promise<EnsuredHost> {
 	const socket = normalizeSocketPath(options.socket);
 	const paths = createHostDaemonPaths(options.agentDir);
@@ -143,7 +129,7 @@ export async function ensureHost(options: EnsureHostOptions): Promise<EnsuredHos
 	const release = await acquireOwnershipSafeLock(`${lockTarget}.lock`, lockOptions);
 	try {
 		await options._test?.afterLockAcquired?.();
-		return await ensureHostLocked(paths, socket, options.agentDir ?? getAgentDir(), options.policy, options._test);
+		return await ensureHostLocked(paths, socket, options);
 	} finally {
 		await release();
 	}
@@ -152,106 +138,138 @@ export async function ensureHost(options: EnsureHostOptions): Promise<EnsuredHos
 async function ensureHostLocked(
 	paths: HostDaemonPaths,
 	socket: string,
-	agentDir: string,
-	policy: HostLifecyclePolicyInput | undefined,
-	testOptions: EnsureHostOptions["_test"],
+	options: EnsureHostOptions,
 ): Promise<EnsuredHost> {
+	const testOptions = options._test;
 	const registered = await readPidFile(paths);
+	// A record naming ANOTHER endpoint is not about this ensure's host: today's daemon directory
+	// holds one pidfile per agent directory, so a second socket in the same directory used to read
+	// the first socket's daemon as its own - and stop it.
+	const registeredHere = registersSocket(registered, socket);
 	const protocol = await probeProtocolInfo(socket, EXISTING_HOST_PROBE_TIMEOUT_MS);
-	const startedByUs = await writtenByThisProcess(registered?.writer);
-	const decision = decideHostAction(ensureClient(startedByUs), protocol, "never");
+	const startedByUs = registeredHere && (await writtenByThisProcess(registered?.writer));
+	const attachedPid = registeredHere ? (registered?.record.pid ?? 0) : 0;
+	const decision = decide(options, startedByUs, protocol);
 	switch (decision.action) {
 		case "reuse":
 			// A compatible socket is attachable even when another client surface
 			// started it. Only hosts we spawned are eligible for lifecycle management.
-			return { pid: registered?.record.pid ?? 0, socket, reused: true };
+			return { pid: attachedPid, socket, reused: true };
 		case "refuse":
 			throw new HostEnsureRefusedError(socket, decision.reason, protocol);
+		case "handoff":
+			return upgradeGeneration(paths, socket, options, attachedPid);
 		case "start":
 			break;
 		default:
 			return assertNever(decision);
 	}
 	const probe = testOptions?.readProcessStartTime ?? readProcessStartTime;
-	const pidMatches = registered ? await matchesPidFileOrUnknown(registered.record, probe) : false;
+	const pidMatches = registeredHere && registered ? await matchesPidFileOrUnknown(registered.record, probe) : false;
 	if (registered && pidMatches) {
 		// I1: the socket is silent, but the process behind it is alive. Only the process that WROTE
 		// this record may end it - anyone else refuses rather than signalling somebody else's host.
 		if (!startedByUs) throw new HostEnsureRefusedError(socket, "foreign_writer", protocol);
 		await stopManagedHost(registered.record, testOptions?.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS, probe);
 	}
-	await cleanupState(paths);
-	return startHost(paths, socket, agentDir, policy, testOptions);
+	if (registeredHere) await cleanupState(paths);
+	return startHost(paths, socket, options);
+}
+
+/** `fallback` belongs to clients that can live without a host; an ensure must produce one or fail. */
+function decide(
+	options: EnsureHostOptions,
+	startedByUs: boolean,
+	protocol: HostProtocolInfo | undefined,
+): Exclude<HostDecision, { action: "fallback" }> {
+	if (options.upgrade !== "if-engine-differs") {
+		return decideHostAction(ensureClient(options, startedByUs), protocol, "never");
+	}
+	const decision = decideHostAction(ensureClient(options, startedByUs), protocol, "upgrade");
+	return decision.action === "fallback" ? { action: "reuse", reason: "compatible", upgradeable: false } : decision;
+}
+
+/**
+ * The upgrade, when the decision allows one: a new generation takes the socket and the running
+ * host drains. A refused handoff ATTACHES - an upgrade that cannot happen must never become a stop.
+ */
+async function upgradeGeneration(
+	paths: HostDaemonPaths,
+	socket: string,
+	options: EnsureHostOptions,
+	attachedPid: number,
+): Promise<EnsuredHost> {
+	const result = await handoffHost({
+		socket,
+		agentDir: options.agentDir ?? getAgentDir(),
+		hostArgs: options.hostArgs ?? [],
+		...(options.env ? { env: options.env } : {}),
+		...(options.policy ? { policy: options.policy } : {}),
+		_test: {
+			...(options._test?.launch ? { launch: options._test.launch } : {}),
+			...(options._test?.readinessTimeoutMs ? { readinessTimeoutMs: options._test.readinessTimeoutMs } : {}),
+		},
+	});
+	if (result.action === "handoff") return { pid: result.pid, socket, reused: false };
+	await appendStderr(
+		paths,
+		`generation handoff refused: ${result.reason}${result.detail ? ` (${result.detail})` : ""}`,
+	);
+	return { pid: attachedPid, socket, reused: true };
 }
 
 /** This build as a client: which protocol it speaks, what it needs from a host, and which build it is. */
-function ensureClient(startedByUs: boolean): HostDecisionClient {
+function ensureClient(options: EnsureHostOptions, startedByUs: boolean): HostDecisionClient {
 	return {
 		protocolVersion: HOST_PROTOCOL_VERSION,
 		requiredCapabilities: REQUIRED_HOST_CAPABILITIES,
 		identity: engineBuildIdentity(),
-		// ensureHost carries no launch spec of its own: it attaches or starts, and never upgrades.
+		// An ensure that may upgrade has to say what it would launch: the superset rule refuses to
+		// hand off to a generation that would drop what the running host loads. An ensure that may
+		// not upgrade declares nothing, and therefore can never be the newer candidate.
+		...(options.upgrade === "if-engine-differs"
+			? { launchProfile: hostLaunchProfile(hostChildArgv(options.hostArgs ?? []), process.cwd()) }
+			: {}),
 		startedByUs,
 		platform: process.platform,
 	};
 }
 
-/**
- * I1 in one predicate: the pidfile names a host THIS process started. The recorded start time is what
- * survives a pid the OS recycled, and a writer that cannot be proven ours reads as foreign - so the
- * worst case of an unreadable identity is a refusal, never a signal sent to another owner's host.
- */
-async function writtenByThisProcess(writer: HostPidFileWriter | undefined): Promise<boolean> {
-	if (writer === undefined || writer.pid !== process.pid || writer.startTime === null) return false;
-	return writer.startTime === (await thisProcessStartTime());
+/** The argv the supervisor gives its host child; the launch profile has to describe THAT host. */
+function hostChildArgv(hostArgs: readonly string[]): string[] {
+	return ["--mode", "rpc", "--multi-session", ...hostArgs];
 }
 
-let selfStartTime: Promise<string | null> | undefined;
-
-function thisProcessStartTime(): Promise<string | null> {
-	selfStartTime ??= readProcessStartTime(process.pid).then(
-		(value) => value ?? null,
-		() => null,
-	);
-	return selfStartTime;
+/** Whether a registration is about this endpoint. A record written before the field existed is. */
+function registersSocket(registered: RegisteredHost | undefined, socket: string): boolean {
+	if (registered === undefined) return false;
+	return registered.socket === undefined || registered.socket === socket;
 }
 
-async function startHost(
-	paths: HostDaemonPaths,
-	socket: string,
-	agentDir: string,
-	policy: HostLifecyclePolicyInput | undefined,
-	testOptions: EnsureHostOptions["_test"],
-): Promise<EnsuredHost> {
+async function startHost(paths: HostDaemonPaths, socket: string, options: EnsureHostOptions): Promise<EnsuredHost> {
+	const testOptions = options._test;
 	// The settings file must exist before the supervisor reads it at boot, so it
 	// records the policy before the spawn instead of beside the pidfile.
 	if (process.platform === "win32") await createSocketSecret(socketSecretPath(socket));
-	await writeFile(
-		paths.settingsFile,
-		`${JSON.stringify({
-			socket,
-			capabilities: PINNED_HOST_CLIENT_CAPABILITIES,
-			coldStart: policy?.coldStart ?? "transient",
-			idleExitMs: policy?.idleExitMs ?? DEFAULT_HOST_IDLE_EXIT_MS,
-		})}\n`,
-		{ mode: 0o600 },
-	);
+	await writeHostSettings(paths, {
+		socket,
+		capabilities: PINNED_HOST_CLIENT_CAPABILITIES,
+		coldStart: options.policy?.coldStart ?? "transient",
+		idleExitMs: options.policy?.idleExitMs ?? DEFAULT_HOST_IDLE_EXIT_MS,
+		generation: 0,
+	});
 	const stderr = await open(paths.stderrLog, "w", 0o600);
 	let pidFile: DaemonPidFile | undefined;
 	let child: ReturnType<typeof spawn> | undefined;
 	let exitedEarly: ChildExit | undefined;
 	let childExit: Promise<ChildExit> | undefined;
 	try {
-		const launch = testOptions?.spawn ?? defaultHostLaunch(socket, testOptions?.hostArgs ?? []);
+		const supervisorArgs = ["--socket", socket, ...(options.hostArgs ?? [])];
+		const launch = testOptions?.spawn ?? testOptions?.launch?.(supervisorArgs) ?? defaultHostLaunch(supervisorArgs);
 		child = spawn(launch.command, [...launch.args], {
 			detached: true,
 			windowsHide: true,
-			env: {
-				...process.env,
-				...(testOptions?.env ?? {}),
-				[ENV_AGENT_DIR]: agentDir,
-				[RPC_CLIENT_CAPABILITIES_ENV]: PINNED_HOST_CLIENT_CAPABILITIES.join(","),
-			},
+			env: hostEnv(options),
 			stdio: ["ignore", "ignore", stderr.fd],
 		});
 		childExit = new Promise((resolveExit) => {
@@ -281,10 +299,7 @@ async function startHost(
 		// reads it as unknown - so the worst case is a fresh host next time, not a killed healthy one.
 		pidFile = { pid: child.pid, processStartTime: processStartTime ?? null };
 		await testOptions?.beforePidFileWrite?.();
-		// The writer stamp is what authorizes a later stop: only the process that wrote this record
-		// may signal the host it names, and the start time keeps a recycled pid from inheriting that right.
-		const writer: HostPidFileWriter = { pid: process.pid, startTime: await thisProcessStartTime() };
-		await writeFile(paths.pidFile, `${JSON.stringify({ ...pidFile, writer })}\n`, { mode: 0o600 });
+		await writePidFile(paths, { record: pidFile, socket });
 		child.unref();
 	} catch (error: unknown) {
 		// Whether the child died on its own decides which diagnostic is true, and the
@@ -494,101 +509,24 @@ function isChildExit(value: HostProtocolInfo | ChildExit | undefined): value is 
 	return !!value && "code" in value && "signal" in value;
 }
 
-async function probeProtocolInfo(socketPath: string, timeoutMs: number): Promise<HostProtocolInfo | undefined> {
-	let secret: Buffer | undefined;
-	if (process.platform === "win32") {
-		try {
-			secret = await readSocketSecret(socketSecretPath(socketPath));
-		} catch {
-			return undefined;
-		}
-	}
-	return new Promise((resolveProbe) => {
-		const socket = createConnection(resolveSocketTransportAddress(socketPath, process.platform, secret));
-		let buffer = "";
-		let settled = false;
-		const finish = (value?: HostProtocolInfo): void => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timeout);
-			socket.destroy();
-			resolveProbe(value);
-		};
-		const timeout = setTimeout(() => finish(), timeoutMs);
-		socket.once("connect", () => {
-			socket.write('{"id":"ensure-host-probe","type":"get_protocol_info"}\n');
-		});
-		socket.on("data", (chunk) => {
-			buffer += chunk.toString("utf8");
-			const newline = buffer.indexOf("\n");
-			if (newline === -1) return;
-			finish(readProtocolInfo(buffer.slice(0, newline)));
-		});
-		socket.once("error", () => finish());
-		socket.once("close", () => finish());
-		// Register the error listener before sending the Windows named-pipe handshake.
-		// When an idle host has already removed its pipe, the handshake write can
-		// surface ENOENT immediately; without the listener this probe escapes instead
-		// of becoming the expected "no existing host" result for the next ensure.
-		if (secret) sendSocketHandshake(socket, secret);
-	});
-}
-
-function readProtocolInfo(text: string): HostProtocolInfo | undefined {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(text);
-	} catch {
-		return undefined;
-	}
-	if (!isRecord(parsed) || parsed.id !== "ensure-host-probe" || parsed.success !== true) return undefined;
-	return parseHostProtocolInfo(parsed.data);
-}
-
 /**
  * Compatibility, for the attach decision and the readiness gate alike: a host is compatible exactly
  * when a client that is forbidden to upgrade would attach to it. Never a version-string comparison (I2).
  */
 function isCompatible(protocol: HostProtocolInfo | undefined): boolean {
-	return decideHostAction(ensureClient(false), protocol, "never").action === "reuse";
+	return decideHostAction(ensureClient({ socket: "" }, false), protocol, "never").action === "reuse";
 }
 
-/** Who wrote a host's pidfile: the process identity that a later stop must match to be allowed. */
-interface HostPidFileWriter {
-	readonly pid: number;
-	readonly startTime: string | null;
-}
-
-interface RegisteredHost {
-	readonly record: DaemonPidFile;
-	readonly writer?: HostPidFileWriter;
-}
-
-async function readPidFile(paths: HostDaemonPaths): Promise<RegisteredHost | undefined> {
-	let text: string;
-	try {
-		text = await readFile(paths.pidFile, "utf8");
-	} catch (error: unknown) {
-		if (isNodeErrorCode(error, "ENOENT")) return undefined;
-		throw error;
+/** The environment a spawned host inherits: this process's, the caller's overrides, then the fixed wiring. */
+function hostEnv(options: EnsureHostOptions): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...process.env };
+	for (const [key, value] of Object.entries(options.env ?? {})) {
+		if (value === null) delete env[key];
+		else env[key] = value;
 	}
-	const record = parseDaemonPidFile(text);
-	if (record === undefined) return undefined;
-	const writer = parseWriter(text);
-	return writer === undefined ? { record } : { record, writer };
-}
-
-/** A record from a host started before writer stamps existed simply has no writer: it reads as foreign. */
-function parseWriter(text: string): HostPidFileWriter | undefined {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(text);
-	} catch {
-		return undefined;
-	}
-	if (!isRecord(parsed) || !isRecord(parsed.writer) || typeof parsed.writer.pid !== "number") return undefined;
-	const { pid, startTime } = parsed.writer;
-	return { pid, startTime: typeof startTime === "string" ? startTime : null };
+	env[ENV_AGENT_DIR] = options.agentDir ?? getAgentDir();
+	env[RPC_CLIENT_CAPABILITIES_ENV] = PINNED_HOST_CLIENT_CAPABILITIES.join(",");
+	return env;
 }
 
 async function reapOrphanedInternalHostDirs(): Promise<void> {
@@ -626,6 +564,10 @@ async function reapOrphanedInternalHostDirs(): Promise<void> {
 	} catch {}
 }
 
+/**
+ * Drops the registration of a host that is gone. Only ever called for a record about THIS
+ * socket: another endpoint's daemon keeps its registration, whatever this ensure does.
+ */
 async function cleanupState(paths: HostDaemonPaths): Promise<void> {
 	await rm(paths.pidFile, { force: true });
 	await rm(paths.settingsFile, { force: true });
@@ -653,51 +595,8 @@ function normalizeSocketPath(value: string): string {
 	return value;
 }
 
-/**
- * Default launch: the host-lifecycle supervisor owns the public socket and the
- * idle-exit policy; it spawns the committed RPC socket host itself. Any extra
- * hostArgs are forwarded verbatim to the host CLI (e.g. provider pinning).
- *
- * A compiled standalone binary cannot re-enter itself through a script path:
- * bun executables always boot their embedded entrypoint and parse the whole
- * argv as CLI arguments, so `host-lifecycle.ts --socket <path>` dies with
- * "Unknown option: --socket" before the host ever answers get_protocol_info.
- * Compiled binaries therefore re-enter through the hidden
- * `--internal-rpc-host-supervisor` route that main() dispatches before
- * argument parsing. Exported for tests.
- */
-export function defaultHostLaunch(
-	socket: string,
-	hostArgs: readonly string[],
-	compiled: boolean = isBunBinary,
-): {
-	command: string;
-	args: string[];
-} {
-	if (compiled) {
-		return {
-			command: process.execPath,
-			args: [INTERNAL_SUPERVISOR_FLAG, "--socket", socket, ...hostArgs],
-		};
-	}
-	return {
-		command: process.execPath,
-		args: [...process.execArgv, resolveHostLifecycleEntryPath(), "--socket", socket, ...hostArgs],
-	};
-}
-
-function resolveHostLifecycleEntryPath(): string {
-	const modulePath = fileURLToPath(import.meta.url);
-	const extension = modulePath.endsWith(".ts") ? ".ts" : ".js";
-	return resolve(dirname(modulePath), `host-lifecycle${extension}`);
-}
-
 function delay(ms: number): Promise<void> {
 	return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isNodeErrorCode(error: unknown, code: string): boolean {

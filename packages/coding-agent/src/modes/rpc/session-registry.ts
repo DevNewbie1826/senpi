@@ -10,6 +10,7 @@ import {
 import type { SessionContext, SessionKind, SessionStartEvent } from "../../core/extensions/types.ts";
 import { EMPTY_SESSION_CONTEXT } from "../../core/extensions/types.ts";
 import { SessionManager } from "../../core/session-manager.ts";
+import { SESSION_PATH_RETRY_AFTER_MS, type SessionPathReservations } from "./host-reservations.ts";
 import { beginSessionClose, closeMarkedSession, closeSession, type SessionTeardownHost } from "./session-teardown.ts";
 import type { SessionWorkerClient } from "./session-worker-client.ts";
 
@@ -68,11 +69,14 @@ export class RpcSessionRegistryError extends Error {
 		| "session_reservation_limit"
 		| "invalid_path"
 		| "open_failed";
+	/** Machine-readable context for the wire (`errorData`): who holds a path, when to retry. */
+	readonly detail?: Readonly<Record<string, unknown>>;
 
-	constructor(code: RpcSessionRegistryError["code"], reason?: string) {
+	constructor(code: RpcSessionRegistryError["code"], reason?: string, detail?: Readonly<Record<string, unknown>>) {
 		super(code === "open_failed" && reason ? `${code}: ${reason}` : code);
 		this.code = code;
 		this.name = "RpcSessionRegistryError";
+		if (detail) this.detail = detail;
 	}
 }
 
@@ -83,6 +87,12 @@ export interface RpcSessionRegistryOptions {
 	now?: () => number;
 	/** Maximum time to wait for graceful runtime teardown before forced release. */
 	closeGraceMs?: number;
+	/**
+	 * Cross-GENERATION path claims. During a handoff two hosts are alive at once, and only a
+	 * claim outside either process can keep them off one JSONL. Absent for an embedded registry
+	 * that is the only host of its agent directory.
+	 */
+	pathReservations?: SessionPathReservations;
 }
 
 /** Host-side lifecycle policy for one `open_session`, distinct from the session's launch profile. */
@@ -157,7 +167,10 @@ export class RpcSessionRegistry {
 			closeGraceMs: this.closeGraceMs,
 			get: (handle) => this.entries.get(handle),
 			delete: (handle) => this.entries.delete(handle),
-			releaseReservation: (key) => this.reservations.delete(key),
+			releaseReservation: (key) => {
+				this.reservations.delete(key);
+				this.options.pathReservations?.release(key);
+			},
 			sync: () => this.syncRuntimeMetadata(),
 		};
 	}
@@ -195,7 +208,21 @@ export class RpcSessionRegistry {
 				attached: true,
 			};
 		}
-		if (sessionPath) this.reservations.add(sessionPath);
+		if (sessionPath) {
+			// Taken SYNCHRONOUSLY, before any await: a concurrent open for the same path must find the
+			// reservation already held, not a window between the decision and the record of it.
+			this.reservations.add(sessionPath);
+			// Another generation of this daemon may still be writing this file. Its claim is the only
+			// thing this process can see across a handoff, and a live one means "retry", not "gone".
+			const holder = await this.options.pathReservations?.claim(sessionPath);
+			if (holder) {
+				this.reservations.delete(sessionPath);
+				throw new RpcSessionRegistryError("session_path_in_use", undefined, {
+					owner: holder,
+					retry_after_ms: SESSION_PATH_RETRY_AFTER_MS,
+				});
+			}
+		}
 
 		// Resume vs create parity (D1 + omo SenpiSessionRuntime.ts:198-200):
 		// Create-only launch semantics mirror classic startup flags. A resumed
@@ -295,7 +322,10 @@ export class RpcSessionRegistry {
 					await entry.scope.close?.();
 				} finally {
 					this.entries.delete(handle);
-					if (sessionPath) this.reservations.delete(sessionPath);
+					if (sessionPath) {
+						this.reservations.delete(sessionPath);
+						this.options.pathReservations?.release(sessionPath);
+					}
 				}
 			}
 			if (error instanceof RpcSessionRegistryError) throw error;
@@ -405,8 +435,16 @@ export class RpcSessionRegistry {
 			// break ordinary attach-on-open aliases.
 			if (currentPath !== entry.sessionPath) {
 				const currentKey = currentPath ? canonicalPath(currentPath) : undefined;
-				if (entry.reservationKey) this.reservations.delete(entry.reservationKey);
-				if (currentKey) this.reservations.add(currentKey);
+				if (entry.reservationKey) {
+					this.reservations.delete(entry.reservationKey);
+					this.options.pathReservations?.release(entry.reservationKey);
+				}
+				if (currentKey) {
+					this.reservations.add(currentKey);
+					// A replacement moved this session to another file; the claim follows it. A file a
+					// live foreign generation holds is left alone by claim() itself.
+					void this.options.pathReservations?.claim(currentKey);
+				}
 				entry.reservationKey = currentKey;
 				entry.sessionPath = currentPath;
 			}

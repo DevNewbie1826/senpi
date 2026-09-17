@@ -14,8 +14,9 @@
  * Both variables are unset for every other host launch, so nothing changes for
  * plain `senpi --mode rpc` runs, hosts started by hand, or embedders.
  */
-import { createReadStream, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { rm } from "node:fs/promises";
+import { Socket } from "node:net";
 import { envValue } from "../../core/brand.ts";
 
 /** Inherited fd whose EOF means "the supervisor died"; set by the supervisor only. */
@@ -132,9 +133,16 @@ export function armHostWatchdog(
  * to it, so any readable data is ignored; only close matters. An fd that cannot
  * be opened (never inherited) leaves the binding inert rather than killing a
  * healthy host.
+ *
+ * The pipe is read through a net.Socket rather than a file stream because the read has to live
+ * on the EVENT LOOP, not in libuv's thread pool. A thread-pool read blocks in `read(2)` until the
+ * supervisor dies, and `process.exit()` joins the thread pool before it terminates - so a host
+ * that decides to exit on its own (an idle exit, or the park-everything drain of a generation
+ * handoff) would hang in exit until something killed it. With a socket the same EOF arrives from
+ * kqueue/epoll and nothing holds the exit.
  */
 function watchFdForEof(fd: number, fire: (reason: string) => void): () => void {
-	let stream: ReturnType<typeof createReadStream>;
+	let stream: Socket;
 	let streamFailed = false;
 	let fired = false;
 	const fireOnce = (reason: string): void => {
@@ -143,9 +151,8 @@ function watchFdForEof(fd: number, fire: (reason: string) => void): () => void {
 		fire(reason);
 	};
 	try {
-		// The watchdog owns this inherited read end. autoClose is required on
-		// Win32 so the stream releases fd 3 and observes the pipe's terminal close.
-		stream = createReadStream("", { fd, autoClose: true });
+		// The watchdog owns this inherited read end; destroying the socket releases it.
+		stream = new Socket({ fd, readable: true, writable: false });
 	} catch {
 		return () => {};
 	}

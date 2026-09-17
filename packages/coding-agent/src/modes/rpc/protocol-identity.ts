@@ -29,6 +29,11 @@ export const HOST_GENERATION_ENV = "SENPI_RPC_HOST_GENERATION";
 /** Identity of THIS host process, fixed for its lifetime. */
 const INSTANCE_ID = randomUUID();
 
+/** Who this host is, for anything that has to name the process rather than describe it. */
+export function hostInstanceId(): string {
+	return INSTANCE_ID;
+}
+
 let cachedProfile: RpcLaunchProfile | undefined;
 
 /** Non-negative integer, or 0. A malformed value is a client bug and must not be reported as a real generation. */

@@ -27,8 +27,21 @@ export {
 	type EnsureHostOptions,
 	ensureHost,
 	type HostDaemonPaths,
+	type HostUpgradePolicy,
 	PINNED_HOST_CLIENT_CAPABILITIES,
 } from "./rpc/host-ensure.ts";
+// Replacing a running daemon without ending its work: the drain-based generation handoff,
+// the identity probe every decision starts from, and the two ways a generation is ended.
+export {
+	type HandoffHostOptions,
+	type HandoffRefusal,
+	type HandoffResult,
+	handoffHost,
+	type StopHostOptions,
+	type StopHostResult,
+	stopHost,
+} from "./rpc/host-handoff.ts";
+export { type ProbeHostOptions, probeHost } from "./rpc/host-probe.ts";
 export {
 	isTransportGoneError,
 	type ModelInfo,

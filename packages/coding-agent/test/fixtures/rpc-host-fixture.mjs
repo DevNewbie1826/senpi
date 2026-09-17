@@ -8,6 +8,8 @@ const socketPath = process.argv[2];
 const serverVersion = process.argv[3] ?? "fixture-version";
 const capabilities = (process.argv[4] ?? "multi_session,extension_events").split(",").filter(Boolean);
 const behavior = process.argv[5] ?? "answer";
+/** Optional JSON merged into the protocol answer: instanceId, generation, engineOrdinal, launch_profile. */
+const identity = process.argv[6] ? JSON.parse(process.argv[6]) : {};
 if (!socketPath) throw new Error("socket path required");
 await mkdir(dirname(socketPath), { recursive: true });
 if (process.platform !== "win32") await rm(socketPath, { force: true });
@@ -51,7 +53,7 @@ const server = createServer((socket) => {
 				type: "response",
 				command: "get_protocol_info",
 				success: true,
-				data: { protocolVersion: 1, serverVersion, capabilities, mode: "multi" },
+				data: { protocolVersion: 1, serverVersion, capabilities, mode: "multi", ...identity },
 			})}\n`);
 		}
 	});
