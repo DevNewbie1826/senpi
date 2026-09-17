@@ -156,6 +156,8 @@ export async function startWorkerHost(
 		child,
 		dispose,
 		socketPath,
+		/** Host stderr seen so far; the runtime-gate cases assert on what the host warned. */
+		stderrText: () => stderr,
 		async connect() {
 			const socket = createConnection(socketPath);
 			const wire = endpoint(socket, socket, () => stderr);

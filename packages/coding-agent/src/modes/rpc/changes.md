@@ -1,3 +1,28 @@
+## 2026-09-17 - Load and contention proof for one in-process host (#1782)
+
+### What changed
+
+- `test/suite/rpc-inprocess-load.test.ts` (new, opt-in via `SENPI_LOAD_TESTS=1`, 300 s per cell): six measured cells against ONE host built from the production `createHostCore` seam with no `workerConfiguration` - i.e. the `RpcSessionRegistry` a `--listen` host selects, the real `createRpcSessionBinding`, and the real `createCliRuntimeFactory` runtime. (i) SCALE - 1,000 sessions open at once, `list_sessions { include_workers: true }` = 1,000 while a default listing stays at 0, RSS and threads per session, then 200 closed and reopened by `sessionPath` with the listing latency sampled at every reopen (p95 gated under 500 ms). (ii) CHURN - 2,000 open/close cycles. (iii) CONTENTION - time-to-first-event for one session at a time vs 50 streaming at once, reported as a ratio. (iv) NEIGHBOUR - `get_state` every 100 ms on one session while another runs a 3 s ASYNC tool (p95 gated under 50 ms), contrasted with a deliberately SYNCHRONOUS 3 s tool and with opening a 50 MB transcript (both recorded, never gated). (v) FD/PLUGIN - 200 `kind: "worker"` sessions with the real omo plugin bundle: RSS per session, `lsof` count, soft `RLIMIT_NOFILE` (recording). (vi) NODE - the same host booted under Node with 50 sessions, asserting the one `bun:ffi`-gated path (the child reaper) turns itself off with exactly one warning instead of failing the boot, with the Z-count recorded.
+- `test/suite/rpc-inprocess-load-support.ts` (new): the load rig. A NATIVE faux provider registered from inside each session's own extension load, because a session runs inside its own `ProviderScope` and a scoped `getApiProvider` consults the scope overlay and the builtins only - the module-global faux registry is unreachable there. The rig stubs `SENPI_CODING_AGENT_DIR`/`OMO_CODING_AGENT_DIR` at its sandbox and clears every inherited RPC socket variable, so no cell can resolve a session against a live agent dir.
+- `test/suite/rpc-inprocess-load-probes.ts` (new): the async and blocking 3 s tools, the `get_state` prober, the 50 MB transcript fixture, and the churn-cell runner.
+- `scripts/qa-rpc-socket/load-1000.mjs` (new): the same SCALE and CONTENTION cells against a REAL `--listen` host process over its socket, with the fake model server from `scripts/qa-app-server/lib/env.mjs` as the only reachable model. Reports `{ sessions, errors, threads, rssMb, ttfePairP95 { single, concurrent50 } }` as JSON, stops the host, and reports its own orphan count. `--session-runtime worker` reproduces the capped runtime's refusal (`firstError { index: 20, error: "open_failed: too_many_sessions" }`, exit 1).
+- `scripts/qa-rpc-socket/load-churn.mjs` (new): the churn cell on BUN, where `bunExtensionImporterStats()` can move and `Bun.gc(true)` can force the full collection that separates "retained" from "not yet swept". The vitest runtime is Node, so the counter would read zero there; this is the same reason `test/extensions/bun-extension-regressions.test.ts` spawns `bun`.
+- `test/suite/rpc-worker-host-support.ts`: added a `stderrText()` accessor so the Node cell can assert on what the host warned. `test/suite/rpc-inprocess-host-support.ts`: exported its `assistantMessage` helper for the transcript fixture. No production file changed.
+
+### Why
+
+- The daemon's whole premise is that one process holds every session, so the claim needs a number, not an argument: 1,000 sessions on one host with zero errors, and a measured per-session cost for threads, memory and file descriptors. The measurement contradicts the plan's "thread count flat" premise exactly as todo 7's did - a session costs ~1 thread under Bun and ~2 under Node on both runtimes - so the cells REPORT the per-session cost and gate only on the honest bound (below the worker runtime's measured 3/session), while the hard proof stays the refusal a capped host answers with.
+- Latency under contention is not a contract this host controls, so the contention and neighbour contrast numbers are printed as ratios instead of asserted against a wall-clock threshold. The one latency budget that IS gated - a neighbour's `get_state` p95 while another session runs an ASYNC tool - is the invariant the audit in `test/suite/session-path-audit.ts` exists to protect, and the synchronous-tool contrast in the same cell is what makes that number mean something.
+- The contention cell asserts the faux provider's `callCount`, because a model whose api resolves to nothing inside the session's provider scope still emits `agent_start`: without that assertion the cell would silently time the host's error path and still print a ratio.
+
+### Why an extension could not handle it
+
+- These are tests and QA drivers, not product behavior; they measure the host's registry, binding, event writer and runtime factory, all of which live below the extension boundary. No extension can open a session, observe another session's latency, or read the host's thread and descriptor counts.
+
+### Expected merge conflict zones
+
+- LOW: three new test files and two new QA scripts that upstream does not have. The only touched existing files are two test-support modules (`rpc-worker-host-support.ts` gains one accessor on its returned object; `rpc-inprocess-host-support.ts` exports an existing helper).
+
 ## 2026-09-17 - Per-session `open_session.auto_title` (#1782)
 
 ### What changed

@@ -70,7 +70,7 @@ export function threadCount(pid: number): number {
 }
 
 /** The one persisted artifact of a settled turn in these tests: the assistant's message. */
-function assistantMessage(text: string): AssistantMessage {
+export function assistantMessage(text: string): AssistantMessage {
 	const usage: Usage = {
 		input: 0,
 		output: 0,
