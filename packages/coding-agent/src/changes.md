@@ -1,5 +1,26 @@
 # changes
 
+## 2026-09-17 - `senpi host` is routed before argument parsing and exported for launchers (senpi#1782)
+
+### What changed
+
+- `packages/coding-agent/src/main.ts`: `dispatchHostCommand(args)` runs beside the app-server route, BEFORE `parseArgs`, and exits with the code it returns. The route is one argv[0] comparison in `cli/deferred-commands.ts` with the implementation behind an `await import(...)`, so `dist/main.js` still does not statically reach the RPC host graph - and `senpi host ...` never falls through into argument parsing, the print path or the interactive TUI.
+- `packages/coding-agent/src/modes/index.ts`: re-exports the new host surface - `runHostRequest` with `HostRequest`/`HostOutcome`/`HostTarget` and the `HOST_EXIT_*` codes, `readHostStatus` with its report types, and `loadHostLaunchSpec`/`parseHostLaunchSpec`/`HostLaunchSpecError` with `HostLaunchSpec`/`ResolvedHostLaunchSpec`.
+- `packages/coding-agent/src/index.ts`: the package barrel adds `runHostCommand` (from `cli/host-command.ts`) plus everything `modes/index.ts` now publishes, so the omo launcher and the desktop drive the same command without a shell.
+
+### Why
+
+- Every client of the machine-wide daemon needs one answer to "is there a host, may I use it, may I replace it", and the invariants behind it (never signal a host you did not start; compatibility is protocol plus capabilities) must not be re-derived per client. The command is that one answer, so it has to be reachable both as a process and as a function.
+- The dispatch sits before `parseArgs` because `host` is a command, not a prompt: reaching argument parsing would make a stray `senpi host status` open a session instead of answering.
+
+### Why an extension could not handle it
+
+- Command routing, process exit codes and the package barrel all run before any extension is loaded.
+
+### Expected merge conflict zones
+
+- LOW: one import block and one dispatch branch in `main.ts`, and the additive export lists in `modes/index.ts` and `index.ts`.
+
 ## 2026-09-17 - Per-session kind and context reach the session's resources only (senpi#1782)
 
 ### What changed

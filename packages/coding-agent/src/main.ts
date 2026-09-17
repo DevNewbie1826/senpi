@@ -29,7 +29,12 @@ import {
 	validateAuthCommandArgs,
 } from "./cli/auth-command.ts";
 import { resolveCredentialForPrint } from "./cli/credential-print.ts";
-import { dispatchAppServerCommand, dispatchConfigCommand, dispatchPackageCommand } from "./cli/deferred-commands.ts";
+import {
+	dispatchAppServerCommand,
+	dispatchConfigCommand,
+	dispatchHostCommand,
+	dispatchPackageCommand,
+} from "./cli/deferred-commands.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { resolveHelpExtensionFlags } from "./cli/help-extension-flags.ts";
 import { helpFlagsScope, isPlainHelpRequest, resolveHelpProjectTrust } from "./cli/help-fast-path.ts";
@@ -949,6 +954,13 @@ export async function main(args: string[], options?: MainOptions) {
 
 	if (await dispatchAppServerCommand(args)) {
 		return;
+	}
+
+	// The shared-daemon command: one JSON line on stdout and an exit code that classifies it, so it
+	// exits here rather than falling through into argument parsing and the interactive path.
+	const hostExitCode = await dispatchHostCommand(args);
+	if (hostExitCode !== undefined) {
+		process.exit(hostExitCode);
 	}
 
 	const parsed = parseArgs(args);

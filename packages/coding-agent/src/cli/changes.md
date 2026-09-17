@@ -1,5 +1,27 @@
 # changes
 
+## 2026-09-17 - `senpi host` command surface and its dispatch (senpi#1782)
+
+### What changed
+
+- `packages/coding-agent/src/cli/host-command.ts` (new): the command line of `senpi host ensure|status|stop|handoff` - argv into a typed `HostRequest` (`--launch-spec`, `--policy upgrade|fallback|never`, `--socket`, `--include-workers`, `--drain`, `--force`, and `--json` accepted as a no-op because the answer is always JSON), the usage text, and the ONE JSON line the contract promises. The line is written with a synchronous `writeSync(1, ...)`: `console.log` to a pipe is asynchronous, and the `process.exit` that follows would truncate the only thing the caller parses. An unknown subcommand or flag prints usage on stderr, NOTHING on stdout, and exits 2. What each request DOES lives in `src/modes/rpc/host-runner.ts` (see that tracker).
+- `packages/coding-agent/src/cli/deferred-commands.ts`: `HOST_COMMAND_ARGV` plus `dispatchHostCommand(args)`, which answers an exit CODE rather than a boolean (the command classifies its outcome in that code) and `undefined` when argv selects something else. The implementation stays behind an `await import(...)`, so `dist/main.js` still does not statically reach the RPC host graph.
+- `packages/coding-agent/src/main.ts`: the dispatch runs beside the app-server route, BEFORE `parseArgs`, and exits with the code it returns - so `host` never falls through into argument parsing or the interactive path.
+- `packages/coding-agent/src/cli/args.ts`: one `Commands:` line in `printHelp`, beside `app-server`, because a command a client is told to call has to be discoverable from `--help`. No flag parsing changes: `host` is routed before `parseArgs` ever runs.
+
+### Why
+
+- Every client of the shared daemon (terminal, desktop, omo launcher, task runner) needs the same answer to "is there a host, may I use it, may I replace it", and that decision has invariants no fourth implementation should re-derive. The CLI is the one surface they all reach it through, so its contract is machine-first: one JSON line, diagnostics on stderr, an exit code that classifies the outcome without parsing the line.
+- The route is a single argv[0] comparison for the same reason the package/config/app-server routes are: the module graph behind it must not be evaluated by an interactive launch.
+
+### Why an extension could not handle it
+
+- Command routing and process exit codes run before any extension is loaded.
+
+### Expected merge conflict zones
+
+- LOW: one import block and one dispatch branch in `main.ts`, and the tail of `deferred-commands.ts`.
+
 ## 2026-09-17 - `--auto-title-sessions` deprecated for shared hosts (senpi#1782)
 
 ### What changed

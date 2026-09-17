@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-17 - Run the `senpi host` named-pipe cell on the Windows RPC job (senpi#1782)
+
+### What changed
+
+- `.github/workflows/ci.yml`: the `rpc-windows` job gains one step, `bunx vitest run test/suite/host-cli-win32.test.ts`, after the socket-transport step. It is the win32 cell of the `senpi host` contract: a second `ensure` reuses the daemon on the named pipe, and `handoff` refuses with `upgrade_unsupported`.
+
+### Why
+
+- Both properties are platform-specific and cannot be observed on POSIX: the endpoint is a pipe derived from the socket path, and a named pipe can be neither renamed nor drained, so the handoff must refuse rather than attempt one. The POSIX suites skip on win32 by construction, so without this step nothing would run that cell.
+
+### Why an extension could not handle it
+
+- CI job definition; it selects which suites run on which runner.
+
+### Expected merge conflict zones
+
+- LOW: the step list of the `rpc-windows` job.
+
 ## 2026-09-14 - Exercise Node worker bundles on Linux
 
 ### What changed

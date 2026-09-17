@@ -28,6 +28,7 @@ const PACKAGE_COMMAND_ALIAS = "uninstall";
 
 export const CONFIG_COMMAND_ARGV = "config";
 export const APP_SERVER_COMMAND_ARGV = "app-server";
+export const HOST_COMMAND_ARGV = "host";
 
 /** True when argv[0] selects a package-manager verb, matching `parsePackageCommand()`. */
 export function isPackageCommandArgv(args: readonly string[]): boolean {
@@ -57,4 +58,15 @@ export async function dispatchAppServerCommand(args: readonly string[]): Promise
 	if (args[0] !== APP_SERVER_COMMAND_ARGV) return false;
 	const { handleAppServerCommand } = await import("./app-server-command.ts");
 	return await handleAppServerCommand(args);
+}
+
+/**
+ * The daemon command answers with an EXIT CODE rather than a boolean: `senpi host` classifies its
+ * outcome (refused, fallback, unusable spec) in that code, and a caller parses it without reading
+ * the JSON line. `undefined` means this argv is not a host command at all.
+ */
+export async function dispatchHostCommand(args: readonly string[]): Promise<number | undefined> {
+	if (args[0] !== HOST_COMMAND_ARGV) return undefined;
+	const { runHostCommand } = await import("./host-command.ts");
+	return await runHostCommand(args.slice(1));
 }

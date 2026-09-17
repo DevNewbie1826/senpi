@@ -1,3 +1,33 @@
+## 2026-09-17 - `senpi host` - one command every client calls for the shared daemon (#1782)
+
+### What changed
+
+- `src/modes/rpc/host-runner.ts` (new): the four host requests as a discriminated union (`ensure` / `status` / `stop` / `handoff`, each carrying only its own fields) and `runHostRequest`, which performs one and answers `{ exitCode, payload }`. This is the whole behaviour behind the command, separated from the command line that expresses it, so the desktop and the omo launcher can drive it in-process. Ensure composes `probeHost` -> (policy `fallback`: `decideHostAction(..., "fallback")` -> exit 4) -> `ensureHost({ upgrade })` -> `probeHost`, and reports `action: "handoff"` exactly when the socket was already served and the instance id changed. Stop gates a hard stop on `foreign_attached + foreign_retained == 0` and prints the counts either way; a `--drain` is never gated. Handoff maps `handoff_unsupported` and win32's `upgrade_unsupported` onto ONE reason (`upgrade_unsupported`, with the original in `detail`), because to a caller they are the same answer: this build may not replace the running generation.
+- `src/cli/host-command.ts` (new): the CLI surface - argv to a typed request, the usage text, and the ONE JSON line. The line is written with a synchronous `writeSync(1, ...)`, because `console.log` to a pipe is asynchronous and the `process.exit` that follows would truncate the only thing the caller parses. Exported as `runHostCommand(args) -> exit code`.
+- `src/modes/rpc/host-launch-spec.ts` (new): what a launch spec IS (`spec_version`, `core.{session_runtime,multi_session,extensions}`, `tunables`, `env`), the boundary parse that produces it, and the trust proof - owner/mode of the file, extension containment inside the spec directory (lexical AND through `realpath`), the `^(SENPI|OMO|PI)_[A-Z0-9_]+$` env gate, and existence of every listed extension. Each failure is a `HostLaunchSpecError { reason, detail }` the CLI reports with exit 2.
+- `src/modes/rpc/host-daemon-env.ts` (new): the daemon's environment ALLOWLIST, `daemonEnvOverrides` (every denied name mapped to `null`, which is how `ensureHost({ env })` removes an inherited variable), `daemonEnvKeys`, and the `env-keys.json` the ensuring client records in the daemon directory so `status` can report the scope a running daemon was granted. Case-sensitive on POSIX, case-insensitive on win32 plus the OS wiring (`SystemRoot`, `ComSpec`, `PATHEXT`, ...) a spawn there cannot run without.
+- `src/modes/rpc/host-status.ts` (new): one record describing a daemon - identity from `get_protocol_info`, occupancy from `list_sessions`, generations and env scope from the daemon directory, process metrics from the OS - plus `readSessionCounts` (the numbers the stop gate is made on) and `hostSummary` (the `host` field of a refusal). An unreachable socket answers the SAME shape with `reachable: false`.
+- `src/modes/rpc/host-process-metrics.ts` (new): `rss_mb`, `open_fds` and `zombies` for the daemon's whole process TREE (the registered pid is the supervisor; the host holding every session is its child), from one `ps -A` reading, with `/proc/<pid>/fd` for descriptors where it exists. Every field is `number | null`, and a failing probe degrades the report instead of failing the status.
+- `src/cli/deferred-commands.ts` + `src/main.ts`: `dispatchHostCommand(args)` beside the app-server route, answering an exit CODE rather than a boolean, behind an `await import(...)` so `dist/main.js` still does not statically reach the host graph. It runs before `parseArgs`, so `host` never reaches the interactive path.
+- `src/modes/index.ts` + `src/index.ts`: `runHostCommand`, `runHostRequest`, `readHostStatus`, `loadHostLaunchSpec`/`parseHostLaunchSpec` and their types are exported for the launcher and the desktop.
+- `docs/rpc.md`: "The `senpi host` command" documents the four subcommands, the exit-code table, the status shape, the launch spec with its four refusals, and the daemon environment scope.
+- Tests: `test/suite/host-cli.test.ts` (ensure start/reuse, the exact `status` shape, and the daemon's own environment read from the OS), `test/suite/host-cli-stop.test.ts` (a second connection holding a real session: refuse with counts, then `--force` past it to an ENOENT socket), `test/suite/host-cli-spec-trust.test.ts` (usage, the four spec refusals - each proven to leave NO daemon behind - a spec whose extensions reach the host's launch profile, and a handoff refused against a host that cannot drain), `test/suite/host-launch-spec.test.ts` (parse edges, a symlinked escape, the allowlist per platform) and `test/suite/host-cli-support.ts` (sandbox, spawned CLI, sweep).
+
+### Why
+
+- Every client was about to grow its own copy of "find the daemon, decide, start it, report it": the terminal, the desktop, the omo launcher and the task runner. That decision has invariants that cannot survive four implementations (never signal a host you did not start; compatibility is protocol plus capabilities, never a version string), so it ships as ONE command with a machine-readable contract.
+- The spec is a file with an owner check because it chooses the extensions of a process that outlives the client and serves everyone on the machine. Nothing about stdin or an argv blob can be owner-checked, and a half-loaded profile is worse than no daemon - so a missing extension refuses to start rather than booting a daemon that would serve every client with half a profile.
+- The environment allowlist exists for the same lifetime reason: a secret exported in one terminal was previously inherited by a daemon that answers other clients for hours. Names are matched, values are never read, and `status` publishes names only.
+- `rss_mb`/`zombies` describe the process tree rather than the registered pid because that pid is the supervisor: reporting only it would answer "3 MB" for a daemon holding two gigabytes.
+
+### Why an extension could not handle it
+
+- This is the process-lifecycle surface of the engine itself: it decides whether a daemon is started, replaced, or refused, and it runs before any extension is loaded - a spawned daemon's extension set is one of its INPUTS.
+
+### Expected merge conflict zones
+
+- LOW: one import block plus one dispatch branch in `src/main.ts`, one new dispatcher in `src/cli/deferred-commands.ts`, and additive export lists in `src/modes/index.ts` / `src/index.ts`. Everything else is new files.
+
 ## 2026-09-17 - The created host modules go back under the file-size ceiling (#1782)
 
 ### What changed

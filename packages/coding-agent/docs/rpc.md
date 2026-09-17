@@ -289,6 +289,90 @@ host, a reboot, a recycled pid with a different start time) is ignored. So a reo
 for the previous writer to finish rather than corrupting its transcript, and a session file is never
 permanently unopenable.
 
+### The `senpi host` command
+
+Everything above is reachable from one command, so a terminal, a desktop and a task runner get a
+daemon the same way instead of each re-implementing the decision:
+
+```
+senpi host ensure  [--json] [--launch-spec <file>] [--policy upgrade|fallback|never] [--socket <path>]
+senpi host status  [--json] [--include-workers] [--socket <path>]
+senpi host stop    [--json] [--drain] [--force] [--socket <path>]
+senpi host handoff [--json] [--launch-spec <file>] [--socket <path>]
+```
+
+The contract is machine-first: EXACTLY ONE JSON line on stdout and nothing else, diagnostics on stderr,
+and an exit code that classifies the outcome without parsing the line.
+
+| Exit | Meaning |
+|---|---|
+| `0` | it happened (`action`: `start`, `reuse`, `handoff`, `stopped`, `drained`, or a reachable `status`) |
+| `1` | it failed; `{ action: "error", reason: "host_error", detail }` |
+| `2` | the command line or the launch spec is unusable (`{ action: "error", reason: "launch_spec_*" }`) |
+| `3` | refused: `{ action: "refuse", reason, host }` - or an unreachable socket (`status`) |
+| `4` | fallback: `{ action: "fallback", reason, host }` - under `--policy fallback`, no host is better than this one |
+
+The socket is `--socket`, else `SENPI_RPC_SOCKET`, else `<agentDir>/rpc/rpc.sock`. `--json` is accepted for
+symmetry with other commands; the answer is always JSON.
+
+- `ensure` prints `{ action, socket, pid, instanceId, generation, engineVersion, engineOrdinal,
+  capabilities, launchProfileId, reused, upgradeable }`. `--policy upgrade` (the default) allows a
+  generation handoff, `never` only attaches or starts, and `fallback` answers exit 4 rather than attaching
+  to a host this build disagrees with. `action` is `handoff` exactly when the socket was already served and
+  the process behind it changed.
+- `status` prints `{ reachable, socket, pid, instanceId, generation, engineVersion, capabilities,
+  launchProfile, sessions: { total, interactive, worker, retained, foreign_attached, foreign_retained },
+  zombies, rss_mb, open_fds, env_keys, generations }` and exits 3 when nothing answers - with the same
+  field set, so a caller parses one shape and branches on one boolean. `sessions` is what `list_sessions`
+  reports under the same flag, so `worker` stays `0` without `--include-workers`; `foreign_*` is the same
+  count from the point of view of a client holding none of those sessions itself. `rss_mb`, `open_fds` and
+  `zombies` describe the daemon's whole process tree (supervisor plus host) and are `null` where the
+  platform does not publish them (`open_fds` is `/proc`-only). `generations` lists every generation record
+  in the daemon directory with `current` and `alive`.
+- `stop` is the I1 carve-out: a plain stop needs a validated pidfile AND `foreign_attached +
+  foreign_retained == 0`, or it refuses with exit 3 and prints the counts it refused on; `--force`
+  overrides after printing the same counts; `--drain` (SIGUSR1) is always permitted, because it ends no
+  work.
+- `handoff` forces a generation handoff from THIS binary. A host that cannot drain and a platform that
+  cannot rename answer alike: exit 3 `{ reason: "upgrade_unsupported", detail }`.
+
+#### Launch spec (`--launch-spec <file>`)
+
+The spec is what decides the code a long-lived, machine-wide daemon LOADS, so it is a trust boundary and
+deliberately a FILE - never stdin, never an argv blob, both of which have no owner to check:
+
+```json
+{
+  "spec_version": 1,
+  "core": { "session_runtime": "in-process", "multi_session": true, "extensions": ["ext/probe.js"] },
+  "tunables": { "idleExitMs": 900000, "coldStart": "transient" },
+  "env": { "SENPI_X": "1" }
+}
+```
+
+Extension paths are resolved against the SPEC FILE'S directory. Four refusals are proven before any
+process is started, each reported with exit 2:
+
+| Reason | When |
+|---|---|
+| `launch_spec_insecure` | the file is not owned by this uid, or it is group/world writable |
+| `launch_spec_path_escape` | an extension path leaves the spec directory's tree, lexically or through a symlink |
+| `launch_spec_env_denied` | an `env` key outside `^(SENPI\|OMO\|PI)_[A-Z0-9_]+$` |
+| `launch_spec_missing_extension` | a listed extension does not exist - a daemon never boots with half a profile |
+
+(`launch_spec_unreadable` and `launch_spec_invalid` cover a missing file and a malformed document.)
+
+#### Daemon environment scope
+
+A daemon outlives the shell that started it and serves every client on the machine, so it does NOT inherit
+the ensuring process's environment. It receives an allowlist of NAMES - `PATH`, `HOME`, `USER`, `LOGNAME`,
+`SHELL`, `TMPDIR`, `TERM`, `LANG`, `LC_*`, `XDG_*`, `SENPI_*`/`OMO_*`/`PI_*`, `HTTP_PROXY`/`HTTPS_PROXY`/
+`NO_PROXY`, `*_API_KEY`, and the provider prefixes (`ANTHROPIC_`, `OPENAI_`, `GOOGLE_`, `GEMINI_`, `AZURE_`,
+`AWS_`, `OPENROUTER_`, `XAI_`, `MISTRAL_`, `DEEPSEEK_`, `GROQ_`, `CEREBRAS_`, `MINIMAX_`) - plus whatever the
+spec's `env` states. Matching is case-sensitive on POSIX and case-insensitive on win32, where the OS wiring
+(`SystemRoot`, `ComSpec`, `PATHEXT`, ...) is allowed as well. Values are never inspected; `status` reports
+the granted NAMES as `env_keys` and never a value.
+
 ### Child reaping on a socket host (`SENPI_RPC_HOST_REAPER`)
 
 A socket host reaps the exited child processes that no thread is left to wait on. A `worker_threads` Worker owns the
