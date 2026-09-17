@@ -175,6 +175,14 @@ async function createBoundAppServerSession(
 	// registered; later requests never consult the service-global lifecycle view.
 	const mcpService = getMcpService();
 	const mcpWireStatusAdapter = createMcpWireStatusAdapter(mcpService.getWireStatusSnapshot(threadId));
+	// Attach is started by session_start but no longer awaited by it, so the snapshot above is
+	// empty whenever a server is still booting. Take later inventories by subscription rather
+	// than by reading the service per request, which stays within this adapter's contract.
+	mcpWireStatusAdapter.bindLiveUpdates(
+		mcpService.onWireStatusChanged((sessionId, snapshot) => {
+			if (sessionId === threadId) mcpWireStatusAdapter.update(snapshot);
+		}),
+	);
 	result.session.subscribe((event) => {
 		if (event.type === "agent_end") {
 			approvals.cancelPendingForThread(threadId);

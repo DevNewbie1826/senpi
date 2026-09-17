@@ -1,5 +1,21 @@
 # changes
 
+## 2026-09-17 - Keep a thread's MCP inventory current after deferred attach (senpi#1781)
+
+### What changed
+
+- `threads/mcp-wire-status.ts`: `McpWireStatusAdapter` can adopt a live subscription (`bindLiveUpdates`) and drop it (`dispose`); `McpWireStatusRegistry.removeThread` disposes the thread's adapter.
+- `runtime.ts`: after binding a thread, the adapter subscribes to `McpService.onWireStatusChanged` filtered to that thread id.
+
+### Why
+
+- senpi#1791 stopped `session_start` awaiting MCP attach. The inventory copied immediately after `bindExtensions()` is therefore taken while servers are still booting, and `update()` had no callers, so `mcpServerStatus/list` returned `{ servers: [] }` for the life of the thread and never recovered.
+- The adapter's contract - never read the process-global MCP service during a request - is preserved: this is a push from a subscription the service already emitted on every capture, not a per-request read.
+
+### Expected merge conflict zones
+
+- LOW: the adapter class body and the post-bind block in `createBoundAppServerSession`.
+
 ## 2026-09-12 - App-server turn steering carries its input source
 
 ### What changed

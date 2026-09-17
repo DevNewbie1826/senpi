@@ -51,6 +51,45 @@ describe("app-server MCP wire-status adapter", () => {
 		}
 	});
 
+	it("keeps a thread's inventory current when attach completes after the thread bound", async () => {
+		// Given: a thread whose adapter is built before attach has captured anything. This is what
+		// binding a thread now does, because session_start starts attach without awaiting it.
+		const root = await makeMcpRoot("deferred-attach");
+		const service = getMcpService();
+		try {
+			await writeMcpConfig(root, "deferred-server");
+			const adapter = createMcpWireStatusAdapter(service.getWireStatusSnapshot("thread-deferred"));
+			expect(adapter.getServerStatuses()).toEqual([]);
+			adapter.bindLiveUpdates(
+				service.onWireStatusChanged((sessionId, snapshot) => {
+					if (sessionId === "thread-deferred") adapter.update(snapshot);
+				}),
+			);
+
+			// When: that attach completes later, as a booting server makes it.
+			await service.attachSession(
+				{ type: "session_start", reason: "startup" },
+				attachContext(root, "thread-deferred"),
+				undefined,
+				{ agentDir: root, projectTrusted: true },
+			);
+
+			// Then: mcpServerStatus/list reports the server instead of staying frozen empty.
+			expect(adapter.getServerStatuses().map((server) => server.name)).toEqual(["deferred-server"]);
+
+			// And: disposing the thread stops it tracking the process-wide service.
+			const registry = createMcpWireStatusRegistry();
+			registry.registerThread("thread-deferred", adapter);
+			registry.removeThread("thread-deferred");
+			await service.refreshWireStatusSnapshot("thread-deferred");
+			expect(adapter.getServerStatuses().map((server) => server.name)).toEqual(["deferred-server"]);
+		} finally {
+			await service.dispose("quit");
+			resetMcpServiceForTests();
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	it("captures distinct attach scopes when app-server sessions attach concurrently", async () => {
 		// Given: two isolated app-server sessions with different disabled MCP fixtures.
 		const firstRoot = await makeMcpRoot("concurrent-first");
