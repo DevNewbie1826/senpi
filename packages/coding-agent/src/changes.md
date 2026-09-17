@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-17 - Socket RPC hosts stop allocating a worker per session (senpi#1782)
+
+### What changed
+
+- `packages/coding-agent/src/main.ts`: the `appMode === "rpc" && parsed.multiSession` branch resolves `resolveSessionRuntime(parsed)` and passes `workerConfiguration` to `runMultiSessionHost` only for the `worker` runtime; the runtime factory is still built from the same configuration on both paths. `main.ts` is the only producer of that option, and `createHostCore` selects `WorkerSessionRegistry` exactly when it is present, so withholding it selects the uncapped in-process `RpcSessionRegistry`.
+
+### Why
+
+- A `--listen` socket host is the shared daemon every client attaches to; the worker registry caps admission at 20 and answers `too_many_sessions` beyond it, which a daemon may never do. Nothing was removed from the worker path - `--session-runtime worker` still reaches the same code with the same cap.
+
+### Why an extension could not handle it
+
+- Host construction happens before extensions load, and no extension surface selects the session registry.
+
+### Expected merge conflict zones
+
+- LOW: the ~10 lines of the multi-session host launch block.
+
 ## 2026-09-16 - Type kernelTools as the shipped invoke-scope surface (senpi#1731)
 
 ### What changed

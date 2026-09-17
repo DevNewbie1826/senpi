@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-17 - `--session-runtime in-process|worker` for multi-session hosts (senpi#1782)
+
+### What changed
+
+- `packages/coding-agent/src/cli/args.ts`: new `SessionRuntimeKind` (`"in-process" | "worker"`), its `isSessionRuntimeKind` guard, the `Args.sessionRuntime` field, one parse branch for `--session-runtime <kind>` (an unknown value pushes a parse error diagnostic and sets nothing), one help line, and `resolveSessionRuntime(parsed)` - the single place the DEFAULT lives: `in-process` for a `--listen` socket host, `worker` for a stdio host (`--multi-session` alone, `--listen stdio://`) and for embedders. An explicit flag always wins.
+
+### Why
+
+- The shared socket host is one machine-wide daemon for every client, so its sessions must run in the host process with no isolate budget, while stdio hosts and embedders keep the worker runtime. Both hosts are started through the same argv, so the selection belongs in the argument layer, and a pure resolver keeps the default testable without booting a host.
+
+### Why an extension could not handle it
+
+- CLI argument parsing runs before any extension is loaded.
+
+### Expected merge conflict zones
+
+- LOW: the flag list in `Args`, the `--multi-session`/`--auto-title-sessions`/`--listen` parse branches, and the RPC block of `printHelp`.
+
 ## 2026-09-16 - Startup spinner draws its first frame synchronously (oh-my-openagent#8371)
 
 ### What changed

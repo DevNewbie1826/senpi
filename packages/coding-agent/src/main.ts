@@ -12,7 +12,7 @@ import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import { setCapabilityOverrides } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { handleAppServerCommand } from "./cli/app-server-command.ts";
-import { type Args, type Mode, normalizeSessionName, parseArgs, printHelp } from "./cli/args.ts";
+import { type Args, type Mode, normalizeSessionName, parseArgs, printHelp, resolveSessionRuntime } from "./cli/args.ts";
 import {
 	type AuthCheckResult,
 	checkProviderAuth,
@@ -1091,12 +1091,16 @@ export async function main(args: string[], options?: MainOptions) {
 	if (appMode === "rpc" && parsed.multiSession) {
 		if (options?.extensionFactories?.length)
 			throw new Error("Shared RPC workers require file-backed extensions; inline factories cannot cross isolates");
-		const workerConfiguration = { parsed, cwd, agentDir, appMode };
+		const runtimeConfiguration = { parsed, cwd, agentDir, appMode };
+		// Socket hosts (the machine-wide daemon) run every session IN this process:
+		// createHostCore selects the worker registry only when a workerConfiguration
+		// is passed, so withholding it is what selects the uncapped in-process registry.
+		const sessionRuntime = resolveSessionRuntime(parsed);
 		printTimings();
 		await runMultiSessionHost({
 			agentDir,
-			createRuntime: createCliRuntimeFactory(workerConfiguration),
-			workerConfiguration,
+			createRuntime: createCliRuntimeFactory(runtimeConfiguration),
+			...(sessionRuntime === "worker" ? { workerConfiguration: runtimeConfiguration } : {}),
 			cwd,
 			creationModel:
 				parsed.provider && parsed.model ? { provider: parsed.provider, modelId: parsed.model } : undefined,

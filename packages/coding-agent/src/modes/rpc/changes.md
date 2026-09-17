@@ -1,3 +1,28 @@
+## 2026-09-17 - Socket hosts run their sessions in the host process (#1782)
+
+### What changed
+
+- New CLI flag `--session-runtime in-process|worker` (`packages/coding-agent/src/cli/args.ts`: `SessionRuntimeKind`, `isSessionRuntimeKind`, `resolveSessionRuntime`, one parse branch, one help line). It selects where a multi-session host runs its sessions. Default: `in-process` for a `--listen` SOCKET host, `worker` for a stdio host (`--multi-session` without `--listen`, and `--listen stdio://`) and for embedders. An explicit flag wins; any other value is a parse error, which `main.ts` already fails the process on.
+- `packages/coding-agent/src/main.ts` (the only producer of `MultiSessionHostOptions.workerConfiguration`) passes that configuration only when the resolved runtime is `worker`. `createHostCore` is unchanged: it selects `WorkerSessionRegistry` when a `workerConfiguration` is present and `RpcSessionRegistry` otherwise, so withholding it is what selects the in-process registry. The runtime factory (`createCliRuntimeFactory`) is still built from the same configuration on both paths.
+- Nothing was removed from the worker path: `SESSION_WORKER_LIMITS.workers = 20` still bounds `WorkerSessionRegistry` admission, and a socket host started with `--session-runtime worker` still answers the 21st `open_session` with `open_failed: too_many_sessions`.
+- `packages/coding-agent/test/suite/rpc-worker-host-support.ts` now passes `--session-runtime worker` by default (every `rpc-worker-*` suite asserts worker-isolate behavior) and exposes `startInProcessHost()`, which omits the flag so the host picks the socket default.
+- QA driver `packages/coding-agent/scripts/qa-rpc-socket/worker-spawn-zombie.mjs` (new): routes N `bash` spawns through one session on either runtime and reports Z-state children of the host process after a settle window (`--runtime`, `--spawns`, `--settle-ms`, `--max-zombies`, `--out`).
+
+### Why
+
+- The shared socket host is meant to be ONE machine-wide daemon that every client (CLI, task runner, desktop) attaches to, so its session count is a property of how many conversations the machine holds, not of an isolate budget. The worker runtime caps admission at 20 and answers `too_many_sessions` beyond it - a client-visible refusal that a daemon may never produce. The in-process registry (`session-registry.ts`) has no cap, and the host already contained both registries; this change only decides which one a socket host selects.
+- The worker runtime stays the default where it is load-bearing: a stdio host multiplexes one JSONL stream owned by a single embedder process, and its isolates are what keep one session's crash or blocking work away from that stream.
+- Accepted trade-off: an in-process session shares the host event loop, so one session blocking it blocks the host, and no per-session opening deadline (#1719) applies on that path. Measured on the socket host: 45 sessions opened on one host add ~2 threads per session (watchers), against ~3 per session on the worker runtime (isolate + watchers) - i.e. sessions are not free on either runtime, but the daemon path adds no isolate.
+- Zombie baseline for the daemon runtime (recorded before the change, on the unmodified engine): 50 `bash true` spawns through one in-process session leave 0 Z-state children of the host after 6 s (worker runtime: also 0).
+
+### Why an extension could not handle it
+
+- Host process topology and registry selection are CLI/host wiring below the extension boundary.
+
+### Expected merge conflict zones
+
+- LOW: the `--listen`/`--multi-session` parse branches and the RPC block of `printHelp` in `src/cli/args.ts`; the `appMode === "rpc" && parsed.multiSession` block in `src/main.ts`; the argv array and options type in `test/suite/rpc-worker-host-support.ts`. `createHostCore`, both registries and the router are untouched.
+
 ## 2026-09-17 - Socket credit on queue acceptance, dead-peer stall budget, deliverable cut notice (#1774)
 
 ### What changed

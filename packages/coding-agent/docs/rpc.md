@@ -93,6 +93,22 @@ senpi --mode rpc --listen /tmp/senpi-rpc.sock [options]
 `unix://@name` where supported by the host platform. Socket mode accepts concurrent connections while retaining one
 process-global session registry.
 
+### Session runtime (`--session-runtime in-process|worker`)
+
+`--session-runtime` selects where a multi-session host runs its sessions:
+
+- `in-process` - every session runs IN the host process, sharing its event loop. No worker isolate is allocated and
+  no session cap applies (capacity is memory, never a refusal). This is the DEFAULT for a `--listen` socket host,
+  i.e. for the shared host clients attach to.
+- `worker` - every session owns a worker isolate, bounded by the worker capacity below. This is the DEFAULT for a
+  stdio host (`--multi-session` without `--listen`, and `--listen stdio://`) and for embedders, and stays available
+  for socket hosts that pass the flag explicitly.
+
+An explicit flag wins over both defaults; any other value is a startup error. The flag changes only WHERE sessions
+run - the wire protocol, attachment semantics and lifecycle windows are identical on both runtimes. An in-process
+session is not isolated from the host: a session that blocks the event loop blocks every other session, and there is
+no per-session opening deadline like the worker runtime's 30-second budget.
+
 On Windows, listeners and clients deterministically map the logical socket path to
 `\\.\pipe\senpi-rpc-<sha256[:32]>`. Callers keep using the same `unix://` CLI value; the logical path remains the
 ownership and settings identity, and callers never construct the pipe name themselves.
@@ -187,8 +203,9 @@ hosts) sees neither variable and is unaffected. A host whose supervisor is alive
 
 ### Shared host occupancy (idle eviction, session cap, empty-host exit)
 
-Every CLI shared-host session owns a worker isolate and a complete runtime. Memory depends on its extensions and
-session contents; isolates do not provide process-fatal OOM containment. The host enforces these occupancy bounds:
+On the worker runtime every CLI shared-host session owns a worker isolate and a complete runtime; on the in-process
+runtime (the socket-host default) each session is a runtime in the host process. Memory depends on its extensions and
+session contents; neither runtime provides process-fatal OOM containment. The host enforces these occupancy bounds:
 
 - **Idle eviction**: a session with no routed command and no session-owned work for
   `SENPI_RPC_SESSION_IDLE_EVICTION_MS` (default 30 minutes) is closed through the exact `close_session` sequence
@@ -198,7 +215,8 @@ session contents; isolates do not provide process-fatal OOM containment. The hos
   background terminal jobs and any other published wake source (terminal monitors, loop-guard holds), compaction,
   and barrier-held session work all defer eviction, and the idle clock restarts when that work settles. An evicted
   session resumes like any other: the next `open_session` with the same `sessionPath` reopens it.
-- **Worker capacity**: at most 20 workers may be preparing, open, closing, or quarantined together. Admission beyond
+- **Worker capacity** (worker runtime only; an in-process host has no session cap of any kind): at most 20 workers
+  may be preparing, open, closing, or quarantined together. Admission beyond
   this bound fails explicitly with `open_failed: too_many_sessions`; it never evicts another session or starts an OS
   process as a fallback. This is a new externally visible bound for CLI shared mode, which previously admitted
   unlimited logical sessions. It applies to new worker allocation, not attachments: a known canonical path or
@@ -227,6 +245,10 @@ Values are positive integers; invalid values fall through to the defaults. These
 so they hold even for embedders and hand-started hosts that have no supervisor.
 
 ### Worker ownership and flow control
+
+This section describes the WORKER runtime (`--session-runtime worker`). An in-process host owns transport,
+attachments and reservations on one event loop, so none of the cross-thread grants, credits or opening deadlines
+below exist there.
 
 The main host owns transport, attachments and canonical reservations. Workers canonicalize caller-supplied paths;
 main does not synchronously traverse those paths. An open prepares a path, obtains the main host's exclusive grant,
