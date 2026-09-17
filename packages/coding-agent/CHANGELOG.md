@@ -19,6 +19,8 @@
 
 
 ### Fixed
+- App-server `mcpServerStatus/list` no longer reports an empty MCP inventory for the life of a thread. Taking attach off the first-paint path meant the inventory copied when a thread binds is captured while servers are still booting, and nothing refreshed it afterwards. The thread's adapter now takes later inventories from the MCP service's existing wire-status subscription, and the thread registry drops that subscription when the thread goes away. ([#1781](https://github.com/code-yeongyu/senpi/issues/1781))
+
 - An `auto` theme no longer repaints on every launch. Making theme detection non-blocking meant the first frame is painted from a guess, and for `light/dark` that guess came from `COLORFGBG` alone - unset by most terminals - while the detected answer was never remembered. A user on a light terminal therefore got a dark first frame on every start, corrected one OSC round trip later. The detected terminal background is now remembered in `<agentDir>/cache/terminal-theme.json` and seeds the next launch, so the repaint happens at most once after install; the file is written atomically and a missing or malformed one simply falls back to the environment guess. ([#1781](https://github.com/code-yeongyu/senpi/issues/1781))
 
 
