@@ -131,7 +131,12 @@ describe("blocking compaction review hardening", () => {
 			const { beforeAgentStart } = createCompactionHandlers();
 			const harness = createBlockingContext({ usageTokens: 9_950 });
 			registrations.push(harness.registration);
-			harness.registration.setResponses([fauxAssistantMessage("", { stopReason: "stop" })]);
+			// Two empty stops: the first spends the one reasoning-override retry,
+			// the second keeps the terminal empty-summary contract under test.
+			harness.registration.setResponses([
+				fauxAssistantMessage("", { stopReason: "stop" }),
+				fauxAssistantMessage("", { stopReason: "stop" }),
+			]);
 
 			// When: required blocking compaction receives an empty generated summary.
 			await expect(beforeAgentStart(createBeforeAgentStartEvent(), harness.ctx)).resolves.toBeUndefined();

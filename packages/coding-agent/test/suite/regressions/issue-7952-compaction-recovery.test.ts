@@ -73,7 +73,9 @@ describe("issue #7952: fitting suffix recovery", () => {
 		}
 		const snapshot = createSpeculativeCompactionSnapshot(harness.ctx, { generation: 1, origin: "speculative" });
 		if (!snapshot) throw new Error("Fixture needs a speculative snapshot");
-		harness.registration.setResponses([fauxAssistantMessage("")]);
+		// Two empty stops: the first spends the one reasoning-override retry, the
+		// second keeps the warm job's failed-empty-summary classification intact.
+		harness.registration.setResponses([fauxAssistantMessage(""), fauxAssistantMessage("")]);
 		try {
 			await handlers.beforeAgentStart(createBeforeAgentStartEvent(), harness.ctx);
 			await handlers.waitForSpeculativeJob();
@@ -92,8 +94,9 @@ describe("issue #7952: fitting suffix recovery", () => {
 				harness.ctx,
 			);
 
-			// Then: it recovers or diagnoses without another provider request.
-			expect(harness.registration.getCallLog()).toHaveLength(1);
+			// Then: it recovers or diagnoses without another provider request beyond
+			// the warm job's own two calls (initial attempt + spent override retry).
+			expect(harness.registration.getCallLog()).toHaveLength(2);
 			if (overBudget) {
 				expect(result?.cancel).toBe(true);
 				expect(JSON.parse(result?.reason?.split("\n")[1] ?? "{}")).toMatchObject({
