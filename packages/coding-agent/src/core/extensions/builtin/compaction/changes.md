@@ -1,13 +1,13 @@
-## Retry compaction summarization without the reasoning-effort override after an empty stop (2026-09-17)
+## Retry compaction summarization without the reasoning override after an empty stop (2026-09-17)
 
 ### What changed
 
-- `packages/coding-agent/src/core/extensions/builtin/compaction/speculative.ts`: an empty summary with `stopReason: "stop"` now spends one retry of the same request with `omitReasoningOptions: true` before the terminal `empty-summary` throw (mirroring the existing bare-tool-call retry).
-- `packages/coding-agent/src/core/extensions/builtin/compaction/speculative-summary.ts`: `generateSummaryMessage` accepts `omitReasoningOptions` and skips `summarizationReasoningOptions` when it is set, so the retried request carries no reasoning-effort override.
+- `packages/coding-agent/src/core/extensions/builtin/compaction/speculative.ts`: an empty summary with `stopReason: "stop"` spends one retry of the same request with `omitReasoningOptions: true` before the terminal `empty-summary` throw, gated on `hasSummarizationReasoningOverride(model)` the way the bare-tool-call retry is gated on `summarizationToolsOffered`. A model whose first attempt carried no override (non-reasoning, or an api family `summarizationReasoningOptions` leaves alone) keeps the single-call terminal contract.
+- `packages/coding-agent/src/core/extensions/builtin/compaction/speculative-summary.ts`: `generateSummaryMessage` accepts `omitReasoningOptions` and skips `summarizationReasoningOptions` when it is set; new `hasSummarizationReasoningOverride(model)` reports whether that override is non-empty. On `anthropic-messages` the override is `thinkingEnabled: false`, so the retry there runs with the provider's default thinking, clamped by the compaction deadline.
 
 ### Why
 
-- Incident 2026-09-17: (mahoquot) `z-ai/glm-5.3-flash` via a cline-backed OpenAI-completions relay returned HTTP 200 SSE streams carrying only the role prelude (completion=7 tokens, reasoning=0) on large tool-bearing summarization prompts, repeatedly, while the same model answered fine on ordinary agent traffic without the effort pin. The gateway relays Generic accounts verbatim and records 200/success, so the empty text surfaced as a terminal `empty-summary` compaction failure ("Compaction rejected: summarization response contained no text (stopReason: stop)") and burned the whole overflow-retry budget. Dropping the reasoning-effort override is the one request-level lever the summarizer owns; persistent emptiness still falls through to the deterministic fallback unchanged.
+- Incident 2026-09-17: `z-ai/glm-5.3-flash` behind a custom cline-backed OpenAI-completions relay returned HTTP 200 SSE streams carrying only the role prelude (completion=7 tokens, reasoning=0) on large tool-bearing summarization prompts, repeatedly, while the same model answered ordinary agent traffic (no effort pin). The relay records 200/success, so each empty answer threw `SummaryGenerationError("empty-summary")` at the first response: it never reaches the overflow shrink branch (`isContextOverflow` is false for an empty 200) and `isRetryableSummaryAttempt` rejects `SummaryGenerationError`. The repeats came from every route that re-triggers compaction (`pre_prompt` before each turn, the idle warm-up plus `MAX_IDLE_WARMUP_RETRIES`, the breaker reopening after `COOLDOWN_MS`), each paying one full summarization request; on non-required reasons (`isRequiredCompactionFallbackReason` covers manual/threshold/overflow only) the deterministic checkpoint does not apply, which is where "Compaction rejected: summarization response contained no text (stopReason: stop)" came from. Dropping the reasoning override is the one request-level lever the summarizer owns, and it is only a lever when the first request carried one; persistent emptiness still falls through to the deterministic fallback.
 
 ### Why an extension could not handle it
 
@@ -15,9 +15,9 @@
 
 ### Expected merge conflict zones
 
-- LOW: `speculative.ts` around the empty-summary branch in the summarization retry loop.
-- LOW: `speculative-summary.ts` around the summarizationStream options spread.
-- Coverage: `test/compaction/summarization-empty-stop-retry.test.ts`.
+- LOW: `speculative.ts` around the empty-summary branch in the summarization retry loop and the `reasoningOverrideOffered` flag.
+- LOW: `speculative-summary.ts` around the summarizationStream options spread and `hasSummarizationReasoningOverride`.
+- Coverage: `test/compaction/summarization-empty-stop-retry.test.ts` (faux provider: override retry, persistent emptiness, non-reasoning single call, Anthropic `thinkingEnabled`, bare-tool-call then empty-stop interaction) and `test/compaction/summarization-empty-stop-retry-wire.test.ts` (real openai-completions adapter over local HTTP: `reasoning_effort` present on attempt 1, absent on attempt 2).
 
 ## Authorize the deterministic fallback for a provider-killed summary stream (2026-09-16)
 
