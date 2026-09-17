@@ -115,9 +115,10 @@ ownership and settings identity, and callers never construct the pipe name thems
 
 Socket event visibility is attachment-scoped for session content: each connection receives agent output only from sessions
 attached to that connection, with every record tagged by its routing `sessionId`. Content-free lifecycle records
-(`agent_start`, `agent_settled`, `agent_idle`, `session_opened`, and `session_closed`) are broadcast to all registered
-connections, including the supervisor's unattached observer, so host lifecycle accounting remains accurate without exposing
-session content. The one exception is `session_closed` for a session opened with `kind: "worker"`: it is delivered only to
+(`agent_start`, `agent_settled`, `agent_idle`, `session_opened`, `session_closed`, and `session_parked`) are broadcast to all
+registered connections, including the supervisor's unattached observer, so host lifecycle accounting remains accurate without
+exposing session content. The one exception is `session_closed` and `session_parked` for a session opened with
+`kind: "worker"`: they are delivered only to
 the connections attached to that session, so machine-driven work neither appears in nor disappears from a client that never
 asked for it. Every other lifecycle record, and every record of an `interactive` session, keeps today's broadcast. Correlated responses and dialog extension UI
 requests (select, confirm, input, and editor) are requester-only; other extension UI state records go to the session's
@@ -232,7 +233,12 @@ session contents; neither runtime provides process-fatal OOM containment. The ho
 - **Idle eviction**: a session with no routed command and no session-owned work for
   `SENPI_RPC_SESSION_IDLE_EVICTION_MS` (default 30 minutes) is closed through the exact `close_session` sequence
   (abort → waitForIdle → dispose, all attachments drained, path reservation released) and every attached connection
-  receives that handle's `session_closed` broadcast plus a final `close_session` response record. "Session-owned
+  receives that handle's `session_closed` broadcast plus a final `close_session` response record. A session opened with
+  `retain_on_disconnect` is PARKED by that same sweep instead: identical teardown, but the terminal record is
+  `session_parked { sessionId, sessionPath }` and there is no `close_session` response, because nothing closed the session -
+  the routing handle was released while the session itself stays on disk and reopens with `open_session { sessionPath }`
+  (as a NEW handle). A client that does not know `session_parked` ignores it and learns the handle is gone from its next
+  command's `unknown_session`. "Session-owned
   work" is the complete activity contract, not just a streaming turn: an agent run, a running bash command,
   background terminal jobs and any other published wake source (terminal monitors, loop-guard holds), compaction,
   and barrier-held session work all defer eviction, and the idle clock restarts when that work settles. An evicted
@@ -252,7 +258,8 @@ session contents; neither runtime provides process-fatal OOM containment. The ho
   `open_session` with that `sessionPath` — from any connection — attaches to the same routing handle and returns
   `attached: true`. Retention never outranks an explicit teardown: a `close_session` from an attached connection still
   reaches zero attachments and closes the session, host shutdown closes it, and the idle-eviction window above still
-  parks it (the file reopens by path afterwards, like any evicted session). It is also bounded by the empty-host exit
+  parks it — announced as `session_parked { sessionId, sessionPath }`, after which the file reopens by path like any
+  evicted session, and the parked session counts as gone for the empty-host exit below. It is also bounded by the empty-host exit
   and the supervisor's idle-exit window below: retention survives a client, not the host. Any attach may turn retention
   on for a live session; no attach turns it off for clients that already rely on it. Omitting the flag is byte-identical
   to the previous behavior — the session is closed with its last connection. Probe `retain_on_disconnect` in
@@ -356,7 +363,7 @@ containment, or containment of arbitrary native code. They are not an extension 
 | --- | --- | --- | --- |
 | `get_protocol_info` | - | `{ protocolVersion: 1, serverVersion: string, capabilities: string[], mode: "classic"\|"multi" }` | Answered in BOTH modes; side-effect-free; the capability probe. Multi-session hosts include `multi_session`, `retain_on_disconnect`, `session_kind` and `session_context` plus the negotiated launch capabilities. Those three are HOST capabilities (a client never sends them) and are advertised only in multi-session mode, where the host owns the attachment refcount and the per-session launch profile. |
 | `open_session` | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?`, `kind?`, `context?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: true }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there, `session-manager.ts:926-940`); `provider`/`modelId` applied only on create (resume restores the session's model — mirrors `SenpiSessionRuntime.ts:198-200`); params form the immutable launch profile (D8). When the path is already held by a fully-open session, the open ATTACHES to it: same routing handle, `attached: true`, one more attachment counted; the runtime is torn down only when the last attachment closes. Idle sessions past the eviction window are closed by the host itself. `retain_on_disconnect: true` (default false) makes a dropped connection DETACH from this session instead of closing it — see "Retained sessions" below. `kind` (default `interactive`) and the opaque `context` map are described under "Session kind and context" above; both are stored frozen for the session's life and never influence auth, model or resource resolution. |
-| `close_session` | `sessionId` | `{}` | Aborts active work, awaits agent idle + settled persistence for up to the host grace window (default 10s), then quarantines any worker that has not exited without releasing its path reservation; its response is the LAST record tagged with that handle for the first closer — no events after (test-pinned). An admitted concurrent close joins the same teardown and receives its own successful response; output saturation rejects admission with the bounded close-overflow/resync notice described above. |
+| `close_session` | `sessionId` | `{}` | Refused with `unknown_session` when the requesting connection never attached to that handle (a close releases the CALLER's attachment, and `list_sessions` publishes every handle). Otherwise aborts active work, awaits agent idle + settled persistence for up to the host grace window (default 10s), then quarantines any worker that has not exited without releasing its path reservation; its response is the LAST record tagged with that handle for the first closer — no events after (test-pinned). An admitted concurrent close joins the same teardown and receives its own successful response; output saturation rejects admission with the bounded close-overflow/resync notice described above. |
 | `list_sessions` | `include_workers?` (default false) | `{ sessions: [{ sessionId, durableSessionId, sessionPath, cwd, name, status, attachments, kind, context? }] }` | Includes `opening`/`closing` entries. Internally quarantined workers remain externally `closing` until exit. `attachments` is the session's live client attachment count; `0` on an `open` row is a retained session with no client attached. Every row carries `kind`. Rows with `kind: "worker"` are omitted unless `include_workers: true`, and `context` is published ONLY on that listing — a default listing carries no `context` at all. |
 | every existing command | + `sessionId` (REQUIRED in multi mode) | unchanged | Routed to that session. |
 
@@ -390,7 +397,7 @@ Strict FIFO per session; one total stdout order; cross-session order unspecified
 
 ### Duplicate/idempotency
 
-Duplicate `open_session` while a path reservation is held by a fully-open session → ATTACH (`attached: true`, same handle), including when that session is retained with zero attachments; while held by an `opening`/`closing` entry (including internal quarantine) → `session_path_in_use`. A path whose owner has already replaced it with another session file is no longer held: that open allocates a new worker and resumes the file. `close_session` releases one attachment; the runtime is disposed only when the last attachment closes. A close for an entry already `closing` joins its in-flight teardown. `close_session` on unknown/already-closed → `unknown_session` error. The grace window is configurable by the host through `SENPI_RPC_CLOSE_GRACE_MS`. Request `id`s are client-owned; the server echoes them without dedup.
+Duplicate `open_session` while a path reservation is held by a fully-open session → ATTACH (`attached: true`, same handle), including when that session is retained with zero attachments; while held by an `opening`/`closing` entry (including internal quarantine) → `session_path_in_use`. A path whose owner has already replaced it with another session file is no longer held: that open allocates a new worker and resumes the file. `close_session` releases one attachment; the runtime is disposed only when the last attachment closes. A close for an entry already `closing` joins its in-flight teardown. `close_session` on unknown/already-closed → `unknown_session` error, and so is a `close_session` from a connection that never attached to that handle — it releases nothing and leaves the session untouched. The grace window is configurable by the host through `SENPI_RPC_CLOSE_GRACE_MS`. Request `id`s are client-owned; the server echoes them without dedup.
 
 ## Protocol Overview
 

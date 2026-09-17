@@ -896,6 +896,24 @@ export interface RpcSessionReplacedEvent {
 	sessionName?: string;
 }
 
+/**
+ * Emitted when a shared host PARKS a session instead of closing it: the idle window
+ * elapsed for a session opened with `retain_on_disconnect`, so the host released the
+ * routing handle while the session itself stays on disk.
+ *
+ * It replaces `session_closed` for that handle - a parked session was not ended, and
+ * `open_session { sessionPath }` reopens it (as a NEW routing handle). Additive: a
+ * client that does not know the type filters it out and learns the handle is gone
+ * from its next command's `unknown_session`.
+ */
+export type RpcSessionParkedEvent = {
+	type: "session_parked";
+	/** Routing handle that was released; it never resolves again. */
+	sessionId: string;
+	/** Session file to reopen this session by. */
+	sessionPath: string;
+};
+
 /** Emitted after the loaded skill, extension, or MCP inventory changes. */
 export interface RpcLoadedSurfacesChangedEvent {
 	type: "loaded_surfaces_changed";

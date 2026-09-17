@@ -243,8 +243,18 @@ export class SessionCommandRouter {
 	 * close_session, draining every attachment because eviction ends the shared
 	 * session, not one client's claim. Races with concurrent lifecycle paths are
 	 * tolerated the same way releaseOwnedSession tolerates them.
+	 *
+	 * Evicting a RETAINED session is a PARK, not a close: that session was opened to
+	 * outlive its clients, so the terminal record names the file it reopens by
+	 * (`session_parked`) instead of reporting a close nobody requested. The teardown
+	 * itself is identical - retention never outlives the idle window.
 	 */
 	private async evictIdleSession(sessionId: string): Promise<void> {
+		// Read before the claim: the entry is gone once the teardown completes, and a park
+		// record without the session's path would not be actionable (so a retained session
+		// with no file to reopen by ends as an ordinary close).
+		const retained = this.registry.peek(sessionId);
+		const parkedPath = retained?.retainOnDisconnect === true ? retained.sessionPath : undefined;
 		// A failed claim means an explicit close raced us and owns the entry now.
 		const claim = this.tryClaimClose(sessionId, { drainAttachments: true });
 		if (!claim) return;
@@ -253,12 +263,14 @@ export class SessionCommandRouter {
 		this.forgetSessionOwnership(sessionId);
 		if (claim.finalizer) {
 			await this.finalizeClose(sessionId, binding, () =>
-				this.writer.closeSession(sessionId, {
-					type: "response",
-					command: "close_session",
-					success: true,
-					data: {},
-				}),
+				parkedPath === undefined
+					? this.writer.closeSession(sessionId, {
+							type: "response",
+							command: "close_session",
+							success: true,
+							data: {},
+						})
+					: this.writer.parkSession(sessionId, parkedPath),
 			);
 		} else {
 			await this.finalizations.get(sessionId)?.promise;
@@ -573,6 +585,15 @@ export class SessionCommandRouter {
 			success: true as const,
 			data: {},
 		};
+		// A close releases the CALLER's attachment, and routing handles are public on a
+		// shared host (`list_sessions` publishes every one of them), so ownership - not
+		// knowledge of the handle - authorizes it: a connection that never attached holds
+		// no attachment, and answering it would release another client's claim and could
+		// tear down a session it never opened. A host with no per-connection identity
+		// (stdio) has no ownership to check and keeps answering every close as before.
+		const owner = this.writer.currentConnection();
+		if (owner !== undefined && this.sessionsByConnection.get(owner)?.has(command.sessionId) !== true)
+			return error(command.id, "close_session", RPC_ERROR_UNKNOWN_SESSION);
 		const reply = this.writer.reserveCloseResponse(command.sessionId, response);
 		if (!reply) return undefined;
 		// Admission and claiming are synchronous, before any teardown await. A
@@ -585,7 +606,6 @@ export class SessionCommandRouter {
 			return error(command.id, "close_session", this.code(cause));
 		}
 		try {
-			const owner = this.writer.currentConnection();
 			if (owner !== undefined) this.releaseOwnerAttachment(owner, command.sessionId);
 			if (claim.finalizer) {
 				await this.finalizeClose(command.sessionId, this.bindings.get(command.sessionId), () =>

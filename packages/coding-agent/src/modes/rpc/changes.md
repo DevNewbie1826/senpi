@@ -1,3 +1,28 @@
+## 2026-09-17 - Parked retained sessions announce themselves; a close needs the caller's own attachment (#1782)
+
+### What changed
+
+- `rpc-types.ts`: new `RpcSessionParkedEvent` (`{ type: "session_parked", sessionId, sessionPath }`), the terminal record of a PARK. `rpc-client.ts` adds it to the public `RpcClientEvent` union.
+- `session-event-writer.ts`: `parkSession(sessionId, sessionPath)` seals the session exactly like `closeSession` and publishes `session_parked` instead of `session_closed`, with no close response (nobody requested this teardown). Delivery reuses the `session_closed` rule: a `kind: "worker"` session's record goes to its attached connections, an interactive session's is broadcast.
+- `session-command-router.ts` (`evictIdleSession`): the idle sweep reads the entry BEFORE claiming it and, when the entry is retained and has a session file, emits `parkSession` as the terminal record instead of `closeSession` + the synthesized `close_session` response. The teardown itself is byte-identical, so retention still never outlives the idle window and a parked entry leaves the registry (the empty-host exit window starts at that tick). A retained entry with no session file to reopen by falls back to the ordinary close.
+- `session-command-router.ts` (`close`): a `close_session` whose connection holds no attachment for that handle is refused with `unknown_session` before any reply debt is reserved or any attachment is released. Hosts with no per-connection identity (stdio, in-process embedders) have no ownership to check and keep answering every close as before.
+- Docs: `docs/rpc.md` (lifecycle-record visibility, idle eviction, retained sessions, the D1 `close_session` row, duplicate/idempotency) and the `rpc-mode.ts` D1 table carry both rules.
+- Tests: `test/suite/rpc-inprocess-host.test.ts` gains the retention contract on the IN-PROCESS runtime (the daemon path; PR #1777's cases run on the worker registry) - detach + re-attach by path, a turn that settles after its client dropped (asserted on the persisted transcript), the unflagged session closing as before, an explicit close of a retained detached session, the park record reaching a connection that stayed attached with reopen-by-path, the empty-host exit firing once after the park, and the refusal of a foreign `close_session`. The rig lives in `test/suite/rpc-inprocess-host-support.ts`.
+
+### Why
+
+- A retained session exists to outlive its clients, so the desktop and the omo task runner must be able to tell "the host put this session to disk, reopen it by path" from "this session ended". Before this, both arrived as `session_closed`: the only correct client reaction (reopen) was indistinguishable from the only correct reaction to a close (forget), and a parked desktop thread would have been dropped from the UI.
+- Parking deliberately keeps the eviction teardown. Retention that survived the idle window would make one abandoned session pin a daemon forever; the park record is what makes the eviction recoverable instead of silent.
+- The close guard closes a hole that only becomes reachable on a shared daemon: `list_sessions` publishes every routing handle, and `close_session` decrements the refcount of whoever asks. A client that never attached could therefore release another client's attachment - and close a single-attachment session it never opened. Ownership is already tracked per connection for the drop path; the close now uses the same map.
+
+### Why an extension could not handle it
+
+- The idle sweep, the attachment refcount and the event fanout are host infrastructure below the extension boundary; an extension cannot observe a teardown it is being disposed by, nor refuse another connection's command.
+
+### Expected merge conflict zones
+
+- LOW: the terminal-record branch of `SessionCommandRouter.evictIdleSession`, the head of `SessionCommandRouter.close`, and the block after `SessionEventWriter.closeSession`. Upstream has none of these surfaces.
+
 ## 2026-09-17 - Session kind and opaque per-session context; worker sessions hidden by default (#1782)
 
 ### What changed
