@@ -6,6 +6,7 @@ import {
 	type RpcConnectionOptions,
 	type RpcConnectionSink,
 } from "./connection-handler.ts";
+import { createToolAttributionSpans } from "./session-attribution.ts";
 import type { SessionEventWriter } from "./session-event-writer.ts";
 import type { RpcSessionEntry } from "./session-registry.ts";
 
@@ -15,12 +16,6 @@ export interface RpcSessionBinding {
 	cancelPendingExtensionUiRequests?(): void;
 	rerenderComponents?(): void;
 	dispose(): Promise<void>;
-}
-
-function enqueueRecords(writer: SessionEventWriter, sessionId: string, chunk: string): void {
-	for (const line of chunk.split("\n")) {
-		if (line) writer.enqueue(sessionId, JSON.parse(line) as object);
-	}
 }
 
 /**
@@ -36,6 +31,18 @@ export async function createRpcSessionBinding(
 ): Promise<RpcSessionBinding> {
 	if (entry.worker) return entry.worker.bind(sessionId, writer, requestClose, options);
 	if (!entry.runtime) throw new Error("Session runtime was not created");
+	// An in-process session executes its tools ON the host loop, so the tool this
+	// session is inside is what the loop-lag watchdog blames for a stall. The record
+	// stream already carries that transition; no extra subscription is needed.
+	const toolSpans = createToolAttributionSpans(sessionId);
+	const enqueueRecords = (chunk: string): void => {
+		for (const line of chunk.split("\n")) {
+			if (!line) continue;
+			const record = JSON.parse(line) as object;
+			toolSpans.observe(record);
+			writer.enqueue(sessionId, record);
+		}
+	};
 	// Attachments share one entry, so resolve the host from the live runtime. In
 	// particular, switch_session must use the entry's replacement-aware method
 	// instead of a runtime captured during open_session.
@@ -55,7 +62,7 @@ export async function createRpcSessionBinding(
 	});
 	const handler: RpcConnectionHandler = await runWithProviderScope(entry.scope, async () => {
 		const taggedSink: RpcConnectionSink = {
-			writeRaw: bindToProviderScope((chunk: string) => enqueueRecords(writer, sessionId, chunk)),
+			writeRaw: bindToProviderScope(enqueueRecords),
 			waitForBackpressure: bindToProviderScope(async () => {}),
 		};
 		return createRpcConnectionHandler(runtimeHost, taggedSink, {
@@ -72,6 +79,9 @@ export async function createRpcSessionBinding(
 		cancelPendingExtensionUiRequests: () =>
 			runWithProviderScope(entry.scope, () => handler.cancelPendingExtensionUiRequests()),
 		rerenderComponents: () => runWithProviderScope(entry.scope, () => handler.rerenderComponents()),
-		dispose: () => runWithProviderScope(entry.scope, () => handler.dispose()),
+		dispose: () => {
+			toolSpans.closeAll();
+			return runWithProviderScope(entry.scope, () => handler.dispose());
+		},
 	};
 }

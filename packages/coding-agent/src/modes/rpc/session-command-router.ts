@@ -19,6 +19,7 @@ import {
 	RPC_ERROR_SESSION_CLOSING,
 	RPC_ERROR_UNKNOWN_SESSION,
 } from "./rpc-types.ts";
+import { runWithSessionAttribution } from "./session-attribution.ts";
 import { createRpcSessionBinding, type RpcSessionBinding } from "./session-binding.ts";
 import type { SessionEventWriter } from "./session-event-writer.ts";
 import type { OpenRpcSession, RpcSessionLaunchProfile, RpcSessionRegistry } from "./session-registry.ts";
@@ -92,6 +93,8 @@ export class SessionCommandRouter {
 	private readonly canExitWhenEmpty?: () => boolean;
 	private sweepTimer: ReturnType<typeof setInterval> | undefined;
 	private emptySince: number | undefined;
+	/** Halves the idle window while the host reports memory pressure; never refuses work. */
+	private memoryPressure = false;
 
 	constructor(
 		registry: Pick<
@@ -122,7 +125,31 @@ export class SessionCommandRouter {
 		}
 	}
 
-	async handle(command: RpcCommand): Promise<RpcResponse | undefined> {
+	/** Live sessions the host holds, including ones opening or closing. */
+	get sessionCount(): number {
+		return this.registry.size;
+	}
+
+	/**
+	 * Raised by the host's memory sampler. Under pressure idle sessions are parked at
+	 * HALF the configured window, which returns their memory to the process sooner.
+	 * Deliberately the only lever: the host never refuses or kills a session for memory.
+	 */
+	setMemoryPressure(pressure: boolean): void {
+		this.memoryPressure = pressure;
+	}
+
+	/**
+	 * Every routed command runs inside its session's attribution scope, so a stall the
+	 * loop-lag watchdog observes right after this dispatch can name the session that
+	 * caused it - and anything the command starts inherits the attribution.
+	 */
+	handle(command: RpcCommand): Promise<RpcResponse | undefined> {
+		const sessionId = "sessionId" in command ? command.sessionId : undefined;
+		return runWithSessionAttribution({ sessionId }, () => this.dispatch(command));
+	}
+
+	private async dispatch(command: RpcCommand): Promise<RpcResponse | undefined> {
 		if (command.type === "get_protocol_info") {
 			const capabilities = new Set([
 				"multi_session",
@@ -209,13 +236,16 @@ export class SessionCommandRouter {
 	 * (`AgentSession.isSessionBusy`: agent run, bash, background terminal jobs and
 	 * other published wake sources, compaction, barrier-held session work) - busy
 	 * sessions restart their idle clock instead, so work that outlives a turn is
-	 * never killed. Fires onEmptyExit once the registry has STAYED empty for
-	 * emptyExitMs with the exit permitted; any live session or connected client
-	 * resets that window. Runs on an unref'd interval and is safe to call directly.
+	 * never killed. While the host reports memory pressure the window is HALVED, so an
+	 * idle session's memory returns to the process sooner. Fires onEmptyExit once the
+	 * registry has STAYED empty for emptyExitMs with the exit permitted; any live session
+	 * or connected client resets that window. Runs on an unref'd interval and is safe to
+	 * call directly.
 	 */
 	sweepIdleSessions(): void {
 		const now = this.idleNow();
-		if (Number.isFinite(this.idleEvictionMs)) {
+		const idleEvictionMs = this.memoryPressure ? this.idleEvictionMs / 2 : this.idleEvictionMs;
+		if (Number.isFinite(idleEvictionMs)) {
 			for (const { sessionId, status } of this.registry.list()) {
 				if (status !== "open") continue;
 				const entry = this.registry.peek(sessionId);
@@ -225,7 +255,7 @@ export class SessionCommandRouter {
 					entry.lastCommandAt = now;
 					continue;
 				}
-				if (now - entry.lastCommandAt >= this.idleEvictionMs) void this.evictIdleSession(sessionId);
+				if (now - entry.lastCommandAt >= idleEvictionMs) void this.evictIdleSession(sessionId);
 			}
 		}
 		if (Number.isFinite(this.emptyExitMs)) {
