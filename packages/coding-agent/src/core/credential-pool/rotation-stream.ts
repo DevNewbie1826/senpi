@@ -60,13 +60,18 @@ export async function listRotationSlots(
 ): Promise<RotationSlot[]> {
 	const acquireLeases = options.acquireLeases !== false;
 	const { providerId, credential, env, repository } = sources;
-	const policySlots = Object.entries(sources.policy?.slots ?? {}).flatMap(([name, ref]) => {
+	const policySlots: { name: string; envVarName: string; key: string; source: "env" }[] = [];
+	for (const [name, ref] of Object.entries(sources.policy?.slots ?? {})) {
 		const envVarName = ref.env ?? `models.json:${name}`;
 		const key =
-			ref.env !== undefined ? env(ref.env) : ref.value !== undefined ? resolveConfigValue(ref.value, {}) : undefined;
-		if (!key) return [];
-		return [{ name, envVarName, key, source: "env" as const }];
-	});
+			ref.env !== undefined
+				? env(ref.env)
+				: ref.value !== undefined
+					? await resolveConfigValue(ref.value, {})
+					: undefined;
+		if (!key) continue;
+		policySlots.push({ name, envVarName, key, source: "env" });
+	}
 	if (credential) {
 		const state = await repository.listSlots(providerId, "stored");
 		const slots: RotationSlot[] = [];

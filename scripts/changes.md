@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-17 - Keep the Bun-only reaper bindings out of the release bundle (senpi#1782)
+
+### What changed
+
+- `scripts/build-coding-agent-bundle.mjs`: `bun:ffi` joins `bun:sqlite` in `external` and in `allowedExternalPackages`, so esbuild leaves the specifier unresolved instead of failing the build, and the external-import audit still refuses any specifier that is not on that list.
+
+### Why
+
+- The socket host's child reaper loads its `waitid`/`waitpid` bindings through `await import("bun:ffi")` behind a runtime gate (`loadChildReaperSyscalls` returns undefined on Node and win32 before the specifier is reached). The bundler cannot resolve a Bun builtin, so the shipped bundle build failed the moment the reaper landed beside it; externalizing the specifier is the same treatment the runtime-guarded `bun:sqlite` lock adapter already gets.
+
+### Why an extension could not handle it
+
+- Bundling runs in the build, before any runtime or extension exists.
+
+### Expected merge conflict zones
+
+- LOW: the `allowedExternalPackages` set and the `external` array in `build-coding-agent-bundle.mjs`.
+
 ## 2026-09-17 - Smoke the bundled entry under custom exec arguments (senpi#1781)
 
 ### What changed

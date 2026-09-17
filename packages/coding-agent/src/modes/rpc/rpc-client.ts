@@ -42,6 +42,7 @@ import type {
 	RpcProviderAccount,
 	RpcResponse,
 	RpcSessionModelEntry,
+	RpcSessionParkedEvent,
 	RpcSessionReplacedEvent,
 	RpcSessionState,
 	RpcSlashCommand,
@@ -112,6 +113,10 @@ export type RpcClientEvent =
 	// `{ cancelled }`, and a replacement may be driven by another client or an
 	// extension, so this is the only channel delivering the new identity.
 	| RpcSessionReplacedEvent
+	// The host parked a retained session at its idle window. Part of the public union
+	// because it REPLACES `session_closed` for that handle: a client that treats it as
+	// a close loses the session it was told to reopen by path.
+	| RpcSessionParkedEvent
 	| { type: "bash_start" }
 	| { type: "bash_end" };
 export type RpcEventListener = (event: RpcClientEvent) => void;
@@ -389,6 +394,8 @@ export class RpcClient {
 		permissionPreset?: string;
 		/** Keep the session alive when its last client disconnects; needs the host's `retain_on_disconnect`. */
 		retain_on_disconnect?: boolean;
+		/** Per-session auto-titling; needs the host's `auto_title_per_session`. */
+		auto_title?: boolean;
 	}): Promise<{ sessionId: string; state: RpcSessionState; attached?: boolean }> {
 		if (this.pendingOpenSession) throw new RpcClientOpenInFlightError();
 		this.pendingOpenSession = true;
@@ -991,7 +998,8 @@ export class RpcClient {
 					event.type === "bash_end" ||
 					event.type === "extension_ui_request" ||
 					// Connection-level, not part of the agent's event stream.
-					event.type === "session_replaced"
+					event.type === "session_replaced" ||
+					event.type === "session_parked"
 				)
 					return;
 				events.push(event);

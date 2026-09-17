@@ -93,15 +93,56 @@ senpi --mode rpc --listen /tmp/senpi-rpc.sock [options]
 `unix://@name` where supported by the host platform. Socket mode accepts concurrent connections while retaining one
 process-global session registry.
 
+### Session runtime (`--session-runtime in-process|worker`)
+
+`--session-runtime` selects where a multi-session host runs its sessions:
+
+- `in-process` - every session runs IN the host process, sharing its event loop. No worker isolate is allocated and
+  no session cap applies (capacity is memory, never a refusal). This is the DEFAULT for a `--listen` socket host,
+  i.e. for the shared host clients attach to.
+- `worker` - every session owns a worker isolate, bounded by the worker capacity below. This is the DEFAULT for a
+  stdio host (`--multi-session` without `--listen`, and `--listen stdio://`) and for embedders, and stays available
+  for socket hosts that pass the flag explicitly.
+
+An explicit flag wins over both defaults; any other value is a startup error. The flag changes only WHERE sessions
+run - the wire protocol, attachment semantics and lifecycle windows are identical on both runtimes. An in-process
+session is not isolated from the host: a session that blocks the event loop blocks every other session, and there is
+no per-session opening deadline like the worker runtime's 30-second budget.
+
+### Child reaping on a socket host (`SENPI_RPC_HOST_REAPER`)
+
+A socket host reaps the exited child processes that no thread is left to wait on. A `worker_threads` Worker owns the
+exit watchers of every child it spawned, so terminating one - which is what the session-worker quarantine does - turns
+its already-exited children into zombies of the HOST process, for every spawn API (`child_process.spawn`, `Bun.spawn`,
+`Bun.$`) and under both the source and compiled runtimes. Children spawned from a live thread are reaped by their own
+runtime and never reach the reaper.
+
+Latency and safety: a 1-second unref'd tick enumerates the host's DIRECT children, peeks at each with
+`waitid(P_PID, pid, WEXITED | WNOHANG | WNOWAIT)` - which reads the exit status without consuming it - and only
+`waitpid(pid, WNOHANG)`s a pid that stayed waitable across two ticks at least 30 seconds apart (`waitpid(-1)` is never
+called). So an abandoned child is claimed 30-31 seconds after it exits. That window is what keeps the reaper from
+stealing a child from a live owner: a thread blocked in a synchronous call cannot reap its own child until it unblocks,
+and a stolen child breaks the owner's contract (measured: `child_process` and `Bun.spawn` reject with `ECHILD`,
+`Bun.$` never settles). A thread that blocks synchronously for longer than the window while awaiting a child therefore
+loses that child's exit status; `SENPI_RPC_HOST_REAPER_MIN_WAITABLE_MS` raises the window (never below its 5-second
+floor) and `SENPI_RPC_HOST_REAPER=0` turns reaping off entirely. The bindings need `bun:ffi`: a host running under Node
+logs one warning at startup and reaps nothing. While at least ten children sit waiting, the host logs one line per
+five minutes with the count and the three commonest command names.
+
 On Windows, listeners and clients deterministically map the logical socket path to
 `\\.\pipe\senpi-rpc-<sha256[:32]>`. Callers keep using the same `unix://` CLI value; the logical path remains the
 ownership and settings identity, and callers never construct the pipe name themselves.
 
 Socket event visibility is attachment-scoped for session content: each connection receives agent output only from sessions
 attached to that connection, with every record tagged by its routing `sessionId`. Content-free lifecycle records
-(`agent_start`, `agent_settled`, `agent_idle`, `session_opened`, and `session_closed`) are broadcast to all registered
-connections, including the supervisor's unattached observer, so host lifecycle accounting remains accurate without exposing
-session content. Correlated responses and dialog extension UI
+(`agent_start`, `agent_settled`, `agent_idle`, `session_opened`, `session_closed`, and `session_parked`) are broadcast to all
+registered connections, including the supervisor's unattached observer, so host lifecycle accounting remains accurate without
+exposing session content. The one exception is `session_closed` and `session_parked` for a session opened with
+`kind: "worker"`: they are delivered only to
+the connections attached to that session, so machine-driven work neither appears in nor disappears from a client that never
+asked for it. Every other lifecycle record, and every record of an `interactive` session, keeps today's broadcast. Host-level
+records (`host_stalled`, `host_memory_pressure`) are broadcast the same way and describe the host process rather than a
+session. Correlated responses and dialog extension UI
 requests (select, confirm, input, and editor) are requester-only; other extension UI state records go to the session's
 attached connections. To observe a foreign session, open it by its existing
 `sessionPath`; the host attaches that connection during `open_session`.
@@ -118,18 +159,41 @@ factory-rendered records. On a shared socket host, `rendered_components` is regi
 capable connection leaves a still-attached binding, live component renderers and footer data providers are disposed but
 their factories are retained; a later capable connection recreates and re-renders them.
 
+### Session kind and context (`open_session`)
+
+`open_session` accepts two additive, opaque per-session fields. Both are inert inside the host: they never take part in
+auth, model, extension or resource resolution, and they are never merged into the host's parsed CLI configuration.
+
+- `kind: "interactive" | "worker"` (default `interactive`) is the session's visibility class. A `worker` session is
+  machine-driven work (a task child, a team member): it is omitted from `list_sessions` unless the caller passes
+  `include_workers: true`, and its `session_closed` record reaches only the connections attached to it. An `interactive`
+  session behaves exactly as before. A value that is neither is refused with `invalid_session_kind` - an unknown kind is
+  never downgraded to `interactive`, because that would publish machine-driven work to every client.
+- `context: Record<string, string>` (default `{}`) is an opaque label map. The host stores it frozen for the session's
+  life, hands it to that session's extensions as `pi.sessionContext`, and republishes it only on
+  `list_sessions { include_workers: true }`. Caps, enforced at the boundary: at most 32 keys, every key matching
+  `^[a-z][a-z0-9_]*$`, every value at most 16 KiB, and at most 32 KiB of JSON in total. Anything else is refused with
+  `invalid_session_context: <detail>`, where the detail names the cap that was broken.
+
+One shared host therefore loads ONE extension set and still lets an extension recognize the session it was loaded for
+(`pi.sessionKind`, `pi.sessionContext`). Probe `session_kind` and `session_context` in `get_protocol_info` capabilities
+before relying on either: an older host ignores both fields and lists every session.
+
 ### Session auto-titling
 
-Auto-generated session titles are on by default only for interactive launches. RPC hosts opt in with
-`--auto-title-sessions`:
+Auto-generated session titles are on by default only for interactive launches. A shared host decides titling per
+`open_session`: `auto_title: true` titles that session, `auto_title: false` leaves it untitled, and an omitted field
+keeps the host-wide default (`--auto-title-sessions` or the `auto_title_sessions` client capability). Probe
+`auto_title_per_session` in `get_protocol_info` before relying on the field; an older host ignores it. A non-boolean is
+refused with `invalid_launch_profile`. Sessions resumed with existing context messages are never retitled.
+
+`--auto-title-sessions` still opts every session on that host into titling when `auto_title` is omitted. It is
+deprecated for shared hosts — prefer per-session `open_session.auto_title` so two clients on one daemon do not collide
+over a launch-profile flag:
 
 ```bash
 senpi --mode rpc --multi-session --auto-title-sessions
 ```
-
-With the flag, every session the host opens (classic or multi-session) generates a title from its first user prompt and
-publishes it to clients through the existing `session_info_changed` event; no new command or event is involved. Sessions
-resumed with existing context messages are never retitled, with or without the flag.
 
 Startup: `senpi --mode rpc --multi-session` → NO default session is constructed (no default `AgentSessionRuntime`, no default extension/watcher load). Classic `senpi --mode rpc` is byte-identical to today. Mode is fixed at process start; there is no runtime transition.
 
@@ -187,18 +251,25 @@ hosts) sees neither variable and is unaffected. A host whose supervisor is alive
 
 ### Shared host occupancy (idle eviction, session cap, empty-host exit)
 
-Every CLI shared-host session owns a worker isolate and a complete runtime. Memory depends on its extensions and
-session contents; isolates do not provide process-fatal OOM containment. The host enforces these occupancy bounds:
+On the worker runtime every CLI shared-host session owns a worker isolate and a complete runtime; on the in-process
+runtime (the socket-host default) each session is a runtime in the host process. Memory depends on its extensions and
+session contents; neither runtime provides process-fatal OOM containment. The host enforces these occupancy bounds:
 
 - **Idle eviction**: a session with no routed command and no session-owned work for
   `SENPI_RPC_SESSION_IDLE_EVICTION_MS` (default 30 minutes) is closed through the exact `close_session` sequence
   (abort → waitForIdle → dispose, all attachments drained, path reservation released) and every attached connection
-  receives that handle's `session_closed` broadcast plus a final `close_session` response record. "Session-owned
+  receives that handle's `session_closed` broadcast plus a final `close_session` response record. A session opened with
+  `retain_on_disconnect` is PARKED by that same sweep instead: identical teardown, but the terminal record is
+  `session_parked { sessionId, sessionPath }` and there is no `close_session` response, because nothing closed the session -
+  the routing handle was released while the session itself stays on disk and reopens with `open_session { sessionPath }`
+  (as a NEW handle). A client that does not know `session_parked` ignores it and learns the handle is gone from its next
+  command's `unknown_session`. "Session-owned
   work" is the complete activity contract, not just a streaming turn: an agent run, a running bash command,
   background terminal jobs and any other published wake source (terminal monitors, loop-guard holds), compaction,
   and barrier-held session work all defer eviction, and the idle clock restarts when that work settles. An evicted
   session resumes like any other: the next `open_session` with the same `sessionPath` reopens it.
-- **Worker capacity**: at most 20 workers may be preparing, open, closing, or quarantined together. Admission beyond
+- **Worker capacity** (worker runtime only; an in-process host has no session cap of any kind): at most 20 workers
+  may be preparing, open, closing, or quarantined together. Admission beyond
   this bound fails explicitly with `open_failed: too_many_sessions`; it never evicts another session or starts an OS
   process as a fallback. This is a new externally visible bound for CLI shared mode, which previously admitted
   unlimited logical sessions. It applies to new worker allocation, not attachments: a known canonical path or
@@ -212,7 +283,8 @@ session contents; isolates do not provide process-fatal OOM containment. The hos
   `open_session` with that `sessionPath` — from any connection — attaches to the same routing handle and returns
   `attached: true`. Retention never outranks an explicit teardown: a `close_session` from an attached connection still
   reaches zero attachments and closes the session, host shutdown closes it, and the idle-eviction window above still
-  parks it (the file reopens by path afterwards, like any evicted session). It is also bounded by the empty-host exit
+  parks it — announced as `session_parked { sessionId, sessionPath }`, after which the file reopens by path like any
+  evicted session, and the parked session counts as gone for the empty-host exit below. It is also bounded by the empty-host exit
   and the supervisor's idle-exit window below: retention survives a client, not the host. Any attach may turn retention
   on for a live session; no attach turns it off for clients that already rely on it. Omitting the flag is byte-identical
   to the previous behavior — the session is closed with its last connection. Probe `retain_on_disconnect` in
@@ -226,7 +298,36 @@ session contents; isolates do not provide process-fatal OOM containment. The hos
 Values are positive integers; invalid values fall through to the defaults. These lifecycle windows run inside the host process,
 so they hold even for embedders and hand-started hosts that have no supervisor.
 
+### Host self-observation (event-loop stalls and memory pressure)
+
+Every in-process session shares the host's event loop, so a session that blocks it freezes every other session and the
+transport with it. A multi-session host therefore watches itself. Both observers run on unref'd timers, and both only
+REPORT: nothing here aborts a turn, kills a session, or refuses an `open_session`.
+
+- **Event-loop stalls**: a 200 ms timer measures how late it is actually invoked; that lateness is the time the loop
+  could serve nobody. Drift above `SENPI_RPC_LOOP_LAG_WARN_MS` (default 500) writes one stderr line per 10 seconds,
+  `senpi rpc host stall: event loop blocked <drift>ms (sessionId=<handle> tool=<tool>)`. Drift above
+  `SENPI_RPC_LOOP_LAG_ERROR_MS` (default 5000) additionally broadcasts a `host_stalled` record
+  (`{ type, driftMs, sessionId?, tool? }`) to every connection, like the other content-free lifecycle records.
+- **Stall attribution**: each routed command is dispatched inside an `AsyncLocalStorage` scope carrying its routing
+  `sessionId`, and an in-process session's tool executions open a span carrying `{ sessionId, tool }` for as long as
+  the tool runs. A stall is blamed on the synchronous work that finished inside the measured window, or on the tool
+  still executing when it ended; when neither exists the record and the log line carry no session, because the stall
+  belongs to the host itself. Worker-runtime sessions block their own isolate rather than the host loop and
+  deliberately have no tool spans.
+- **Memory pressure**: a 30-second sampler reads the host's RSS. Above `SENPI_RPC_HOST_RSS_WARN_MB` (default 4096) it
+  broadcasts `host_memory_pressure` (`{ type, rssMb, sessions }`) on every sample, writes one stderr line per five
+  minutes, and HALVES the idle-eviction window above while the host stays above the threshold, so idle sessions return
+  their memory sooner. It is released as soon as RSS falls back under the threshold. Capacity remains memory, never a
+  refusal: there is no admission control, no session cap, and no kill policy on this path.
+
+`host_stalled` and `host_memory_pressure` are additive records: a client that does not know them ignores them.
+
 ### Worker ownership and flow control
+
+This section describes the WORKER runtime (`--session-runtime worker`). An in-process host owns transport,
+attachments and reservations on one event loop, so none of the cross-thread grants, credits or opening deadlines
+below exist there.
 
 The main host owns transport, attachments and canonical reservations. Workers canonicalize caller-supplied paths;
 main does not synchronously traverse those paths. An open prepares a path, obtains the main host's exclusive grant,
@@ -310,10 +411,10 @@ containment, or containment of arbitrary native code. They are not an extension 
 
 | Command | Params | Success data | Notes |
 | --- | --- | --- | --- |
-| `get_protocol_info` | - | `{ protocolVersion: 1, serverVersion: string, capabilities: string[], mode: "classic"\|"multi" }` | Answered in BOTH modes; side-effect-free; the capability probe. Multi-session hosts include `multi_session` and `retain_on_disconnect` plus the negotiated launch capabilities. `retain_on_disconnect` is a HOST capability (a client never sends it) and is advertised only in multi-session mode, where the host owns the attachment refcount. |
-| `open_session` | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: true }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there, `session-manager.ts:926-940`); `provider`/`modelId` applied only on create (resume restores the session's model — mirrors `SenpiSessionRuntime.ts:198-200`); params form the immutable launch profile (D8). When the path is already held by a fully-open session, the open ATTACHES to it: same routing handle, `attached: true`, one more attachment counted; the runtime is torn down only when the last attachment closes. Idle sessions past the eviction window are closed by the host itself. `retain_on_disconnect: true` (default false) makes a dropped connection DETACH from this session instead of closing it — see "Retained sessions" below. |
-| `close_session` | `sessionId` | `{}` | Aborts active work, awaits agent idle + settled persistence for up to the host grace window (default 10s), then quarantines any worker that has not exited without releasing its path reservation; its response is the LAST record tagged with that handle for the first closer — no events after (test-pinned). An admitted concurrent close joins the same teardown and receives its own successful response; output saturation rejects admission with the bounded close-overflow/resync notice described above. |
-| `list_sessions` | - | `{ sessions: [{ sessionId, durableSessionId, sessionPath, cwd, name, status, attachments }] }` | Includes `opening`/`closing` entries. Internally quarantined workers remain externally `closing` until exit. `attachments` is the session's live client attachment count; `0` on an `open` row is a retained session with no client attached. |
+| `get_protocol_info` | - | `{ protocolVersion: 1, serverVersion: string, capabilities: string[], mode: "classic"\|"multi" }` | Answered in BOTH modes; side-effect-free; the capability probe. Multi-session hosts include `multi_session`, `retain_on_disconnect`, `session_kind`, `session_context` and `auto_title_per_session` plus the negotiated launch capabilities. Those are HOST capabilities (a client never sends them) and are advertised only in multi-session mode, where the host owns the attachment refcount and the per-session launch profile. |
+| `open_session` | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?`, `kind?`, `context?`, `auto_title?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: true }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there, `session-manager.ts:926-940`); `provider`/`modelId` applied only on create (resume restores the session's model — mirrors `SenpiSessionRuntime.ts:198-200`); params form the immutable launch profile (D8). When the path is already held by a fully-open session, the open ATTACHES to it: same routing handle, `attached: true`, one more attachment counted; the runtime is torn down only when the last attachment closes. Idle sessions past the eviction window are closed by the host itself. `retain_on_disconnect: true` (default false) makes a dropped connection DETACH from this session instead of closing it — see "Retained sessions" below. `kind` (default `interactive`) and the opaque `context` map are described under "Session kind and context" above; both are stored frozen for the session's life and never influence auth, model or resource resolution. |
+| `close_session` | `sessionId` | `{}` | Refused with `unknown_session` when the requesting connection never attached to that handle (a close releases the CALLER's attachment, and `list_sessions` publishes every handle). Otherwise aborts active work, awaits agent idle + settled persistence for up to the host grace window (default 10s), then quarantines any worker that has not exited without releasing its path reservation; its response is the LAST record tagged with that handle for the first closer — no events after (test-pinned). An admitted concurrent close joins the same teardown and receives its own successful response; output saturation rejects admission with the bounded close-overflow/resync notice described above. |
+| `list_sessions` | `include_workers?` (default false) | `{ sessions: [{ sessionId, durableSessionId, sessionPath, cwd, name, status, attachments, kind, context? }] }` | Includes `opening`/`closing` entries. Internally quarantined workers remain externally `closing` until exit. `attachments` is the session's live client attachment count; `0` on an `open` row is a retained session with no client attached. Every row carries `kind`. Rows with `kind: "worker"` are omitted unless `include_workers: true`, and `context` is published ONLY on that listing — a default listing carries no `context` at all. |
 | every existing command | + `sessionId` (REQUIRED in multi mode) | unchanged | Routed to that session. |
 
 ### Identities (D6)
@@ -326,12 +427,15 @@ In the response `error` field, machine-matchable:
 
 - `unknown_session`
 - `session_closing`
-- `session_path_in_use` (path held by an opening, closing, or quarantined owner; a fully-open current owner is attached instead, and a path a live owner has superseded is released rather than held)
+- `session_path_in_use` (path held by an opening or quarantined owner; a fully-open current owner is attached instead, an owner whose teardown is already in flight is waited out on the in-process runtime, and a path a live owner has superseded is released rather than held)
 - `session_reservation_limit` (this worker already holds 64 live session paths; the open or session replacement was refused without disturbing the existing session)
 - `missing_session_id` (session-scoped command without `sessionId` in multi mode)
 - `multi_session_disabled` (`open_session` in classic mode)
 - `invalid_path` (relative `sessionPath`/`cwd`)
 - `open_failed: <detail>`
+- `invalid_session_context: <detail>` (`open_session.context` past a documented cap: more than 32 keys, a key that does not match `^[a-z][a-z0-9_]*$`, a non-string or >16 KiB value, or more than 32 KiB of JSON in total; the detail names the cap and its byte budget)
+- `invalid_session_kind: <detail>` (`open_session.kind` other than `interactive` or `worker`)
+- `invalid_launch_profile: <detail>` (`open_session.auto_title` present but not a boolean)
 - `media_not_found` (`get_media` for an unknown `toolCallId`, or a `contentIndex` that does not point at an image block)
 
 ### Tagging
@@ -344,7 +448,7 @@ Strict FIFO per session; one total stdout order; cross-session order unspecified
 
 ### Duplicate/idempotency
 
-Duplicate `open_session` while a path reservation is held by a fully-open session → ATTACH (`attached: true`, same handle), including when that session is retained with zero attachments; while held by an `opening`/`closing` entry (including internal quarantine) → `session_path_in_use`. A path whose owner has already replaced it with another session file is no longer held: that open allocates a new worker and resumes the file. `close_session` releases one attachment; the runtime is disposed only when the last attachment closes. A close for an entry already `closing` joins its in-flight teardown. `close_session` on unknown/already-closed → `unknown_session` error. The grace window is configurable by the host through `SENPI_RPC_CLOSE_GRACE_MS`. Request `id`s are client-owned; the server echoes them without dedup.
+Duplicate `open_session` while a path reservation is held by a fully-open session → ATTACH (`attached: true`, same handle), including when that session is retained with zero attachments; while held by an `opening` entry (or an internally quarantined one) → `session_path_in_use`. A `closing` entry is a session that is ENDING, not one in use: on the in-process runtime (the `--listen` socket host default) the open WAITS for that teardown - bounded by the close grace window that bounds the teardown itself - and then opens the file fresh, so reopening a path after a close never depends on how long disposal takes. The worker runtime still answers `session_path_in_use` there, because a worker's teardown ends with an OS thread exit that no host deadline bounds. A path whose owner has already replaced it with another session file is no longer held: that open allocates a new worker and resumes the file. `close_session` releases one attachment; the runtime is disposed only when the last attachment closes. A close for an entry already `closing` joins its in-flight teardown. `close_session` on unknown/already-closed → `unknown_session` error, and so is a `close_session` from a connection that never attached to that handle — it releases nothing and leaves the session untouched. The grace window is configurable by the host through `SENPI_RPC_CLOSE_GRACE_MS`. Request `id`s are client-owned; the server echoes them without dedup.
 
 ## Protocol Overview
 
@@ -1473,6 +1577,8 @@ Events are streamed to stdout as JSON lines during agent operation. Events do no
 | `loaded_surfaces_changed` | Loaded skills, extensions, or MCP inventory changed; re-read `get_commands` and `get_loaded_surfaces` |
 | `model_changed` | Active model changed (any source), with the thinking level in force afterwards |
 | `service_tier_changed` | Effective service tier or fast-mode state changed |
+| `host_stalled` | Multi-session host: the event loop was blocked past `SENPI_RPC_LOOP_LAG_ERROR_MS`, with the drift and the session/tool blamed for it |
+| `host_memory_pressure` | Multi-session host: RSS is above `SENPI_RPC_HOST_RSS_WARN_MB`, with the live session count |
 
 Event types are additive: a client that does not recognise a type must ignore that record rather than fail. `model_changed`
 and `service_tier_changed` were added after the initial protocol and are safe to ignore.

@@ -57,15 +57,41 @@ export interface Args {
 	grokNeo?: boolean;
 	/** Serve independently routed plain-RPC sessions over one host. */
 	multiSession?: boolean;
-	/** Opt non-interactive app modes (notably RPC) into engine-side session auto-titling. */
+	/**
+	 * Opt non-interactive app modes (notably RPC) into engine-side session auto-titling.
+	 * Deprecated for shared hosts: prefer per-session `open_session.auto_title`.
+	 */
 	autoTitleSessions?: boolean;
 	/** Multi-session RPC listener: stdio://, unix://, unix:///path, or a socket path. */
 	listen?: string;
+	/** Explicit session runtime for a multi-session host; `resolveSessionRuntime` owns the default. */
+	sessionRuntime?: SessionRuntimeKind;
 	messages: string[];
 	fileArgs: string[];
 	/** Unknown flags (potentially extension flags) - map of flag name to value */
 	unknownFlags: Map<string, boolean | string>;
 	diagnostics: Array<{ type: "warning" | "error"; message: string }>;
+}
+
+const SESSION_RUNTIMES = ["in-process", "worker"] as const;
+
+/** Where a multi-session host runs its sessions: in the host process, or one worker isolate each. */
+export type SessionRuntimeKind = (typeof SESSION_RUNTIMES)[number];
+
+export function isSessionRuntimeKind(value: string): value is SessionRuntimeKind {
+	return SESSION_RUNTIMES.includes(value as SessionRuntimeKind);
+}
+
+/**
+ * Session runtime of a multi-session host. A `--listen` SOCKET host is the
+ * machine-wide daemon every client shares: it runs every session IN the host
+ * process, so there is no worker isolate per session and no worker cap. stdio
+ * hosts and embedders keep the worker runtime unchanged. An explicit
+ * `--session-runtime` always wins over both defaults.
+ */
+export function resolveSessionRuntime(parsed: Pick<Args, "sessionRuntime" | "listen">): SessionRuntimeKind {
+	if (parsed.sessionRuntime) return parsed.sessionRuntime;
+	return parsed.listen !== undefined && parsed.listen !== "stdio://" ? "in-process" : "worker";
 }
 
 const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -242,6 +268,11 @@ export function parseArgs(args: string[], options: { grokNeoEnabled?: boolean } 
 			result.multiSession = true;
 		} else if (arg === "--auto-title-sessions") {
 			result.autoTitleSessions = true;
+		} else if (arg === "--session-runtime") {
+			const value = args[i + 1];
+			if (value !== undefined && !value.startsWith("--")) i++;
+			if (value !== undefined && isSessionRuntimeKind(value)) result.sessionRuntime = value;
+			else result.diagnostics.push({ type: "error", message: "--session-runtime must be in-process or worker" });
 		} else if (arg === "--listen" && result.mode === "rpc") {
 			const value = args[i + 1];
 			if (value === undefined || value.startsWith("--")) {
@@ -357,7 +388,8 @@ ${chalk.bold("Options:")}
   --offline                      Disable startup network operations (same as PI_OFFLINE=1)
 ${grokNeoOptionsText}  --multi-session               Serve multiple routed RPC sessions
   --listen <address>            RPC listener: stdio://, unix://, unix:///path, or a socket path
-  --auto-title-sessions         Auto-generate session titles outside interactive mode
+  --session-runtime <kind>      Multi-session host runtime: in-process (socket default) or worker
+  --auto-title-sessions         Auto-generate session titles outside interactive mode (deprecated for hosts; prefer open_session.auto_title)
   --help, -h                     Show this help
   --version, -v                  Show version number
 

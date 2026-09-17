@@ -7,11 +7,14 @@ import {
 	SessionPathReservations,
 } from "./session-path-reservations.ts";
 import {
+	frozenProfile,
 	type OpenRpcSession,
 	type RpcSessionEntry,
 	type RpcSessionLaunchProfile,
 	type RpcSessionOpenOptions,
 	RpcSessionRegistryError,
+	type RpcSessionRow,
+	sessionIdentity,
 } from "./session-registry.ts";
 import { SessionWorkerClient } from "./session-worker-client.ts";
 import { SESSION_WORKER_LIMITS, type SessionWriteGrant } from "./session-worker-protocol.ts";
@@ -46,10 +49,12 @@ export class WorkerSessionRegistry {
 		}
 		if (this.size >= SESSION_WORKER_LIMITS.workers) throw new Error("too_many_sessions");
 		const handle = `rpc-${++this.serial}`;
+		const storedProfile = frozenProfile(profile);
 		const entry: RpcSessionEntry = {
 			state: "opening",
 			scope: new ProviderScope(),
-			profile: Object.freeze({ ...profile }),
+			profile: storedProfile,
+			...sessionIdentity(storedProfile),
 			cwd: profile.cwd,
 			attachments: 1,
 			retainOnDisconnect: options?.retainOnDisconnect === true,
@@ -166,15 +171,7 @@ export class WorkerSessionRegistry {
 		if (timer) clearTimeout(timer);
 	}
 
-	list(): Array<{
-		sessionId: string;
-		durableSessionId?: string;
-		sessionPath?: string;
-		cwd: string;
-		name?: string;
-		status: Exclude<RpcSessionEntry["state"], "quarantined">;
-		attachments: number;
-	}> {
+	list(): RpcSessionRow[] {
 		return [...this.entries].map(([sessionId, entry]) => {
 			const state = entry.worker?.snapshot?.state;
 			return {
@@ -183,6 +180,8 @@ export class WorkerSessionRegistry {
 				sessionPath: state?.sessionFile ?? entry.sessionPath,
 				cwd: state?.cwd ?? entry.cwd,
 				name: state?.sessionName,
+				kind: entry.kind,
+				context: entry.context,
 				// A closing entry has already released its last attachment; never publish that as negative.
 				attachments: Math.max(0, entry.attachments),
 				status: entry.state === "quarantined" ? "closing" : entry.state,

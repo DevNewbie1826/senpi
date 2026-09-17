@@ -11,11 +11,14 @@ import {
 } from "../../core/output-guard.ts";
 import type { CliRuntimeConfiguration } from "../../main.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
+import { startHostChildReaper } from "./child-reaper.ts";
 import type { RpcConnectionSink } from "./connection-handler.ts";
 import { parseClientCapabilities } from "./custom-capability.ts";
 import { parseIdleExitMs } from "./host-lifecycle.ts";
+import { HostMemorySampler } from "./host-memory-sampler.ts";
 import { armHostWatchdog, readHostWatchdogConfigFromBrandEnv } from "./host-watchdog.ts";
 import { attachJsonlLineReader, MAX_RPC_LINE_CHARACTERS } from "./jsonl.ts";
+import { LoopLagWatchdog } from "./loop-lag-watchdog.ts";
 import { rpcCommandShapeError } from "./rpc-input-validation.ts";
 import type { RpcCommand, RpcResponse } from "./rpc-types.ts";
 import { type RpcBindingFactory, SessionCommandRouter } from "./session-command-router.ts";
@@ -93,6 +96,28 @@ export function resolveHostIdlePolicy(
 			DEFAULT_SESSION_IDLE_EVICTION_MS,
 		emptyExitMs:
 			overrides.emptyExitMs ?? parseIdleExitMs(env[RPC_HOST_EMPTY_EXIT_MS_ENV]) ?? DEFAULT_HOST_EMPTY_EXIT_MS,
+	};
+}
+
+/**
+ * Arm the host's self-observation: event-loop stall detection with per-session
+ * attribution, and RSS reporting that tightens idle parking under pressure. Both run on
+ * unref'd timers, both only report, and neither refuses, aborts or kills anything.
+ */
+function startHostObservers(router: SessionCommandRouter, writer: SessionEventWriter): { stop: () => void } {
+	const loopLag = new LoopLagWatchdog({ emit: (record) => writer.broadcastHostRecord(record) });
+	const memory = new HostMemorySampler({
+		emit: (record) => writer.broadcastHostRecord(record),
+		sessions: () => router.sessionCount,
+		onPressure: (pressure) => router.setMemoryPressure(pressure),
+	});
+	loopLag.start();
+	memory.start();
+	return {
+		stop: () => {
+			loopLag.stop();
+			memory.stop();
+		},
 	};
 }
 
@@ -175,10 +200,12 @@ async function runStdioHost(options: MultiSessionHostOptions): Promise<never> {
 	const { router, handle } = createHostCore(options, writer, undefined, {
 		onEmptyExit: () => void shutdown(0),
 	});
+	const observers = startHostObservers(router, writer);
 	let shuttingDown = false;
 	const shutdown = async (exitCode = 0): Promise<never> => {
 		if (shuttingDown) process.exit(exitCode);
 		shuttingDown = true;
+		observers.stop();
 		detach();
 		await router.dispose();
 		await writer.flush();
@@ -218,6 +245,7 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 		// under it would drop its socket and read as a crash to the supervisor.
 		{ onEmptyExit: () => void shutdown(0), canExitWhenEmpty: () => connections.size === 0 },
 	);
+	const observers = startHostObservers(router, writer);
 	let nextConnection = 0;
 	let shuttingDown = false;
 	const secret =
@@ -292,9 +320,16 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 	server.on("error", (cause) => {
 		if (!shuttingDown) process.stderr.write(`senpi rpc socket listener failed: ${errorMessage(cause)}\n`);
 	});
+	// Long-lived hosts outlive many session workers, and a terminated worker thread
+	// takes its children's exit watchers with it (measured: every spawn API leaks
+	// that way). The reaper claims those abandoned children; it never touches one a
+	// live thread could still be waiting for.
+	const stopChildReaper = await startHostChildReaper(hostLog);
 	const shutdown = async (exitCode = 0, watchdogCleanup?: Promise<void>): Promise<never> => {
 		if (shuttingDown) process.exit(exitCode);
 		shuttingDown = true;
+		observers.stop();
+		stopChildReaper();
 		// On Windows, destroying named-pipe sockets does not always make libuv's
 		// server.close callback fire: connected pipe instances can remain in the
 		// kernel after the JavaScript handles are destroyed. Keep the normal drain

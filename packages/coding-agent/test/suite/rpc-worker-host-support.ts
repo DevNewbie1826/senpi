@@ -4,107 +4,10 @@ import { mkdir, mkdtemp, open, rm, symlink, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createInterface } from "node:readline";
-import type { Readable, Writable } from "node:stream";
-import { z } from "zod";
 
-const recordSchema = z
-	.object({
-		type: z.string(),
-		id: z.string().optional(),
-		command: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
-		success: z.boolean().optional(),
-		error: z.string().optional(),
-		message: z.string().optional(),
-		sessionId: z.string().optional(),
-		data: z
-			.object({
-				sessionId: z.string().optional(),
-				sessionFile: z.string().optional(),
-				attached: z.boolean().optional(),
-				state: z.object({ sessionId: z.string(), sessionFile: z.string().optional() }).passthrough().optional(),
-				sessions: z
-					.array(
-						z.object({
-							sessionId: z.string(),
-							status: z.string(),
-							sessionPath: z.string().optional(),
-							attachments: z.number().optional(),
-						}),
-					)
-					.optional(),
-			})
-			.passthrough()
-			.optional(),
-	})
-	.passthrough();
-export type WorkerHostRecord = z.infer<typeof recordSchema>;
+import { endpoint, type WorkerHostRecord } from "./rpc-host-endpoint.ts";
 
-function endpoint(input: Readable, output: Writable, diagnostic: () => string) {
-	let serial = 0;
-	const records: WorkerHostRecord[] = [];
-	const listeners = new Set<{ accept: (record: WorkerHostRecord) => void; reject: (error: Error) => void }>();
-	const lines = createInterface({ input });
-	lines.on("line", (line) => {
-		try {
-			const record = recordSchema.parse(JSON.parse(line));
-			records.push(record);
-			if (records.length > 512) records.shift();
-			for (const listener of [...listeners]) listener.accept(record);
-		} catch (cause) {
-			const error = cause instanceof Error ? cause : new Error(String(cause));
-			for (const listener of [...listeners]) listener.reject(error);
-		}
-	});
-	function wait(predicate: (record: WorkerHostRecord) => boolean, ms = 30_000): Promise<WorkerHostRecord> {
-		return new Promise((resolveRecord, reject) => {
-			const finish = () => {
-				clearTimeout(timer);
-				listeners.delete(listener);
-			};
-			const listener = {
-				accept(record: WorkerHostRecord) {
-					if (predicate(record)) {
-						finish();
-						resolveRecord(record);
-					}
-				},
-				reject(error: Error) {
-					finish();
-					reject(error);
-				},
-			};
-			// Name the awaited record: a bare deadline plus host stderr reads like a
-			// transport stall even when the host is healthy and the record simply never
-			// matched, which is how a contract drift once looked like socket backpressure.
-			const awaited = String(predicate).replace(/\s+/g, " ").slice(0, 200);
-			const timer = setTimeout(
-				() => listener.reject(new Error(`RPC deadline waiting for ${awaited}; ${diagnostic()}`)),
-				ms,
-			);
-			listeners.add(listener);
-		});
-	}
-	return {
-		records,
-		wait,
-		pauseReading: () => input.pause(),
-		resumeReading: () => input.resume(),
-		send(command: Record<string, unknown>) {
-			output.write(`${JSON.stringify(command)}\n`);
-		},
-		request(command: Record<string, unknown>, ms?: number) {
-			const id = `worker-test-${++serial}`;
-			const response = wait((record) => record.type === "response" && record.id === id, ms);
-			output.write(`${JSON.stringify({ ...command, id })}\n`);
-			return response;
-		},
-		dispose() {
-			for (const listener of [...listeners]) listener.reject(new Error("Test endpoint disposed"));
-			lines.close();
-		},
-	};
-}
+export type { WorkerHostRecord };
 
 // Keep native-entry rescue live when a registry test controls the host request clock.
 const fifoSetTimeout = setTimeout;
@@ -137,10 +40,16 @@ export async function waitForFifoReader(path: string) {
 	}
 }
 
+/** `cli-default` omits `--session-runtime`, so the host picks the runtime its listener implies. */
+type HostSessionRuntime = "in-process" | "worker" | "cli-default";
+
 export async function startWorkerHost(
 	extensionSource?: string,
-	options: { socket?: boolean; node?: boolean; preload?: string } = {},
+	options: { socket?: boolean; node?: boolean; preload?: string; sessionRuntime?: HostSessionRuntime } = {},
 ) {
+	// Worker by default: every rpc-worker-* suite asserts worker-isolate behavior, and a
+	// socket host otherwise defaults to the in-process runtime.
+	const sessionRuntime: HostSessionRuntime = options.sessionRuntime ?? "worker";
 	const scratch = await mkdtemp(join(tmpdir(), "senpi-worker-test-"));
 	const cwd = join(scratch, "cwd");
 	const agentDir = join(scratch, "agent");
@@ -173,6 +82,7 @@ export async function startWorkerHost(
 			"--no-skills",
 			"--no-context-files",
 			...(options.socket ? ["--listen", `unix://${socketPath}`] : []),
+			...(sessionRuntime === "cli-default" ? [] : ["--session-runtime", sessionRuntime]),
 			...(extensionSource ? ["--extension", extension] : []),
 		],
 		{
@@ -242,8 +152,12 @@ export async function startWorkerHost(
 		...stdio,
 		cwd,
 		scratch,
+		agentDir,
 		child,
 		dispose,
+		socketPath,
+		/** Host stderr seen so far; the runtime-gate cases assert on what the host warned. */
+		stderrText: () => stderr,
 		async connect() {
 			const socket = createConnection(socketPath);
 			const wire = endpoint(socket, socket, () => stderr);
@@ -257,4 +171,13 @@ export async function startWorkerHost(
 			return wire;
 		},
 	};
+}
+
+/**
+ * Socket host booted with NO `--session-runtime`, so it pins the DEFAULT runtime a
+ * `--listen` host selects: every session runs IN the host process (no worker isolate,
+ * no worker cap). Pass `sessionRuntime` to `startWorkerHost` to pin one explicitly.
+ */
+export function startInProcessHost(extensionSource?: string) {
+	return startWorkerHost(extensionSource, { socket: true, sessionRuntime: "cli-default" });
 }

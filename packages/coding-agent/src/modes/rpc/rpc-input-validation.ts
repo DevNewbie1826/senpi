@@ -1,5 +1,18 @@
 export const MAX_RPC_MESSAGE_CHARACTERS = 1_000_000;
 
+/**
+ * Bounds on `open_session.context`. The host stores the blob per session and republishes
+ * it on `list_sessions { include_workers: true }`, so it is bounded at the boundary: an
+ * unbounded label map would be per-session memory and per-listing bytes a client controls.
+ */
+export const SESSION_CONTEXT_LIMITS = {
+	keys: 32,
+	valueBytes: 16 * 1024,
+	totalBytes: 32 * 1024,
+} as const;
+
+const SESSION_CONTEXT_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
+
 interface RpcMessageInput {
 	type?: unknown;
 	message?: unknown;
@@ -79,6 +92,57 @@ export function rpcCommandPayloadError(command: unknown): string | undefined {
 		return "append_session_entry entry is malformed.";
 	}
 	return undefined;
+}
+
+/**
+ * Detail for an `open_session.context` the host refuses, or undefined when the value is
+ * absent or a valid context. The caller answers with `invalid_session_context: <detail>`;
+ * the detail names the cap that was broken so a client can fix the payload without guessing.
+ */
+export function sessionContextError(context: unknown): string | undefined {
+	if (context === undefined) return undefined;
+	if (typeof context !== "object" || context === null || Array.isArray(context)) {
+		return "context must be an object of string values.";
+	}
+	const entries = Object.entries(context as Record<string, unknown>);
+	if (entries.length > SESSION_CONTEXT_LIMITS.keys) {
+		return `context has ${entries.length} keys, at most ${SESSION_CONTEXT_LIMITS.keys} are accepted.`;
+	}
+	for (const [key, value] of entries) {
+		if (!SESSION_CONTEXT_KEY_PATTERN.test(key)) {
+			return `context key "${key}" must match ${SESSION_CONTEXT_KEY_PATTERN.source}.`;
+		}
+		if (typeof value !== "string") return `context value for key "${key}" must be a string.`;
+		const valueBytes = Buffer.byteLength(value);
+		if (valueBytes > SESSION_CONTEXT_LIMITS.valueBytes) {
+			return `context value for key "${key}" is ${valueBytes} bytes, at most ${SESSION_CONTEXT_LIMITS.valueBytes} bytes are accepted.`;
+		}
+	}
+	const totalBytes = Buffer.byteLength(JSON.stringify(context));
+	if (totalBytes > SESSION_CONTEXT_LIMITS.totalBytes) {
+		return `context is ${totalBytes} bytes of JSON, at most ${SESSION_CONTEXT_LIMITS.totalBytes} bytes are accepted.`;
+	}
+	return undefined;
+}
+
+/**
+ * Detail for an `open_session.kind` the host refuses, or undefined when the value is absent
+ * or a known kind. An unknown kind is never treated as `interactive`: a typo would publish
+ * machine-driven work to every client that lists sessions.
+ */
+export function sessionKindError(kind: unknown): string | undefined {
+	if (kind === undefined || kind === "interactive" || kind === "worker") return undefined;
+	return `kind must be "interactive" or "worker".`;
+}
+
+/**
+ * Detail for an `open_session.auto_title` the host refuses, or undefined when the
+ * value is absent or a boolean. Absent keeps the host-wide default; a non-boolean
+ * cannot be coerced without collapsing `true` / `false` / omitted into one state.
+ */
+export function sessionAutoTitleError(value: unknown): string | undefined {
+	if (value === undefined || typeof value === "boolean") return undefined;
+	return "auto_title must be a boolean.";
 }
 
 export function rpcCommandShapeError(command: unknown): string | undefined {

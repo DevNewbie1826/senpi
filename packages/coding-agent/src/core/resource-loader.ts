@@ -30,10 +30,14 @@ import type {
 	Extension,
 	ExtensionFactory,
 	ExtensionRuntime,
+	ExtensionSessionProfile,
 	InlineExtension,
 	LoadExtensionsResult,
 	LoadedHookSources,
+	SessionContext,
+	SessionKind,
 } from "./extensions/types.ts";
+import { EMPTY_SESSION_CONTEXT } from "./extensions/types.ts";
 import { findGitPaths } from "./footer-data-provider.ts";
 import { dedupePathsByPackageIdentity, findNearestPackageIdentity } from "./package-identity.ts";
 import { DefaultPackageManager, type PathMetadata, type ResolvedResource } from "./package-manager.ts";
@@ -324,6 +328,10 @@ export interface DefaultResourceLoaderOptions {
 	agentDir: string;
 	settingsManager?: SettingsManager;
 	sharedHostEnabled?: boolean;
+	/** Visibility class of the session these resources are loaded for; defaults to `interactive`. */
+	sessionKind?: SessionKind;
+	/** Opaque labels the session was opened with; defaults to `{}`. */
+	sessionContext?: SessionContext;
 	eventBus?: EventBus;
 	additionalExtensionPaths?: string[];
 	additionalSkillPaths?: string[];
@@ -361,6 +369,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private agentDir: string;
 	private settingsManager: SettingsManager;
 	private sharedHostEnabled: boolean;
+	/** The per-session facts every extension of this session is loaded with. */
+	private extensionSession: ExtensionSessionProfile;
 	private eventBus: EventBus;
 	private packageManager: DefaultPackageManager;
 	private additionalExtensionPaths: string[];
@@ -424,6 +434,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.agentDir = resolvePath(options.agentDir);
 		this.settingsManager = options.settingsManager ?? SettingsManager.create(this.cwd, this.agentDir);
 		this.sharedHostEnabled = options.sharedHostEnabled ?? this.settingsManager.getExperimentalSharedHost();
+		this.extensionSession = {
+			sharedHostEnabled: this.sharedHostEnabled,
+			sessionKind: options.sessionKind ?? "interactive",
+			sessionContext: options.sessionContext ?? EMPTY_SESSION_CONTEXT,
+		};
 		this.eventBus = options.eventBus ?? createEventBus();
 		this.packageManager = new DefaultPackageManager({
 			cwd: this.cwd,
@@ -795,14 +810,13 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 	}
 
-	private buildGlobalDefaultExtensionLoadOptions(): {
+	private buildGlobalDefaultExtensionLoadOptions(): ExtensionSessionProfile & {
 		factoryResolver: ExtensionFactoryResolver;
-		sharedHostEnabled: boolean;
 	} {
 		return {
 			factoryResolver: (_extensionPath, resolvedPath) =>
 				resolveGeneratedGlobalDefaultExtensionFactory(resolvedPath, this.agentDir),
-			sharedHostEnabled: this.sharedHostEnabled,
+			...this.extensionSession,
 		};
 	}
 
@@ -827,7 +841,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 			return extensionsResult;
 		}
 
-		const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime, this.sharedHostEnabled);
+		const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime);
 		extensionsResult.extensions.push(...inlineExtensions.extensions);
 		extensionsResult.errors.push(...inlineExtensions.errors);
 		return extensionsResult;
@@ -849,7 +863,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 				undefined,
 				this.buildGlobalDefaultExtensionLoadOptions(),
 			);
-			const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime, this.sharedHostEnabled);
+			const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime);
 			extensionsResult.extensions.unshift(...inlineExtensions.extensions);
 			this.rebuildExtensionFlagDefaults(extensionsResult);
 			extensionsResult.errors.push(...inlineExtensions.errors);
@@ -1307,10 +1321,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 	}
 
-	private async loadExtensionFactories(
-		runtime: ExtensionRuntime,
-		sharedHostEnabled: boolean,
-	): Promise<{
+	private async loadExtensionFactories(runtime: ExtensionRuntime): Promise<{
 		extensions: Extension[];
 		errors: Array<{ path: string; error: string }>;
 	}> {
@@ -1331,7 +1342,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 					this.eventBus,
 					runtime,
 					extensionPath,
-					sharedHostEnabled,
+					this.extensionSession,
 				);
 				extensions.push(extension);
 			} catch (error) {
@@ -1354,9 +1365,13 @@ export class DefaultResourceLoader implements ResourceLoader {
 					});
 					continue;
 				}
-				const bundledResult = await loadExtensions(entries, this.cwd, this.eventBus, runtime, {
-					sharedHostEnabled,
-				});
+				const bundledResult = await loadExtensions(
+					entries,
+					this.cwd,
+					this.eventBus,
+					runtime,
+					this.extensionSession,
+				);
 				for (const extension of bundledResult.extensions) {
 					if (isBunBinary) extension.path = `<builtin:${bundledExtension.id}>`;
 					extensions.push(extension);
@@ -1382,7 +1397,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 					this.eventBus,
 					runtime,
 					extensionPath,
-					sharedHostEnabled,
+					this.extensionSession,
 				);
 				extension.hidden = isNamed && input.hidden;
 				extensions.push(extension);

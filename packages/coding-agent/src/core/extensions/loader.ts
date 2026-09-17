@@ -40,6 +40,7 @@ import type {
 	ExtensionAPI,
 	ExtensionFactory,
 	ExtensionRuntime,
+	ExtensionSessionProfile,
 	FilesystemPolicy,
 	LazyToolActivator,
 	LoadExtensionsResult,
@@ -49,8 +50,26 @@ import type {
 	ProviderConfig,
 	RegisteredCommand,
 	RegisteredMcpServerDeclaration,
+	SessionContext,
+	SessionKind,
 	ToolDefinition,
 } from "./types.ts";
+import { DEFAULT_EXTENSION_SESSION_PROFILE, EMPTY_SESSION_CONTEXT } from "./types.ts";
+
+/** Per-session extension inputs a caller may name; every absent one takes its classic default. */
+export interface ExtensionSessionOptions {
+	sharedHostEnabled?: boolean;
+	sessionKind?: SessionKind;
+	sessionContext?: SessionContext;
+}
+
+function sessionProfile(options: ExtensionSessionOptions | undefined): ExtensionSessionProfile {
+	return {
+		sharedHostEnabled: options?.sharedHostEnabled ?? false,
+		sessionKind: options?.sessionKind ?? "interactive",
+		sessionContext: options?.sessionContext ?? EMPTY_SESSION_CONTEXT,
+	};
+}
 
 /** Modules available to extensions via virtualModules (for compiled binaries) */
 const VIRTUAL_MODULES: Record<string, Record<string, unknown>> = {
@@ -370,7 +389,7 @@ function createExtensionAPI(
 	runtime: ExtensionRuntime,
 	cwd: string,
 	eventBus: EventBus,
-	sharedHostEnabled: boolean,
+	session: ExtensionSessionProfile,
 ): { api: ExtensionAPI; commit: () => void; discard: () => void } {
 	const pendingFlagValues = new Map<string, boolean | string>();
 	const pendingRuntimeChanges: Array<() => void> = [];
@@ -394,7 +413,9 @@ function createExtensionAPI(
 
 	const api = {
 		cwd,
-		sharedHostEnabled,
+		sharedHostEnabled: session.sharedHostEnabled,
+		sessionKind: session.sessionKind,
+		sessionContext: session.sessionContext,
 
 		// Registration methods - write to extension
 		on(event: string, handler: HandlerFn): void {
@@ -787,10 +808,10 @@ async function initializeExtension(
 	cwd: string,
 	eventBus: EventBus,
 	runtime: ExtensionRuntime,
-	sharedHostEnabled: boolean,
+	session: ExtensionSessionProfile,
 ): Promise<Extension> {
 	const extension = createExtension(extensionPath, resolvedPath, cwd);
-	const load = createExtensionAPI(extension, runtime, cwd, eventBus, sharedHostEnabled);
+	const load = createExtensionAPI(extension, runtime, cwd, eventBus, session);
 	try {
 		await factory(load.api);
 		load.commit();
@@ -815,7 +836,7 @@ async function loadExtension(
 	getImporter: () => Promise<ExtensionModuleImporter>,
 	factoryResolver?: ExtensionFactoryResolver,
 	cacheToken?: ExtensionCacheToken,
-	sharedHostEnabled = false,
+	session: ExtensionSessionProfile = DEFAULT_EXTENSION_SESSION_PROFILE,
 ): Promise<{ extension: Extension | null; error: string | null }> {
 	const resolvedPath = resolvePath(extensionPath, cwd, { normalizeUnicodeSpaces: true });
 
@@ -835,7 +856,7 @@ async function loadExtension(
 			cwd,
 			eventBus,
 			runtime,
-			sharedHostEnabled,
+			session,
 		);
 		return { extension, error: null };
 	} catch (err) {
@@ -853,10 +874,10 @@ export async function loadExtensionFromFactory(
 	eventBus: EventBus,
 	runtime: ExtensionRuntime,
 	extensionPath = "<inline>",
-	sharedHostEnabled = false,
+	session: ExtensionSessionProfile = DEFAULT_EXTENSION_SESSION_PROFILE,
 ): Promise<Extension> {
 	const resolvedCwd = resolvePath(cwd);
-	return initializeExtension(factory, extensionPath, extensionPath, resolvedCwd, eventBus, runtime, sharedHostEnabled);
+	return initializeExtension(factory, extensionPath, extensionPath, resolvedCwd, eventBus, runtime, session);
 }
 
 /**
@@ -867,9 +888,10 @@ async function loadExtensionsInternal(
 	cwd: string,
 	eventBus?: EventBus,
 	runtime?: ExtensionRuntime,
-	options?: { factoryResolver?: ExtensionFactoryResolver; sharedHostEnabled?: boolean },
+	options?: ExtensionSessionOptions & { factoryResolver?: ExtensionFactoryResolver },
 	useCache = false,
 ): Promise<LoadExtensionsResult> {
+	const session = sessionProfile(options);
 	const extensions: Extension[] = [];
 	const errors: Array<{ path: string; error: string }> = [];
 	const cacheToken = useCache ? useExtensionCacheCwd(cwd) : undefined;
@@ -891,7 +913,7 @@ async function loadExtensionsInternal(
 			getImporter,
 			options?.factoryResolver,
 			cacheToken,
-			options?.sharedHostEnabled ?? false,
+			session,
 		);
 
 		if (error) {
@@ -917,7 +939,7 @@ export async function loadExtensions(
 	cwd: string,
 	eventBus?: EventBus,
 	runtime?: ExtensionRuntime,
-	options?: { factoryResolver?: ExtensionFactoryResolver; sharedHostEnabled?: boolean },
+	options?: ExtensionSessionOptions & { factoryResolver?: ExtensionFactoryResolver },
 ): Promise<LoadExtensionsResult> {
 	return loadExtensionsInternal(paths, cwd, eventBus, runtime, options);
 }

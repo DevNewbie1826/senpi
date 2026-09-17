@@ -11,7 +11,7 @@ import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import { setCapabilityOverrides } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { type Args, type Mode, normalizeSessionName, parseArgs, printHelp } from "./cli/args.ts";
+import { type Args, type Mode, normalizeSessionName, parseArgs, printHelp, resolveSessionRuntime } from "./cli/args.ts";
 import {
 	type AuthCheckResult,
 	checkProviderAuth,
@@ -179,20 +179,24 @@ function toProjectTrustMode(appMode: AppMode): AppMode {
 /**
  * Interactive launches auto-title by default. RPC clients can opt in through
  * `auto_title_sessions`; every other non-interactive app mode opts in with
- * `--auto-title-sessions`. Sessions resumed with existing context messages are
- * never retitled, whatever the mode, capability, or flag.
+ * `--auto-title-sessions`. A per-session `open_session.auto_title`, when present,
+ * replaces that host-wide decision for that session only. Sessions resumed with
+ * existing context messages are never retitled, whatever the mode, capability,
+ * flag, or per-session override.
  */
 export function resolveAutoTitleSessions(
 	appMode: AppMode,
 	parsed: Args,
 	hasContextMessages: boolean,
 	clientCapabilities: readonly string[] = parseClientCapabilities(envValue("RPC_CLIENT_CAPABILITIES")),
+	sessionAutoTitle?: boolean,
 ): boolean {
+	if (hasContextMessages) return false;
+	if (sessionAutoTitle !== undefined) return sessionAutoTitle;
 	return (
-		(appMode === "interactive" ||
-			parsed.autoTitleSessions === true ||
-			(appMode === "rpc" && clientCapabilities.includes(AUTO_TITLE_SESSIONS_CAPABILITY))) &&
-		!hasContextMessages
+		appMode === "interactive" ||
+		parsed.autoTitleSessions === true ||
+		(appMode === "rpc" && clientCapabilities.includes(AUTO_TITLE_SESSIONS_CAPABILITY))
 	);
 }
 
@@ -776,6 +780,11 @@ export function createCliRuntimeFactory(
 					enableEnv: isTruthyEnvFlag(envValue("ENABLE_SHARED_HOST")),
 					settingEnabled: runtimeSettingsManager.getExperimentalSharedHost(),
 				}),
+				// Per-session identity reaches the extensions this session loads and stops
+				// there: it is deliberately NOT merged into `parsed`, so it can never move
+				// a model, an auth decision or a CLI flag.
+				sessionKind: launchProfile?.sessionKind,
+				sessionContext: launchProfile?.sessionContext,
 				additionalExtensionPaths: resolvedExtensionPaths,
 				additionalSkillPaths: resolvedSkillPaths,
 				additionalPromptTemplatePaths: resolvedPromptTemplatePaths,
@@ -868,6 +877,7 @@ export function createCliRuntimeFactory(
 				parsed,
 				sessionManager.hasContextMessages(),
 				parseClientCapabilities(envValue("RPC_CLIENT_CAPABILITIES")),
+				launchProfile?.autoTitle,
 			),
 		});
 		const cliThinkingOverride = runtimeParsed.thinking !== undefined || cliThinkingFromModel;
@@ -1080,13 +1090,17 @@ export async function main(args: string[], options?: MainOptions) {
 	if (appMode === "rpc" && parsed.multiSession) {
 		if (options?.extensionFactories?.length)
 			throw new Error("Shared RPC workers require file-backed extensions; inline factories cannot cross isolates");
-		const workerConfiguration = { parsed, cwd, agentDir, appMode };
+		const runtimeConfiguration = { parsed, cwd, agentDir, appMode };
+		// Socket hosts (the machine-wide daemon) run every session IN this process:
+		// createHostCore selects the worker registry only when a workerConfiguration
+		// is passed, so withholding it is what selects the uncapped in-process registry.
+		const sessionRuntime = resolveSessionRuntime(parsed);
 		const { runMultiSessionHost } = await import("./modes/rpc/multi-session-host.ts");
 		printTimings();
 		await runMultiSessionHost({
 			agentDir,
-			createRuntime: createCliRuntimeFactory(workerConfiguration),
-			workerConfiguration,
+			createRuntime: createCliRuntimeFactory(runtimeConfiguration),
+			...(sessionRuntime === "worker" ? { workerConfiguration: runtimeConfiguration } : {}),
 			cwd,
 			creationModel:
 				parsed.provider && parsed.model ? { provider: parsed.provider, modelId: parsed.model } : undefined,

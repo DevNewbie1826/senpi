@@ -1,7 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { SessionKind } from "../../core/extensions/types.ts";
 import { MEDIA_PLACEHOLDERS_CAPABILITY } from "./custom-capability.ts";
 import { serializeJsonLine } from "./jsonl.ts";
 import { omitInlineMedia } from "./media-placeholders.ts";
+import type { RpcSessionParkedEvent } from "./rpc-types.ts";
 import {
 	RENDERED_COMPONENT_RECORD,
 	SessionEventFanout,
@@ -97,6 +99,8 @@ export class SessionEventWriter {
 	private readonly controlQueue: RecordQueue = { latestByKey: new Map(), ready: false };
 	private readonly readyQueues: RecordQueue[] = [];
 	private readonly sealedSessions = new Set<string>();
+	/** Sessions whose lifecycle records stay on their attached connections (`kind: "worker"`). */
+	private readonly workerSessions = new Set<string>();
 	private readonly writeRaw: RawWriter;
 	private readonly waitForBackpressure?: BackpressureWaiter;
 	private readonly scheduleFlush: FlushScheduler;
@@ -190,6 +194,17 @@ export class SessionEventWriter {
 
 	hasCapableConnection(sessionId: string): boolean {
 		return this.fanout.hasCapableConnection(sessionId);
+	}
+
+	/**
+	 * Records a session's visibility class. A worker session is machine-driven work that
+	 * only its attached connections track, so its lifecycle records are delivered to them
+	 * instead of broadcast; an interactive session keeps the broadcast every client (the
+	 * desktop mirror, the supervisor's idle observer) relies on.
+	 */
+	setSessionKind(sessionId: string, kind: SessionKind): void {
+		if (kind === "worker") this.workerSessions.add(sessionId);
+		else this.workerSessions.delete(sessionId);
 	}
 
 	/** Execute a connection's command with its response destination in context. */
@@ -313,6 +328,20 @@ export class SessionEventWriter {
 	}
 
 	/**
+	 * Queue one HOST-level lifecycle record for every registered connection, or the
+	 * shared stdio lane when none is registered. Unlike session records it is not tagged
+	 * with a routing handle by the writer: `host_stalled` carries the handle it blames,
+	 * and `host_memory_pressure` belongs to the process, not to a session.
+	 */
+	broadcastHostRecord(record: object): void {
+		if (this.fanout.isEmpty()) {
+			this.append(this.controlQueue, { ...record });
+			this.markReady(this.controlQueue);
+		} else this.fanout.broadcast(serializeJsonLine(record));
+		this.requestFlush();
+	}
+
+	/**
 	 * Prevent subsequent records for a session and append its terminal response.
 	 * Existing records retain FIFO order; this response is therefore that
 	 * session's final stdout record.
@@ -324,11 +353,36 @@ export class SessionEventWriter {
 		const targetId = this.connectionContext.getStore();
 		const lifecycle = { type: "session_closed", sessionId };
 		if (this.fanout.isEmpty()) this.appendSessionRecord(sessionId, lifecycle);
+		else if (this.workerSessions.has(sessionId))
+			this.fanout.deliverToSession(sessionId, serializeJsonLine(lifecycle));
 		else this.fanout.broadcast(serializeJsonLine(lifecycle));
 		const taggedResponse = { ...response, sessionId };
 		const registered = targetId === undefined ? undefined : this.fanout.get(targetId);
 		if (registered) registered.actor.enqueue(serializeJsonLine(taggedResponse));
 		else this.appendSessionRecord(sessionId, taggedResponse, targetId);
+		this.requestFlush();
+	}
+
+	/**
+	 * Seal a session the host PARKED and publish `session_parked`.
+	 *
+	 * Parking is the idle sweep putting a RETAINED session back on disk: the routing
+	 * handle ends exactly as a close ends it, but the session survives and reopens with
+	 * `open_session { sessionPath }`, so the record a client dispatches on must say so
+	 * instead of claiming the session ended. Delivery follows the `session_closed` rule -
+	 * a worker session's record reaches only its attached connections, an interactive
+	 * session's reaches every connection. No client asked for this teardown, so there is
+	 * no close response to answer.
+	 */
+	parkSession(sessionId: string, sessionPath: string): void {
+		if (this.sealedSessions.has(sessionId)) return;
+		this.sealedSessions.add(sessionId);
+		this.fanout.forgetSession(sessionId);
+		const lifecycle: RpcSessionParkedEvent = { type: "session_parked", sessionId, sessionPath };
+		if (this.fanout.isEmpty()) this.appendSessionRecord(sessionId, lifecycle);
+		else if (this.workerSessions.has(sessionId))
+			this.fanout.deliverToSession(sessionId, serializeJsonLine(lifecycle));
+		else this.fanout.broadcast(serializeJsonLine(lifecycle));
 		this.requestFlush();
 	}
 
@@ -413,6 +467,7 @@ export class SessionEventWriter {
 	 */
 	forgetSession(sessionId: string): void {
 		this.sealedSessions.delete(sessionId);
+		this.workerSessions.delete(sessionId);
 		this.fanout.forgetSession(sessionId);
 	}
 

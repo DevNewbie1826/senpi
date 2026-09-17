@@ -1,3 +1,202 @@
+## 2026-09-17 - Load and contention proof for one in-process host (#1782)
+
+### What changed
+
+- `test/suite/rpc-inprocess-load.test.ts` (new, opt-in via `SENPI_LOAD_TESTS=1`, 300 s per cell): six measured cells against ONE host built from the production `createHostCore` seam with no `workerConfiguration` - i.e. the `RpcSessionRegistry` a `--listen` host selects, the real `createRpcSessionBinding`, and the real `createCliRuntimeFactory` runtime. (i) SCALE - 1,000 sessions open at once, `list_sessions { include_workers: true }` = 1,000 while a default listing stays at 0, RSS and threads per session, then 200 closed and reopened by `sessionPath` with the listing latency sampled at every reopen (p95 gated under 500 ms). (ii) CHURN - 2,000 open/close cycles. (iii) CONTENTION - time-to-first-event for one session at a time vs 50 streaming at once, reported as a ratio. (iv) NEIGHBOUR - `get_state` every 100 ms on one session while another runs a 3 s ASYNC tool (p95 gated under 50 ms), contrasted with a deliberately SYNCHRONOUS 3 s tool and with opening a 50 MB transcript (both recorded, never gated). (v) FD/PLUGIN - 200 `kind: "worker"` sessions with the real omo plugin bundle: RSS per session, `lsof` count, soft `RLIMIT_NOFILE` (recording). (vi) NODE - the same host booted under Node with 50 sessions, asserting the one `bun:ffi`-gated path (the child reaper) turns itself off with exactly one warning instead of failing the boot, with the Z-count recorded.
+- `test/suite/rpc-inprocess-load-support.ts` (new): the load rig. A NATIVE faux provider registered from inside each session's own extension load, because a session runs inside its own `ProviderScope` and a scoped `getApiProvider` consults the scope overlay and the builtins only - the module-global faux registry is unreachable there. The rig stubs `SENPI_CODING_AGENT_DIR`/`OMO_CODING_AGENT_DIR` at its sandbox and clears every inherited RPC socket variable, so no cell can resolve a session against a live agent dir.
+- `test/suite/rpc-inprocess-load-probes.ts` (new): the async and blocking 3 s tools, the `get_state` prober, the 50 MB transcript fixture, and the churn-cell runner.
+- `scripts/qa-rpc-socket/load-1000.mjs` (new): the same SCALE and CONTENTION cells against a REAL `--listen` host process over its socket, with the fake model server from `scripts/qa-app-server/lib/env.mjs` as the only reachable model. Reports `{ sessions, errors, curve[{ sessions, threads, fds, rssMb, ...PerSession }], threadsPerSession, fdsPerSession, rssMbPerSession, ttfePairP95 { single, concurrent50 } }` as JSON, stops the host, and reports its own orphan count. The report also records WHICH runtime the host ran, never an assumption: `runtime { hostArgv, resolvedFromArgv, serverVersion, capabilities }`, where `hostArgv` is read back with `ps` and `resolvedFromArgv` is production `resolveSessionRuntime(parseArgs(<that argv>))`. `--session-runtime worker` reproduces the capped runtime's refusal (`firstError { index: 20, error: "open_failed: too_many_sessions" }`, exit 1), `--disable-builtin <id>` writes `disabledBuiltinExtensions` into the sandbox settings so a per-session cost can be attributed to a component instead of to "a session", and `--host-env K=V` starts the host with one extra variable so a runtime knob can be OBSERVED (never used as a fix). Its socket client lives in `scripts/qa-rpc-socket/lib/jsonl-socket.mjs`.
+- `scripts/qa-rpc-socket/load-churn.mjs` (new): the churn cell on BUN, where `bunExtensionImporterStats()` can move and `Bun.gc(true)` can force the full collection that separates "retained" from "not yet swept". The vitest runtime is Node, so the counter would read zero there; this is the same reason `test/extensions/bun-extension-regressions.test.ts` spawns `bun`.
+- `test/suite/rpc-worker-host-support.ts`: added a `stderrText()` accessor so the Node cell can assert on what the host warned. `test/suite/rpc-inprocess-host-support.ts`: exported its `assistantMessage` helper for the transcript fixture. No production file changed.
+
+### Why
+
+- The daemon's whole premise is that one process holds every session, so the claim needs a number, not an argument: 1,000 sessions on one host with zero errors, and a measured per-session cost for threads, memory and file descriptors. The measurement contradicts the plan's "thread count flat" premise exactly as todo 7's did - a session costs ~1 thread under Bun and ~2 under Node - so the cells REPORT the per-session cost and gate only on the honest bound (below the worker runtime's measured 3/session), while the hard proof stays the refusal a capped host answers with.
+- That thread has a named owner, measured rather than assumed: the `config-reload` builtin builds one watch event source per session (`builtin/config-reload/index.ts:164`), and on macOS every watch it registers is offloaded to a `node:worker_threads` Worker (`builtin/config-reload/watch-event-source.ts:79,100-102,120-125`). The report therefore samples a cost CURVE (threads, fds, RSS at 10/100/1000 sessions) rather than one endpoint, because that is what separates a bounded pool from a per-session thread. Same live host, same driver, one settings key: at 1,000 sessions the host holds 1,023 threads / 2,014 fds with the builtin and 18 threads / 1,014 fds with `disabledBuiltinExtensions: ["config-reload"]` - linear at 1.00 thread/session, and zero without it. It is not the session runtime, the registry, the binding, the transcript writer (fds grow 1/session in BOTH columns) or Bun's blocking-I/O pool (`UV_THREADPOOL_SIZE=2` does not move it, and the pool stays at 6-7 named `Bun Pool` threads).
+- Latency under contention is not a contract this host controls, so the contention and neighbour contrast numbers are printed as ratios instead of asserted against a wall-clock threshold. The one latency budget that IS gated - a neighbour's `get_state` p95 while another session runs an ASYNC tool - is the invariant the audit in `test/suite/session-path-audit.ts` exists to protect, and the synchronous-tool contrast in the same cell is what makes that number mean something.
+- The contention cell asserts the faux provider's `callCount`, because a model whose api resolves to nothing inside the session's provider scope still emits `agent_start`: without that assertion the cell would silently time the host's error path and still print a ratio.
+
+### Why an extension could not handle it
+
+- These are tests and QA drivers, not product behavior; they measure the host's registry, binding, event writer and runtime factory, all of which live below the extension boundary. No extension can open a session, observe another session's latency, or read the host's thread and descriptor counts.
+
+### Expected merge conflict zones
+
+- LOW: three new test files and two new QA scripts that upstream does not have. The only touched existing files are two test-support modules (`rpc-worker-host-support.ts` gains one accessor on its returned object; `rpc-inprocess-host-support.ts` exports an existing helper).
+
+## 2026-09-17 - A reopen waits out the teardown that still holds the path (#1782)
+
+### What changed
+
+- `session-registry.ts` (`RpcSessionRegistry.openSession`): before the reservation decision, an open for a `sessionPath` whose reservation is held by an entry in state `closing` awaits that entry's `closeCompletion` (`settleClosingReservation`), then re-reads the reservation set as before. The wait is bounded by `closeGraceMs` - the same window `closeMarkedSession` force-releases at - so a wedged disposal falls through to the ordinary `session_path_in_use` instead of an open that never answers. Nothing else in the open path moved: an `opening` entry still refuses, a fully open entry still attaches, and a released path still opens fresh (`attached` absent).
+- `worker-session-registry.ts` is deliberately unchanged: a worker's teardown ends with an OS thread exit that no host deadline bounds, and `test/suite/rpc-close-backpressure.test.ts` pins that an open must not block behind a wedged worker.
+- Docs: `docs/rpc.md` (the `session_path_in_use` row and Duplicate/idempotency) and the `rpc-mode.ts` D1 header carry the rule and the runtime it applies to.
+- Tests: `test/suite/rpc-inprocess-host.test.ts` gains "reopens a closed path while the previous session is still tearing down" - open, attach, the opener closes, the surviving connection drops, and the path is reopened WHILE the teardown is held at `waitForIdle` by the new `TeardownGate` in `test/suite/rpc-inprocess-host-support.ts`. The gate makes the teardown window deterministic instead of a race the test would usually win; RED without the fix is `open_session 0 failed: session_path_in_use`.
+
+### Why
+
+- The close/reopen contract silently depended on disposal latency. A session keeps its path reservation until its runtime is disposed, so `open_session { sessionPath }` issued right after that session ended was refused for a session that no longer exists - and no client can time the retry, because the disposal window is the host's, not the client's. Measured on a loaded machine, the path stayed refused for 300 ms - 1 s after the last attachment went away, on BOTH session runtimes. Waiting for the teardown the open would otherwise be refused by turns that race into a contract.
+- This is a PRE-EXISTING defect, not a regression of any change on this branch. `test/rpc-socket-host.test.ts > reopens the path after explicit close and dropped surviving attachment` fails on the `origin/main` baseline c32a67a2d8 itself - three consecutive runs there, plus three more on each of befc3cbdac, b2464c3560 and 58ccadbd7f, all `1 failed | 17 passed (18)` - because the case waits a fixed 100 ms for a teardown the host does not promise to finish in 100 ms. It passes or fails with the machine rather than with the code; the branch's added host-loop work only makes the loss reliable. Nothing here reverts or weakens a session-runtime, kind/context, retention or park behavior.
+- The in-process runtime is where this is safe to fix: its teardown is bounded by the host's own grace window (`closeMarkedSession` force-releases the entry at the deadline), so the wait has a ceiling the host controls. It is also the runtime a `--listen` socket host - the shared daemon - selects.
+
+### Why an extension could not handle it
+
+- The path reservation, the teardown window and the open's admission decision are registry internals below the extension boundary; an extension cannot observe a disposal in flight, let alone hold an open until it completes.
+
+### Expected merge conflict zones
+
+- LOW: the head of `RpcSessionRegistry.openSession` and the private method that follows `peek()`. Upstream has neither surface.
+
+## 2026-09-17 - Per-session `open_session.auto_title` (#1782)
+
+### What changed
+
+- `rpc-types.ts`: `open_session` accepts additive `auto_title?: boolean`. When present it decides titling for THAT session; when absent the host `--auto-title-sessions` / appMode / `auto_title_sessions` capability default applies. A non-boolean is refused with `RPC_ERROR_INVALID_LAUNCH_PROFILE` (`invalid_launch_profile`).
+- `rpc-input-validation.ts`: `sessionAutoTitleError(value)` parses the field at the wire boundary (absent or boolean only).
+- `session-command-router.ts`: validates `auto_title` before the registry call, puts a boolean onto the launch profile as `autoTitle` (not host lifecycle policy), and advertises host capability `auto_title_per_session`.
+- `src/main.ts` `resolveAutoTitleSessions`: optional `sessionAutoTitle` wins over the host-wide decision; context-message resumes still never retitle. `createCliRuntimeFactory` passes `launchProfile?.autoTitle`. Interactive TUI default is unchanged (no `open_session`, so the override is always absent).
+- `src/cli/args.ts`: `--auto-title-sessions` is documented as deprecated for shared hosts; the flag is not removed.
+- `custom-capability.ts`: `AUTO_TITLE_PER_SESSION_CAPABILITY`. `rpc-client.ts` exposes `openSession({ auto_title })`. `docs/rpc.md` and `rpc-mode.ts` carry the field, the capability and the error code.
+
+### Why
+
+- `--auto-title-sessions` is a process-wide launch-profile bit. A machine-wide daemon serving the desktop (titles on) and omo task children (titles off) cannot express both with one flag. Per-session `auto_title` is the OpenCode-level equivalent and stops that collision without removing the flag this release.
+
+### Why an extension could not handle it
+
+- Session title generation is started by `AgentSession` from a flag set at runtime construction. The wire field, the launch profile and the resolver live below the extension boundary.
+
+### Expected merge conflict zones
+
+- LOW: the `open_session` member of `RpcCommand` in `rpc-types.ts`, the capability set and the `open()` arm of `SessionCommandRouter`, `resolveAutoTitleSessions` in `src/main.ts`, and the advertised-capability pins in `test/rpc-multi-session.test.ts` and `test/auto-title-sessions-flag.test.ts`.
+
+## 2026-09-17 - Parked retained sessions announce themselves; a close needs the caller's own attachment (#1782)
+
+### What changed
+
+- `rpc-types.ts`: new `RpcSessionParkedEvent` (`{ type: "session_parked", sessionId, sessionPath }`), the terminal record of a PARK. `rpc-client.ts` adds it to the public `RpcClientEvent` union.
+- `session-event-writer.ts`: `parkSession(sessionId, sessionPath)` seals the session exactly like `closeSession` and publishes `session_parked` instead of `session_closed`, with no close response (nobody requested this teardown). Delivery reuses the `session_closed` rule: a `kind: "worker"` session's record goes to its attached connections, an interactive session's is broadcast.
+- `session-command-router.ts` (`evictIdleSession`): the idle sweep reads the entry BEFORE claiming it and, when the entry is retained and has a session file, emits `parkSession` as the terminal record instead of `closeSession` + the synthesized `close_session` response. The teardown itself is byte-identical, so retention still never outlives the idle window and a parked entry leaves the registry (the empty-host exit window starts at that tick). A retained entry with no session file to reopen by falls back to the ordinary close.
+- `session-command-router.ts` (`close`): a `close_session` whose connection holds no attachment for that handle is refused with `unknown_session` before any reply debt is reserved or any attachment is released. Hosts with no per-connection identity (stdio, in-process embedders) have no ownership to check and keep answering every close as before.
+- Docs: `docs/rpc.md` (lifecycle-record visibility, idle eviction, retained sessions, the D1 `close_session` row, duplicate/idempotency) and the `rpc-mode.ts` D1 table carry both rules.
+- Tests: `test/suite/rpc-inprocess-host.test.ts` gains the retention contract on the IN-PROCESS runtime (the daemon path; PR #1777's cases run on the worker registry) - detach + re-attach by path, a turn that settles after its client dropped (asserted on the persisted transcript), the unflagged session closing as before, an explicit close of a retained detached session, the park record reaching a connection that stayed attached with reopen-by-path, the empty-host exit firing once after the park, and the refusal of a foreign `close_session`. The rig lives in `test/suite/rpc-inprocess-host-support.ts`.
+
+### Why
+
+- A retained session exists to outlive its clients, so the desktop and the omo task runner must be able to tell "the host put this session to disk, reopen it by path" from "this session ended". Before this, both arrived as `session_closed`: the only correct client reaction (reopen) was indistinguishable from the only correct reaction to a close (forget), and a parked desktop thread would have been dropped from the UI.
+- Parking deliberately keeps the eviction teardown. Retention that survived the idle window would make one abandoned session pin a daemon forever; the park record is what makes the eviction recoverable instead of silent.
+- The close guard closes a hole that only becomes reachable on a shared daemon: `list_sessions` publishes every routing handle, and `close_session` decrements the refcount of whoever asks. A client that never attached could therefore release another client's attachment - and close a single-attachment session it never opened. Ownership is already tracked per connection for the drop path; the close now uses the same map.
+
+### Why an extension could not handle it
+
+- The idle sweep, the attachment refcount and the event fanout are host infrastructure below the extension boundary; an extension cannot observe a teardown it is being disposed by, nor refuse another connection's command.
+
+### Expected merge conflict zones
+
+- LOW: the terminal-record branch of `SessionCommandRouter.evictIdleSession`, the head of `SessionCommandRouter.close`, and the block after `SessionEventWriter.closeSession`. Upstream has none of these surfaces.
+
+## 2026-09-17 - Session kind and opaque per-session context; worker sessions hidden by default (#1782)
+
+### What changed
+
+- `rpc-types.ts`: `open_session` accepts two additive optional fields - `kind?: "interactive" | "worker"` (default `interactive`) and `context?: Record<string,string>` (default `{}`) - `list_sessions` accepts `include_workers?: boolean` (default false), and two stable error codes join `RpcErrorCode`: `RPC_ERROR_INVALID_SESSION_CONTEXT` (`invalid_session_context`) and `RPC_ERROR_INVALID_SESSION_KIND` (`invalid_session_kind`). The `SessionKind`/`SessionContext` types are re-exported from `../../core/extensions/types.ts`, which owns them because the extension API publishes them.
+- `rpc-input-validation.ts`: `sessionContextError(context)` and `sessionKindError(kind)` parse both fields at the wire boundary against `SESSION_CONTEXT_LIMITS` (32 keys, key `^[a-z][a-z0-9_]*$`, value <= 16 KiB, <= 32 KiB of JSON in total). The detail names the cap and its byte budget; an unknown `kind` is refused rather than downgraded to `interactive`.
+- `session-command-router.ts`: `open_session` validates both fields before the registry call and answers `invalid_session_context: <detail>` / `invalid_session_kind: <detail>`; it passes them into the launch profile (never into `RpcSessionOpenOptions`, which is host lifecycle policy), tells the writer the new session's kind, filters `kind: "worker"` rows out of a default `list_sessions` and strips `context` from every row of that listing, and advertises the host capabilities `session_context` and `session_kind`.
+- `session-registry.ts`: `RpcSessionEntry` gains frozen `kind` and `context`; `frozenProfile` (now exported) also freezes the supplied `context` object, `sessionIdentity(profile)` normalizes the pair once, and `list()` returns the shared `RpcSessionRow` type with `kind` and `context` on every row. `worker-session-registry.ts` stores and publishes the same pair through the same two helpers.
+- `session-event-writer.ts` + `session-event-fanout.ts`: `setSessionKind(sessionId, kind)` records a session's visibility class, and `closeSession` delivers a worker session's `session_closed` through the new `SessionEventFanout.deliverToSession` (attached connections only) instead of `broadcast`. Interactive sessions keep today's broadcast, and no other lifecycle record changed, so the desktop mirror and the supervisor's unattached idle observer are unaffected.
+- `custom-capability.ts`: `SESSION_CONTEXT_CAPABILITY` and `SESSION_KIND_CAPABILITY` host strings. `rpc-mode.ts` and `packages/coding-agent/docs/rpc.md` carry the updated D1 tables, the new error codes and a "Session kind and context" section.
+
+### Why
+
+- One machine-wide daemon serves interactive clients and machine-driven work (task children, team members) from the SAME process and the SAME extension set. Without a visibility class, every desktop that lists sessions mirrors every subagent, and every connection sees subagent lifecycle churn; without an opaque per-session map, an extension loaded once per session cannot tell which session it is serving, and the alternative (per-session extension sets or CLI flags on the wire) would make the host's launch profile client-controlled.
+- `context` is deliberately inert: it is stored frozen, handed to that session's extensions, and republished only on `list_sessions { include_workers: true }`. It never reaches `CliRuntimeConfiguration.parsed`, so it cannot move a model, an auth decision or a CLI flag. It is bounded at the boundary because the host holds it per session and republishes it per listing.
+- `context` is withheld from a default listing because an opener may put routing detail in it (omo puts `role`, `task_id` and team ids); only a caller that asked for workers gets the blob.
+- Only `session_closed` becomes attached-only. `agent_start`/`agent_settled`/`agent_idle`/`session_opened` stay broadcast for every kind, because the host's own occupancy accounting reads them from an unattached observer.
+
+### Why an extension could not handle it
+
+- The wire contract, the session registry and the event fanout are host infrastructure below the extension boundary, and the point of the change is to give extensions a per-session identity they cannot construct themselves.
+
+### Expected merge conflict zones
+
+- LOW: the `open_session`/`list_sessions` members of `RpcCommand` in `rpc-types.ts`, the capability set and the `list_sessions` arm of `SessionCommandRouter.handle`, the `RpcSessionEntry` literal in both registries, and the `session_closed` emission in `SessionEventWriter.closeSession`. Upstream has none of these surfaces.
+
+## 2026-09-17 - Guard and attribute event-loop stalls on the shared host (#1782)
+
+### What changed
+
+- `loop-lag-watchdog.ts` (new): an unref'd 200 ms timer measures how late it is invoked. Drift above `SENPI_RPC_LOOP_LAG_WARN_MS` (default 500) writes one stderr line per 10 s (`senpi rpc host stall: event loop blocked <drift>ms (sessionId=… tool=…)`); drift above `SENPI_RPC_LOOP_LAG_ERROR_MS` (default 5000) also emits a `host_stalled { driftMs, sessionId?, tool? }` lifecycle record to every connection. `tick()` is public so tests measure on an injected clock instead of waiting for real drift.
+- `session-attribution.ts` (new): `AsyncLocalStorage` carrying `{ sessionId, tool }` plus a clock-free activity registry (monotonic sequence, open spans, last finished activity). `SessionCommandRouter.handle` now wraps every routed command in `runWithSessionAttribution` and delegates to a private `dispatch`; `session-binding.ts` opens a span per `tool_execution_start` and closes it on `tool_execution_end`, on `agent_settled`/`agent_idle`, and on binding disposal. The watchdog samples the registry per tick and blames the synchronous work that finished inside the measured window, else the tool still executing; otherwise the record carries no session.
+- `host-memory-sampler.ts` (new): an unref'd 30 s sampler reads RSS. Above `SENPI_RPC_HOST_RSS_WARN_MB` (default 4096) it emits `host_memory_pressure { rssMb, sessions }` to every connection on every sample, writes one stderr line per 5 minutes, and raises a pressure flag on the router; `SessionCommandRouter.setMemoryPressure` HALVES the idle-eviction window while it is raised and restores it when RSS falls back. No admission control, no cap, no kill policy was added, and `sessionCount` is exposed only to publish the count.
+- `multi-session-host.ts`: `startHostObservers(router, writer)` arms both observers for the stdio and socket hosts and stops them on shutdown. `session-event-writer.ts` gained `broadcastHostRecord`, which delivers one host-level record to every registered connection (or the shared stdio lane), untagged - `host_stalled` carries the handle it blames, `host_memory_pressure` belongs to the process.
+- `rpc-types.ts`: `RpcHostStalledEvent` and `RpcHostMemoryPressureEvent`.
+- Audit (test-only): `test/suite/no-sync-in-session-path.test.ts` + `session-path-audit.ts` walk the transitive call graph (classic TypeScript API from `@typescript/typescript6`, as `scripts/check-runtime-deps.mjs` already does) rooted at `session-registry.ts`, `session-binding.ts`, `connection-handler.ts`, `session-command-router.ts`, `src/core/agent-session.ts`, `src/core/auth-storage.ts` and every `src/core/tools/**` module. Blocking primitives (`execSync`, `execFileSync`, `spawnSync`, `Bun.spawnSync`, `Bun.sleepSync`, `Atomics.wait`, including import aliases, resolved through the checker) fail unless `no-sync-in-session-path.ledger.json` already records that exact call site; synchronous filesystem calls are reported against the same ledger with a byte-size note, failing only on a NEW entry or a higher count. The ledger records the six pre-existing blocking call sites that are NOT the credential/footer probes; `src/core/resolve-config-value.ts` (3) and `src/core/footer-data-provider.ts` (1) are deliberately absent, so the audit is RED until they go async.
+
+### Why
+
+- The socket host now runs every session in the host process, so one session's synchronous work is the whole daemon's outage. The host could not say that it had stalled, which session caused it, or how much memory it was holding; an operator saw an unresponsive daemon and a desktop client saw silence. Detection, attribution and memory reporting are the observability half of that trade-off.
+- Attribution is registry-based rather than read from `AsyncLocalStorage` at the tick: the timer callback runs AFTER the blocked stack unwound, where the async context of the blocking work no longer exists. The registry is ordered by a monotonic counter instead of a clock, so the whole path is deterministic under an injected clock and needs no fake timers.
+- Pressure halves the idle-park window because parking is the only memory lever a daemon may pull that is invisible to clients: an evicted session reopens by path. Refusing or killing sessions is explicitly out of scope (capacity is memory, never a refusal).
+- The audit is a ban with a ledger rather than a bare ban because the clean tree is not empty: the credential lock (`auth-storage.ts`), the settings lock (`settings-manager.ts`), the `which`/`where` probe and win32 `taskkill` (`utils/shell.ts`) and the tool `--version`/extraction probes (`utils/tools-manager.ts`) are reachable today and are not part of the credential/footer work. Recording them with their bounds keeps the gate honest AND actionable: anything new fails immediately, and the two files that are being made async are the only RED.
+
+### Why an extension could not handle it
+
+- Event-loop drift, RSS of the host process, the routed-command dispatch seam and the idle-park window are host infrastructure below the extension boundary; an extension runs inside the very loop that is being measured.
+
+### Expected merge conflict zones
+
+- LOW: the `handle`/`dispatch` split and the idle-window expression in `session-command-router.ts`; the record pump in `session-binding.ts` (it became a closure so the tool spans and the writer share one walk); the observer start/stop lines in both hosts of `multi-session-host.ts`; the new method beside `closeSession` in `session-event-writer.ts`. The three new modules and the audit have no upstream counterpart.
+
+## 2026-09-17 - Socket hosts reap the children a terminated worker orphaned (#1782)
+
+### What changed
+
+- `child-reaper.ts` (new): the reaping policy. `createChildReaper({ syscalls, now?, minWaitableMs?, log? })` returns a `tick()` that enumerates the host's DIRECT children, peeks at each with the `waitid(..., WNOWAIT)` oracle, and consumes with `waitpid(pid, WNOHANG)` only a pid that stayed waitable across two ticks at least `minWaitableMs` apart (default 30 s, hard floor 5 s). `waitpid(-1, ...)` is never called, so the reaper can never take a child it did not identify first. `startHostChildReaper(log)` arms it on a 1 s unref'd interval and returns the stop function.
+- `child-reaper-syscalls.ts` (new): the platform bindings behind `loadChildReaperSyscalls()`. darwin enumerates with libproc `proc_listchildpids` (which lists zombies) and names children with `proc_name`; linux scans `/proc/<pid>/stat` for the ppid and reads `comm` from the same file; both call `waitid`/`waitpid` through `bun:ffi` (`bun-ffi.d.ts`, new, mirrors the `bun:sqlite` declaration precedent). No `ps` spawn anywhere - a reaper that spawns children to find children is the bug #1721 removed. `proc_pidinfo` is NOT used to detect zombies.
+- `multi-session-host.ts`: `runSocketHost` arms the reaper before it listens and stops it in `shutdown`. The stdio host is unchanged: it lives and dies with the embedder that owns it.
+- Environment: `SENPI_RPC_HOST_REAPER=0` disables reaping; `SENPI_RPC_HOST_REAPER_MIN_WAITABLE_MS` raises the window (clamped to the 5 s floor). Under Node (no `bun:ffi`) the host logs one warning at startup and reaps nothing.
+- Observability: while at least 10 children sit waiting, or whenever a tick reaped, one line per 5 minutes carries `reaped=`, `waiting=` and the three commonest command names.
+- QA: `scripts/qa-rpc-socket/spawn-zombie-probe.mjs` + `spawn-zombie-matrix.mjs` (new) produce the {spawn API} x {thread} x {runtime} x {lifecycle} table; `worker-spawn-zombie.mjs` gained `--case quarantine` (terminate a session worker while its bash child runs) and `--reaper-ms`. Test: `test/suite/rpc-host-reaper.test.ts` (+ `rpc-host-reaper-support.ts`).
+
+### Why
+
+- Measured on this branch (56 cells, darwin arm64, bun 1.4.2): every steady-state cell is 0 - 50 short spawns through one in-process session, and every {`child_process.spawn`, `Bun.spawn`, `Bun.$`} x {main thread, worker thread} x {bun source, compiled binary, Node} combination where the spawning thread stays alive. Every cell where a Worker is terminated with children that exited or exit later leaks 20/20, on all three APIs and all three runtimes, and the zombies survive for the life of the process. The product path that does exactly that is the session-worker quarantine (`session-worker-client.ts`): measured, it leaks 1 zombie per quarantined session with a live child, and 0 with the reaper armed.
+- A long-lived machine-wide daemon is the process where those zombies accumulate; a stdio host dies with its embedder, which is why only the socket host arms the reaper.
+- Why the window is 30 s and not the 5 s floor: a zombie carries no hint about which thread meant to wait on it, so only time separates "abandoned" from "its owner is blocked". Measured: stealing a child from a thread blocked in `execSync` makes `child_process` and `Bun.spawn` reject with `ECHILD` and `Bun.$` never settle at all. With a 5 s window the 12 s blocked-thread cell loses its child's exit code; with the shipped 30 s window every blocked cell still resolves with the real code 7.
+
+### Why an extension could not handle it
+
+- Reaping is a process-wide operation on the host's own children, below the extension boundary: an extension cannot see children it did not spawn, and a per-extension reaper would race every other one.
+
+### Expected merge conflict zones
+
+- LOW: the `shutdown` preamble and the import block in `multi-session-host.ts`. Both new source files and both new QA scripts are additive; upstream has no host reaper.
+
+## 2026-09-17 - Socket hosts run their sessions in the host process (#1782)
+
+### What changed
+
+- New CLI flag `--session-runtime in-process|worker` (`packages/coding-agent/src/cli/args.ts`: `SessionRuntimeKind`, `isSessionRuntimeKind`, `resolveSessionRuntime`, one parse branch, one help line). It selects where a multi-session host runs its sessions. Default: `in-process` for a `--listen` SOCKET host, `worker` for a stdio host (`--multi-session` without `--listen`, and `--listen stdio://`) and for embedders. An explicit flag wins; any other value is a parse error, which `main.ts` already fails the process on.
+- `packages/coding-agent/src/main.ts` (the only producer of `MultiSessionHostOptions.workerConfiguration`) passes that configuration only when the resolved runtime is `worker`. `createHostCore` is unchanged: it selects `WorkerSessionRegistry` when a `workerConfiguration` is present and `RpcSessionRegistry` otherwise, so withholding it is what selects the in-process registry. The runtime factory (`createCliRuntimeFactory`) is still built from the same configuration on both paths.
+- Nothing was removed from the worker path: `SESSION_WORKER_LIMITS.workers = 20` still bounds `WorkerSessionRegistry` admission, and a socket host started with `--session-runtime worker` still answers the 21st `open_session` with `open_failed: too_many_sessions`.
+- `packages/coding-agent/test/suite/rpc-worker-host-support.ts` now passes `--session-runtime worker` by default (every `rpc-worker-*` suite asserts worker-isolate behavior) and exposes `startInProcessHost()`, which omits the flag so the host picks the socket default.
+- QA driver `packages/coding-agent/scripts/qa-rpc-socket/worker-spawn-zombie.mjs` (new): routes N `bash` spawns through one session on either runtime and reports Z-state children of the host process after a settle window (`--runtime`, `--spawns`, `--settle-ms`, `--max-zombies`, `--out`).
+
+### Why
+
+- The shared socket host is meant to be ONE machine-wide daemon that every client (CLI, task runner, desktop) attaches to, so its session count is a property of how many conversations the machine holds, not of an isolate budget. The worker runtime caps admission at 20 and answers `too_many_sessions` beyond it - a client-visible refusal that a daemon may never produce. The in-process registry (`session-registry.ts`) has no cap, and the host already contained both registries; this change only decides which one a socket host selects.
+- The worker runtime stays the default where it is load-bearing: a stdio host multiplexes one JSONL stream owned by a single embedder process, and its isolates are what keep one session's crash or blocking work away from that stream.
+- Accepted trade-off: an in-process session shares the host event loop, so one session blocking it blocks the host, and no per-session opening deadline (#1719) applies on that path. Measured on the socket host: 45 sessions opened on one host add ~2 threads per session (watchers), against ~3 per session on the worker runtime (isolate + watchers) - i.e. sessions are not free on either runtime, but the daemon path adds no isolate.
+- Zombie baseline for the daemon runtime (recorded before the change, on the unmodified engine): 50 `bash true` spawns through one in-process session leave 0 Z-state children of the host after 6 s (worker runtime: also 0).
+
+### Why an extension could not handle it
+
+- Host process topology and registry selection are CLI/host wiring below the extension boundary.
+
+### Expected merge conflict zones
+
+- LOW: the `--listen`/`--multi-session` parse branches and the RPC block of `printHelp` in `src/cli/args.ts`; the `appMode === "rpc" && parsed.multiSession` block in `src/main.ts`; the argv array and options type in `test/suite/rpc-worker-host-support.ts`. `createHostCore`, both registries and the router are untouched.
+
 ## 2026-09-17 - Supervisor launch routes through its own module (senpi#1781)
 
 ### What changed
@@ -752,7 +951,6 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 ### Expected merge conflict zones
 
 - LOW: the `startHost()` catch block in `host-ensure.ts` and the `_test` option shape.
-
 
 ## [Unreleased] - Feed the supervisor's observer lifecycle records
 

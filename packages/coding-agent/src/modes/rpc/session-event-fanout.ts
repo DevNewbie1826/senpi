@@ -202,6 +202,12 @@ export class SessionEventFanout {
 		for (const { actor } of this.connections.values()) actor.enqueue(line);
 	}
 
+	/** Deliver one line to the connections attached to a session, never to the rest of the fanout. */
+	deliverToSession(sessionId: string, line: string): void {
+		for (const [id, { actor }] of this.connections)
+			if (this.connectionSessions.get(id)?.has(sessionId)) actor.enqueue(line);
+	}
+
 	rememberSnapshot(
 		sessionId: string,
 		value: Record<string, unknown>,

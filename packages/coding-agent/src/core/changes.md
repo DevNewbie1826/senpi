@@ -1,5 +1,50 @@
 # changes
 
+## 2026-09-17 - Launch profile carries the session's kind and context to its resources (senpi#1782)
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session-runtime.ts`: `AgentSessionLaunchProfile` gains the optional `sessionKind` and `sessionContext`, the immutable per-session inputs an `open_session` selects. They are absent for classic launches.
+- `packages/coding-agent/src/core/resource-loader.ts`: `DefaultResourceLoaderOptions` gains the same two optional fields; the loader keeps one `ExtensionSessionProfile` (`sharedHostEnabled` + kind + context, defaults `interactive`/`{}`) and passes THAT to `loadExtensions` and `loadExtensionFromFactory`, replacing the bare `sharedHostEnabled` argument it used to thread through `loadExtensionFactories`.
+
+### Why
+
+- The per-session identity a shared RPC host accepts has to reach the extensions that session loads, and the resource loader is the only per-session construction seam between the launch profile and the extension API. Carrying one value object instead of a third boolean keeps the loader's signatures at their current arity.
+- It stops there on purpose: `main.ts` feeds it to `resourceLoaderOptions` only, never into the parsed CLI configuration, so it can never influence auth, model or flag resolution.
+
+### Why an extension could not handle it
+
+- Extensions are constructed BY the resource loader; the value has to exist before any extension factory runs.
+
+### Expected merge conflict zones
+
+- LOW: the `AgentSessionLaunchProfile` interface and the `DefaultResourceLoader` constructor/extension-loading helpers.
+
+## 2026-09-17 - Credential and footer probes resolve off the event loop (senpi#1782)
+
+### What changed
+
+- `resolve-config-command.ts` (new) owns execution of a `!command` config value: `runConfigCommand(commandConfig, env?)` spawns the command with `child_process.spawn` (`stdio: [ignore|pipe, "pipe", "ignore"]`, output capped at the 1 MiB `maxBuffer` equivalent, 10 s deadline enforced by a timer that SIGTERMs and unrefs the child) and retries a failed attempt 3x with the same `[250, 1000]` ms backoff, now `await sleep(...)` instead of `Atomics.wait`. The win32 configured-shell attempt (`getShellConfig`, stdin transport) and its fallback to the platform shell are unchanged in shape.
+- `resolve-config-value.ts` keeps parsing, env templates and the process-wide command cache and lost every blocking primitive (`spawnSync`, `execSync`, `Atomics.wait`). `resolveConfigValue`, `resolveConfigValueUncached`, `resolveConfigValueOrThrow` and `resolveHeadersOrThrow` return promises; the cache now stores the in-flight promise, so concurrent sessions resolving the same command share one execution. The unused `resolveHeaders` export is removed.
+- Awaited at every caller: `auth-storage.ts` (`ReadOnlyAuthStorage.read`, `AuthStorage.read` - both already async), `credential-pool/rotation-stream.ts` (`listRotationSlots`, the policy-slot `flatMap` became a loop), `provider-api-key-auth.ts` (`composeApiKeyAuth.resolve`, the ambient resolver, `resolveBaseAuth`), `provider-composer.ts` (`composeOAuthAuth.toAuth`, `resolveConfiguredModelHeaders`), `model-runtime.ts` (`getAuth`).
+- `CompatibilityRequestConfig` no longer carries `headers`, and `resolveCompatibilityRequestConfig(model, config, extension)` dropped its `env` parameter: header resolution moved to the new async `resolveCompatibilityRequestHeaders(model, config, extension, env?)` / `ModelRuntime.getCompatibilityRequestHeaders(model, env?)`. `model-registry.ts` (`ModelRegistry.getApiKeyAndHeaders`) awaits it in the one branch that used those headers (no credential resolved); `AgentSession` and `sdk.ts` keep reading `extraBody`, `upstreamModelId`, `serviceTier` and `authHeader` synchronously.
+- `footer-data-provider.ts`: `resolveBranchWithGitSync` and `resolveGitBranchSync` are gone. `getGitBranch()` reads `.git/HEAD` and, for a reftable HEAD (`ref: refs/heads/.invalid`), answers `"detached"` and starts the existing async probe; when git answers, the cached branch is replaced and `onBranchChange` subscribers are notified. Spec change: the first `getGitBranch()` in a reftable repo returns `"detached"` instead of the branch, and the branch arrives through the change notification the footer already subscribes to.
+
+### Why
+
+- A socket host now runs every session in its own process (senpi#1782), so a synchronous credential probe is a whole-daemon outage: a stored `!command` credential was resolved with `execSync`/`spawnSync` (10 s timeout, 3 attempts, `Atomics.wait` backoff) inside `AuthStorage.read`, and the footer's reftable branch probe ran `spawnSync git` per session. Measured on a live host before the change, a `!sleep 3` credential made an unrelated session's `get_state` take 15,285 ms; after it, 1 ms.
+- The audit added in senpi#1782 (`test/suite/no-sync-in-session-path.test.ts`) fails on any blocking primitive reachable from session command handling that its ledger does not record, and it reaches `resolveConfigValueUncached` through `model-runtime.getAuth` -> `resolveConfiguredModelHeaders` -> `resolveHeadersOrThrow`, so the whole resolution chain had to go async, not just the credential read the ticket named.
+- `CompatibilityRequestConfig` was split rather than made async because `AgentSession` reads `serviceTier`/`upstreamModelId`/`extraBody` from synchronous getters; only the headers can execute a command, and only one caller consumes them.
+
+### Why an extension could not handle it
+
+- Credential resolution, provider composition and the footer's git probe are host-owned code paths below the extension boundary; an extension runs inside the very event loop being freed.
+
+### Expected merge conflict zones
+
+- MEDIUM: the exported signatures in `resolve-config-value.ts` (every consumer now awaits) and the `headers` field of `CompatibilityRequestConfig`.
+- LOW: the branch-resolution block of `footer-data-provider.ts`, the policy-slot loop in `rotation-stream.ts`, the header lines in `provider-api-key-auth.ts` / `provider-composer.ts`.
+
 ## 2026-09-17 - Time the interactive startup seams and overlap the two startup branches (senpi#1781)
 
 ### What changed

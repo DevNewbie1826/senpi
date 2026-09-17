@@ -7,7 +7,8 @@ import {
 	type CreateAgentSessionRuntimeFactory,
 	createAgentSessionRuntime,
 } from "../../core/agent-session-runtime.ts";
-import type { SessionStartEvent } from "../../core/extensions/types.ts";
+import type { SessionContext, SessionKind, SessionStartEvent } from "../../core/extensions/types.ts";
+import { EMPTY_SESSION_CONTEXT } from "../../core/extensions/types.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import { beginSessionClose, closeMarkedSession, closeSession, type SessionTeardownHost } from "./session-teardown.ts";
 import type { SessionWorkerClient } from "./session-worker-client.ts";
@@ -24,6 +25,10 @@ export interface RpcSessionEntry {
 	state: RpcSessionState;
 	runtime?: SessionRuntime;
 	worker?: SessionWorkerClient;
+	/** Visibility class chosen by the open, frozen for the entry's life. */
+	readonly kind: SessionKind;
+	/** Frozen opaque labels the open attached; `{}` when it attached none. */
+	readonly context: SessionContext;
 	/** Resolves replacement against the runtime currently owned by this entry. */
 	switchSession?: SessionRuntime["switchSession"];
 	/** Rebind callback installed by the shared RPC connection handler. */
@@ -86,6 +91,19 @@ export interface RpcSessionOpenOptions {
 	retainOnDisconnect?: boolean;
 }
 
+/** One `list_sessions` row. `context` is published only to a listing that asked for workers. */
+export interface RpcSessionRow {
+	sessionId: string;
+	durableSessionId?: string;
+	sessionPath?: string;
+	cwd: string;
+	name?: string;
+	status: Exclude<RpcSessionState, "quarantined">;
+	attachments: number;
+	kind: SessionKind;
+	context: SessionContext;
+}
+
 export interface OpenRpcSession {
 	sessionId: string;
 	durableSessionId: string;
@@ -100,11 +118,25 @@ function canonicalPath(path: string): string {
 	return `${realpathSync(dirname(absolutePath))}/${basename(absolutePath)}`;
 }
 
-function frozenProfile(profile: RpcSessionLaunchProfile): Readonly<RpcSessionLaunchProfile> {
+/** Freezes an open's launch inputs, including the nested objects a client supplied. */
+export function frozenProfile(profile: RpcSessionLaunchProfile): Readonly<RpcSessionLaunchProfile> {
 	return Object.freeze({
 		...profile,
 		...(profile.creationModel ? { creationModel: Object.freeze({ ...profile.creationModel }) } : {}),
+		...(profile.sessionContext ? { sessionContext: Object.freeze({ ...profile.sessionContext }) } : {}),
 	});
+}
+
+/**
+ * The visibility class and labels an entry keeps for its life, normalized once here so no
+ * lifecycle, listing or delivery decision has to re-apply the defaults. Reads the already
+ * frozen profile, so the entry and the runtime share one frozen context object.
+ */
+export function sessionIdentity(profile: Readonly<RpcSessionLaunchProfile>): {
+	readonly kind: SessionKind;
+	readonly context: SessionContext;
+} {
+	return { kind: profile.sessionKind ?? "interactive", context: profile.sessionContext ?? EMPTY_SESSION_CONTEXT };
 }
 
 /** Process-local lifecycle owner for multi-session RPC runtimes. */
@@ -139,11 +171,12 @@ export class RpcSessionRegistry {
 		this.validateProfile(profile);
 		this.syncRuntimeMetadata();
 		const sessionPath = profile.sessionPath ? canonicalPath(profile.sessionPath) : undefined;
+		if (sessionPath) await this.settleClosingReservation(sessionPath);
 		if (sessionPath && this.reservations.has(sessionPath)) {
 			// Attach-on-open: a live session outlives individual client attachments, so a
 			// resume (or a second surface) for an already-hosted path joins the existing
-			// runtime instead of failing. Entries still opening or closing keep the
-			// exclusive reservation and reject as before.
+			// runtime instead of failing. An entry still opening keeps the exclusive
+			// reservation and rejects as before.
 			const existing = [...this.entries].find(
 				([, entry]) => entry.reservationKey === sessionPath && entry.state === "open",
 			);
@@ -187,6 +220,7 @@ export class RpcSessionRegistry {
 			state: "opening",
 			scope: new ProviderScope(),
 			profile: storedProfile,
+			...sessionIdentity(storedProfile),
 			sessionPath,
 			reservationKey: sessionPath,
 			cwd: storedProfile.cwd,
@@ -270,6 +304,36 @@ export class RpcSessionRegistry {
 	}
 
 	/**
+	 * Waits out a teardown already in flight for this path before the open decides.
+	 *
+	 * A close FREES the path, but the entry keeps its reservation until its runtime is
+	 * disposed, so an open landing inside that window used to be refused with
+	 * `session_path_in_use` for a session that no longer exists - making "reopen the
+	 * path I just closed" a race against disposal latency, which no client can time.
+	 * The open now waits for the teardown it would have been refused by and then opens
+	 * the file fresh. Bounded by the same grace window that bounds the teardown itself
+	 * (`closeMarkedSession` force-releases at that deadline), so a wedged disposal
+	 * still ends in the ordinary refusal instead of an open that never answers.
+	 */
+	private async settleClosingReservation(sessionPath: string): Promise<void> {
+		const closing = [...this.entries.values()].find(
+			(entry) => entry.reservationKey === sessionPath && entry.state === "closing",
+		);
+		if (!closing?.closeCompletion) return;
+		let deadline: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await Promise.race([
+				closing.closeCompletion,
+				new Promise<void>((resolve) => {
+					deadline = setTimeout(resolve, this.closeGraceMs);
+				}),
+			]);
+		} finally {
+			if (deadline) clearTimeout(deadline);
+		}
+	}
+
+	/**
 	 * Read-only lookup with no state transitions or attachment accounting.
 	 * Exists so lifecycle decisions (e.g. deferring a dropped connection's
 	 * release while a turn is still streaming) can inspect the live entry
@@ -313,15 +377,7 @@ export class RpcSessionRegistry {
 		return closeMarkedSession(this.teardownHost, handle);
 	}
 
-	list(): Array<{
-		sessionId: string;
-		durableSessionId?: string;
-		sessionPath?: string;
-		cwd: string;
-		name?: string;
-		status: Exclude<RpcSessionState, "quarantined">;
-		attachments: number;
-	}> {
+	list(): RpcSessionRow[] {
 		this.syncRuntimeMetadata();
 		return [...this.entries].map(([sessionId, entry]) => ({
 			sessionId,
@@ -329,6 +385,8 @@ export class RpcSessionRegistry {
 			sessionPath: entry.sessionPath,
 			cwd: entry.cwd,
 			name: entry.runtime?.session.sessionManager.getSessionName(),
+			kind: entry.kind,
+			context: entry.context,
 			// A closing entry has already released its last attachment; never publish that as negative.
 			attachments: Math.max(0, entry.attachments),
 			status: entry.state === "quarantined" ? "closing" : entry.state,

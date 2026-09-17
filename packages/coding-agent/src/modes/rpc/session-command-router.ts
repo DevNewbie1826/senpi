@@ -1,17 +1,25 @@
 import { VERSION } from "../../config.ts";
 import { buildRpcSessionState } from "./connection-handler.ts";
 import {
+	AUTO_TITLE_PER_SESSION_CAPABILITY,
 	AUTO_TITLE_SESSIONS_CAPABILITY,
 	MEDIA_PLACEHOLDERS_CAPABILITY,
 	RETAIN_ON_DISCONNECT_CAPABILITY,
+	SESSION_CONTEXT_CAPABILITY,
+	SESSION_KIND_CAPABILITY,
 } from "./custom-capability.ts";
+import { sessionAutoTitleError, sessionContextError, sessionKindError } from "./rpc-input-validation.ts";
 import type { RpcCommand, RpcResponse } from "./rpc-types.ts";
 import {
+	RPC_ERROR_INVALID_LAUNCH_PROFILE,
+	RPC_ERROR_INVALID_SESSION_CONTEXT,
+	RPC_ERROR_INVALID_SESSION_KIND,
 	RPC_ERROR_MISSING_SESSION_ID,
 	RPC_ERROR_OPEN_FAILED,
 	RPC_ERROR_SESSION_CLOSING,
 	RPC_ERROR_UNKNOWN_SESSION,
 } from "./rpc-types.ts";
+import { runWithSessionAttribution } from "./session-attribution.ts";
 import { createRpcSessionBinding, type RpcSessionBinding } from "./session-binding.ts";
 import type { SessionEventWriter } from "./session-event-writer.ts";
 import type { OpenRpcSession, RpcSessionLaunchProfile, RpcSessionRegistry } from "./session-registry.ts";
@@ -85,6 +93,8 @@ export class SessionCommandRouter {
 	private readonly canExitWhenEmpty?: () => boolean;
 	private sweepTimer: ReturnType<typeof setInterval> | undefined;
 	private emptySince: number | undefined;
+	/** Halves the idle window while the host reports memory pressure; never refuses work. */
+	private memoryPressure = false;
 
 	constructor(
 		registry: Pick<
@@ -115,15 +125,44 @@ export class SessionCommandRouter {
 		}
 	}
 
-	async handle(command: RpcCommand): Promise<RpcResponse | undefined> {
+	/** Live sessions the host holds, including ones opening or closing. */
+	get sessionCount(): number {
+		return this.registry.size;
+	}
+
+	/**
+	 * Raised by the host's memory sampler. Under pressure idle sessions are parked at
+	 * HALF the configured window, which returns their memory to the process sooner.
+	 * Deliberately the only lever: the host never refuses or kills a session for memory.
+	 */
+	setMemoryPressure(pressure: boolean): void {
+		this.memoryPressure = pressure;
+	}
+
+	/**
+	 * Every routed command runs inside its session's attribution scope, so a stall the
+	 * loop-lag watchdog observes right after this dispatch can name the session that
+	 * caused it - and anything the command starts inherits the attribution.
+	 */
+	handle(command: RpcCommand): Promise<RpcResponse | undefined> {
+		const sessionId = "sessionId" in command ? command.sessionId : undefined;
+		return runWithSessionAttribution({ sessionId }, () => this.dispatch(command));
+	}
+
+	private async dispatch(command: RpcCommand): Promise<RpcResponse | undefined> {
 		if (command.type === "get_protocol_info") {
 			const capabilities = new Set([
 				"multi_session",
 				AUTO_TITLE_SESSIONS_CAPABILITY,
 				MEDIA_PLACEHOLDERS_CAPABILITY,
-				// Host capability, not a client opt-in: only a multi-session host owns the
-				// attachment refcount `open_session.retain_on_disconnect` detaches from.
+				// Host capabilities, not client opt-ins: only a multi-session host owns the
+				// attachment refcount `open_session.retain_on_disconnect` detaches from, the
+				// per-session launch profile `context`/`auto_title` travel on, and the session
+				// listing `kind` filters.
 				RETAIN_ON_DISCONNECT_CAPABILITY,
+				SESSION_CONTEXT_CAPABILITY,
+				SESSION_KIND_CAPABILITY,
+				AUTO_TITLE_PER_SESSION_CAPABILITY,
 				...(this.connectionOptions?.capabilities ?? []),
 			]);
 			return {
@@ -139,14 +178,22 @@ export class SessionCommandRouter {
 				},
 			};
 		}
-		if (command.type === "list_sessions")
+		if (command.type === "list_sessions") {
+			// Worker sessions are machine-driven work: a client sees them only by asking, and
+			// the opaque context blob travels only on that listing, never to every connection.
+			const rows = this.registry.list();
+			const sessions =
+				command.include_workers === true
+					? rows
+					: rows.filter((row) => row.kind !== "worker").map(({ context: _context, ...row }) => row);
 			return {
 				id: command.id,
 				type: "response",
 				command: "list_sessions",
 				success: true,
-				data: { sessions: this.registry.list() },
+				data: { sessions },
 			};
+		}
 		if (command.type === "open_session") return this.openWithBarrier(command);
 		if (command.type === "close_session") return this.close(command);
 		if (command.type === "set_client_info" && !command.sessionId) {
@@ -189,13 +236,16 @@ export class SessionCommandRouter {
 	 * (`AgentSession.isSessionBusy`: agent run, bash, background terminal jobs and
 	 * other published wake sources, compaction, barrier-held session work) - busy
 	 * sessions restart their idle clock instead, so work that outlives a turn is
-	 * never killed. Fires onEmptyExit once the registry has STAYED empty for
-	 * emptyExitMs with the exit permitted; any live session or connected client
-	 * resets that window. Runs on an unref'd interval and is safe to call directly.
+	 * never killed. While the host reports memory pressure the window is HALVED, so an
+	 * idle session's memory returns to the process sooner. Fires onEmptyExit once the
+	 * registry has STAYED empty for emptyExitMs with the exit permitted; any live session
+	 * or connected client resets that window. Runs on an unref'd interval and is safe to
+	 * call directly.
 	 */
 	sweepIdleSessions(): void {
 		const now = this.idleNow();
-		if (Number.isFinite(this.idleEvictionMs)) {
+		const idleEvictionMs = this.memoryPressure ? this.idleEvictionMs / 2 : this.idleEvictionMs;
+		if (Number.isFinite(idleEvictionMs)) {
 			for (const { sessionId, status } of this.registry.list()) {
 				if (status !== "open") continue;
 				const entry = this.registry.peek(sessionId);
@@ -205,7 +255,7 @@ export class SessionCommandRouter {
 					entry.lastCommandAt = now;
 					continue;
 				}
-				if (now - entry.lastCommandAt >= this.idleEvictionMs) void this.evictIdleSession(sessionId);
+				if (now - entry.lastCommandAt >= idleEvictionMs) void this.evictIdleSession(sessionId);
 			}
 		}
 		if (Number.isFinite(this.emptyExitMs)) {
@@ -226,8 +276,18 @@ export class SessionCommandRouter {
 	 * close_session, draining every attachment because eviction ends the shared
 	 * session, not one client's claim. Races with concurrent lifecycle paths are
 	 * tolerated the same way releaseOwnedSession tolerates them.
+	 *
+	 * Evicting a RETAINED session is a PARK, not a close: that session was opened to
+	 * outlive its clients, so the terminal record names the file it reopens by
+	 * (`session_parked`) instead of reporting a close nobody requested. The teardown
+	 * itself is identical - retention never outlives the idle window.
 	 */
 	private async evictIdleSession(sessionId: string): Promise<void> {
+		// Read before the claim: the entry is gone once the teardown completes, and a park
+		// record without the session's path would not be actionable (so a retained session
+		// with no file to reopen by ends as an ordinary close).
+		const retained = this.registry.peek(sessionId);
+		const parkedPath = retained?.retainOnDisconnect === true ? retained.sessionPath : undefined;
 		// A failed claim means an explicit close raced us and owns the entry now.
 		const claim = this.tryClaimClose(sessionId, { drainAttachments: true });
 		if (!claim) return;
@@ -236,12 +296,14 @@ export class SessionCommandRouter {
 		this.forgetSessionOwnership(sessionId);
 		if (claim.finalizer) {
 			await this.finalizeClose(sessionId, binding, () =>
-				this.writer.closeSession(sessionId, {
-					type: "response",
-					command: "close_session",
-					success: true,
-					data: {},
-				}),
+				parkedPath === undefined
+					? this.writer.closeSession(sessionId, {
+							type: "response",
+							command: "close_session",
+							success: true,
+							data: {},
+						})
+					: this.writer.parkSession(sessionId, parkedPath),
 			);
 		} else {
 			await this.finalizations.get(sessionId)?.promise;
@@ -288,6 +350,17 @@ export class SessionCommandRouter {
 		command: Extract<RpcCommand, { type: "open_session" }>,
 		owner?: string,
 	): Promise<RpcResponse | undefined> {
+		// The opaque per-session inputs are parsed HERE, at the wire boundary, so the
+		// registry, the runtime and the extensions downstream receive values already
+		// proven to satisfy every documented cap.
+		const kindError = sessionKindError(command.kind);
+		if (kindError) return error(command.id, "open_session", `${RPC_ERROR_INVALID_SESSION_KIND}: ${kindError}`);
+		const contextError = sessionContextError(command.context);
+		if (contextError)
+			return error(command.id, "open_session", `${RPC_ERROR_INVALID_SESSION_CONTEXT}: ${contextError}`);
+		const autoTitleError = sessionAutoTitleError(command.auto_title);
+		if (autoTitleError)
+			return error(command.id, "open_session", `${RPC_ERROR_INVALID_LAUNCH_PROFILE}: ${autoTitleError}`);
 		let opened: OpenRpcSession | undefined;
 		try {
 			opened = await this.registry.openSession(
@@ -300,12 +373,16 @@ export class SessionCommandRouter {
 							? { provider: command.provider, modelId: command.modelId }
 							: this.defaults.creationModel,
 					initialThinkingLevel: command.thinkingLevel ?? this.defaults.initialThinkingLevel,
+					sessionKind: command.kind,
+					sessionContext: command.context,
+					...(typeof command.auto_title === "boolean" ? { autoTitle: command.auto_title } : {}),
 				},
 				// Host lifecycle policy, deliberately outside the immutable launch profile.
 				{ retainOnDisconnect: command.retain_on_disconnect === true },
 			);
 			const openedSession = opened;
 			const entry = this.registry.getForCommand(openedSession.sessionId, "open_session");
+			this.writer.setSessionKind(openedSession.sessionId, entry.kind);
 			if (owner !== undefined) {
 				if (!this.writer.hasRegisteredConnectionCapabilities(owner))
 					this.writer.setConnectionCapabilities(
@@ -545,6 +622,15 @@ export class SessionCommandRouter {
 			success: true as const,
 			data: {},
 		};
+		// A close releases the CALLER's attachment, and routing handles are public on a
+		// shared host (`list_sessions` publishes every one of them), so ownership - not
+		// knowledge of the handle - authorizes it: a connection that never attached holds
+		// no attachment, and answering it would release another client's claim and could
+		// tear down a session it never opened. A host with no per-connection identity
+		// (stdio) has no ownership to check and keeps answering every close as before.
+		const owner = this.writer.currentConnection();
+		if (owner !== undefined && this.sessionsByConnection.get(owner)?.has(command.sessionId) !== true)
+			return error(command.id, "close_session", RPC_ERROR_UNKNOWN_SESSION);
 		const reply = this.writer.reserveCloseResponse(command.sessionId, response);
 		if (!reply) return undefined;
 		// Admission and claiming are synchronous, before any teardown await. A
@@ -557,7 +643,6 @@ export class SessionCommandRouter {
 			return error(command.id, "close_session", this.code(cause));
 		}
 		try {
-			const owner = this.writer.currentConnection();
 			if (owner !== undefined) this.releaseOwnerAttachment(owner, command.sessionId);
 			if (claim.finalizer) {
 				await this.finalizeClose(command.sessionId, this.bindings.get(command.sessionId), () =>
