@@ -5,6 +5,7 @@ import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { parseFrontmatter } from "../utils/frontmatter.ts";
 import { canonicalizePath, resolvePath } from "../utils/paths.ts";
 import type { ResourceDiagnostic } from "./diagnostics.ts";
+import { readSkillMarkdownSource, shouldSkipSkillWalkDirectoryName } from "./skill-discovery.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 
 /** Max name length per spec */
@@ -221,12 +222,7 @@ function loadSkillsFromDirInternal(
 		}
 
 		for (const entry of entries) {
-			if (entry.name.startsWith(".")) {
-				continue;
-			}
-
-			// Skip node_modules to avoid scanning dependencies
-			if (entry.name === "node_modules") {
+			if (shouldSkipSkillWalkDirectoryName(entry.name)) {
 				continue;
 			}
 
@@ -283,7 +279,7 @@ function loadSkillFromFile(
 
 	let rawContent: string;
 	try {
-		rawContent = readFileSync(filePath, "utf-8");
+		rawContent = readSkillMarkdownSource(filePath);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : "failed to read skill file";
 		diagnostics.push({ type: "warning", message, path: filePath });
