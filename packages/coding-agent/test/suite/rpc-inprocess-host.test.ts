@@ -8,13 +8,8 @@ import { SessionCommandRouter } from "../../src/modes/rpc/session-command-router
 import { SessionEventWriter } from "../../src/modes/rpc/session-event-writer.ts";
 import { RpcSessionRegistry } from "../../src/modes/rpc/session-registry.ts";
 import { SESSION_WORKER_LIMITS } from "../../src/modes/rpc/session-worker-protocol.ts";
-import {
-	createInProcessRig,
-	listedSessions,
-	MAX_THREADS_PER_SESSION,
-	opened,
-	threadCount,
-} from "./rpc-inprocess-host-support.ts";
+import { listedSessions, MAX_THREADS_PER_SESSION, opened, threadCount } from "./rpc-inprocess-host-metrics.ts";
+import { createInProcessRig } from "./rpc-inprocess-host-support.ts";
 import { startInProcessHost, startWorkerHost } from "./rpc-worker-host-support.ts";
 
 /** Sessions opened on one host: more than double the worker runtime's 20-worker cap. */

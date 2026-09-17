@@ -8,7 +8,7 @@ import { Type } from "typebox";
 import { z } from "zod";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type { AgentToolResult, InlineExtension } from "../../src/index.ts";
-import { assistantMessage, opened, threadCount } from "./rpc-inprocess-host-support.ts";
+import { assistantMessage, opened, threadCount } from "./rpc-inprocess-host-metrics.ts";
 import {
 	type LoadHost,
 	latencyLine,

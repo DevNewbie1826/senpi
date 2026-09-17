@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createInProcessRig, opened, transcriptLines } from "./rpc-inprocess-host-support.ts";
+import { opened, transcriptLines } from "./rpc-inprocess-host-metrics.ts";
+import { createInProcessRig } from "./rpc-inprocess-host-support.ts";
 
 /** Idle-eviction window used by the retention cases; parking happens at twice this. */
 const IDLE_WINDOW_MS = 1_000;
