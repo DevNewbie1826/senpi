@@ -308,6 +308,7 @@ export async function runExtensionCompaction(
 	let overflowAttempts = 0;
 	const summarizationToolsOffered = (requestSnapshot.tools?.length ?? 0) > 0;
 	let toolUseRetrySpent = false;
+	let reasoningOverrideRetrySpent = false;
 
 	while (true) {
 		if (signal?.aborted) return undefined;
@@ -351,6 +352,7 @@ export async function runExtensionCompaction(
 							headers: auth.headers,
 							extraBody: auth.extraBody,
 						},
+						...(reasoningOverrideRetrySpent ? { omitReasoningOptions: true } : {}),
 					});
 					if (
 						attempt &&
@@ -424,6 +426,16 @@ export async function runExtensionCompaction(
 			// because Anthropic rejects tool_use history without the tools param.
 			if (stopReason === "toolUse" && summarizationToolsOffered && !toolUseRetrySpent) {
 				toolUseRetrySpent = true;
+				continue;
+			}
+			// Some OpenAI-completions relays complete with a normal stop but zero
+			// text when the summarization prompt pins an explicit reasoning effort
+			// (cline/GLM-5.3-flash, 2026-09-17: HTTP 200 carrying only the role
+			// prelude). Spend one retry without the reasoning-effort override;
+			// persistent emptiness still throws and the deterministic fallback
+			// owns recovery.
+			if (stopReason === "stop" && !reasoningOverrideRetrySpent) {
+				reasoningOverrideRetrySpent = true;
 				continue;
 			}
 			throw new SummaryGenerationError(

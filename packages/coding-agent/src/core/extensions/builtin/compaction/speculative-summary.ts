@@ -96,6 +96,8 @@ function summarizationStream(
 export async function generateSummaryMessage(options: {
 	context: SpeculativeCompactionContext;
 	forbidToolCalls?: boolean;
+	/** Skip the model's reasoning-effort override; retry path for relays that return empty text when the effort is pinned. */
+	omitReasoningOptions?: boolean;
 	/** Resolved per-attempt duration budget; falls back to the size-adaptive default. */
 	maxDurationMs?: number;
 	messages: AgentMessage[];
@@ -156,7 +158,7 @@ export async function generateSummaryMessage(options: {
 			},
 			maxTokens: summaryMaxTokens(options.snapshot.model, options.snapshot.contextWindow),
 			signal: requestController.signal,
-			...summarizationReasoningOptions(options.snapshot.model),
+			...(options.omitReasoningOptions ? {} : summarizationReasoningOptions(options.snapshot.model)),
 			...(options.forbidToolCalls ? { toolChoice: "none" as const } : {}),
 		});
 		// Settlement rides inside the watchdog: a provider whose iterator ends
