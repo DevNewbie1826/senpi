@@ -10,11 +10,7 @@ import { getAgentDir, getBinDir } from "./config.ts";
 import { migrateKeybindingsConfig } from "./core/keybindings.ts";
 import { migrateExtensionSystem } from "./extension-system-migration.ts";
 import { migrateLegacySenpiDirs } from "./legacy-senpi-dir-migration.ts";
-import {
-	SCAN_MIGRATIONS,
-	readCompletedScanMigrations,
-	writeCompletedScanMigrations,
-} from "./migrations-state.ts";
+import { readCompletedScanMigrations, SCAN_MIGRATIONS, writeCompletedScanMigrations } from "./migrations-state.ts";
 import { stripBom } from "./utils/text.ts";
 
 const MIGRATION_GUIDE_URL =
