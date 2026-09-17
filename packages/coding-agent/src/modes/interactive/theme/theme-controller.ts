@@ -14,6 +14,7 @@ import {
 } from "./theme.ts";
 
 type ThemeResult = { success: boolean; error?: string };
+type AutoThemeSetting = NonNullable<ReturnType<typeof parseAutoThemeSetting>>;
 
 export class InteractiveThemeController {
 	private readonly ui: TUI;
@@ -25,6 +26,8 @@ export class InteractiveThemeController {
 	private activeThemeName: string | undefined;
 	private autoSyncEnabled = false;
 	private terminalColorSchemeUnsubscribe: (() => void) | undefined;
+	private detectionGeneration = 0;
+	private detectionTask: Promise<void> = Promise.resolve();
 
 	constructor(
 		ui: TUI,
@@ -58,26 +61,28 @@ export class InteractiveThemeController {
 		const settingsManager = this.getSettingsManager();
 		const themeSetting = this.currentThemeSetting ?? settingsManager.getThemeSetting();
 		const autoTheme = parseAutoThemeSetting(themeSetting);
+		const generation = ++this.detectionGeneration;
+
 		if (autoTheme) {
-			this.terminalTheme = await detectTerminalThemeForAuto({ ui: this.ui, timeoutMs: 100 });
 			this.setAutoSync(true);
 			this.applyThemeName(this.terminalTheme === "light" ? autoTheme.lightTheme : autoTheme.darkTheme, true);
+			this.detectionTask = this.resolveAutoTheme(generation, autoTheme);
 			return;
 		}
 
 		this.setAutoSync(false);
 		if (themeSetting !== undefined) {
 			this.applyThemeName(themeSetting, true);
+			this.detectionTask = Promise.resolve();
 			return;
 		}
 
-		const detection = await detectTerminalBackgroundTheme({ ui: this.ui, timeoutMs: 100 });
-		this.terminalTheme = detection.theme;
-		if (!this.applyThemeName(detection.theme).success) return;
-		if (detection.confidence === "high") {
-			settingsManager.setTheme(detection.theme);
-			await settingsManager.flush();
-		}
+		this.applyThemeName(this.terminalTheme);
+		this.detectionTask = this.resolveBackgroundTheme(generation, settingsManager);
+	}
+
+	settleBackgroundDetection(): Promise<void> {
+		return this.detectionTask;
 	}
 
 	getThemeSelection(): string | undefined {
@@ -85,6 +90,8 @@ export class InteractiveThemeController {
 	}
 
 	setThemeName(themeName: string, showError = false): ThemeResult {
+		this.detectionGeneration += 1;
+		this.detectionTask = Promise.resolve();
 		this.setAutoSync(false);
 		const result = this.applyThemeName(themeName, showError);
 		if (result.success) {
@@ -99,6 +106,8 @@ export class InteractiveThemeController {
 	}
 
 	setThemeInstance(themeInstance: Theme): ThemeResult {
+		this.detectionGeneration += 1;
+		this.detectionTask = Promise.resolve();
 		this.setAutoSync(false);
 		setThemeInstance(themeInstance);
 		this.activeThemeName = "<in-memory>";
@@ -120,6 +129,8 @@ export class InteractiveThemeController {
 	}
 
 	dispose(): void {
+		this.detectionGeneration += 1;
+		this.detectionTask = Promise.resolve();
 		this.setAutoSync(false);
 		this.terminalColorSchemeUnsubscribe?.();
 		this.terminalColorSchemeUnsubscribe = undefined;
@@ -127,6 +138,32 @@ export class InteractiveThemeController {
 
 	getTerminalTheme(): TerminalTheme {
 		return this.terminalTheme;
+	}
+
+	private async resolveAutoTheme(generation: number, autoTheme: AutoThemeSetting): Promise<void> {
+		try {
+			const detected = await detectTerminalThemeForAuto({ ui: this.ui, timeoutMs: 100 });
+			if (generation !== this.detectionGeneration) return;
+			this.terminalTheme = detected;
+			this.applyThemeName(detected === "light" ? autoTheme.lightTheme : autoTheme.darkTheme, true);
+		} catch {
+			// OSC detection is best-effort and must not reject startup.
+		}
+	}
+
+	private async resolveBackgroundTheme(generation: number, settingsManager: SettingsManager): Promise<void> {
+		try {
+			const detection = await detectTerminalBackgroundTheme({ ui: this.ui, timeoutMs: 100 });
+			if (generation !== this.detectionGeneration) return;
+			this.terminalTheme = detection.theme;
+			if (!this.applyThemeName(detection.theme).success) return;
+			if (detection.confidence === "high") {
+				settingsManager.setTheme(detection.theme);
+				await settingsManager.flush();
+			}
+		} catch {
+			// OSC detection is best-effort and must not reject startup.
+		}
 	}
 
 	private applyThemeName(themeName: string, showError = false): ThemeResult {
