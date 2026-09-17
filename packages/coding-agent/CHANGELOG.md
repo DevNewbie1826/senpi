@@ -12,6 +12,20 @@
 
 ### Removed
 
+## [2026.9.17-4] - 2026-09-17
+
+### Breaking Changes
+
+### Added
+
+### Changed
+
+### Fixed
+- The published bundle no longer breaks a consumer that has `ws`'s optional native accelerators installed. `bufferutil` and `utf-8-validate` load their binding through `node-gyp-build`, whose computed require esbuild cannot analyse, so bundling them left an unresolvable external and the bundle build failed with `Bundle left unexpected external imports: <runtime>`. senpi's own CI never hit it because neither package is installed there; a consumer that has them - omo's desktop runtime build - could not build at all. Both are now external, the way the other native and runtime-guarded dependencies already were.
+
+
+### Removed
+
 ## [2026.9.17-3] - 2026-09-17
 
 ### Breaking Changes
