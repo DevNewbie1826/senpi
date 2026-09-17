@@ -159,16 +159,19 @@ before relying on either: an older host ignores both fields and lists every sess
 
 ### Session auto-titling
 
-Auto-generated session titles are on by default only for interactive launches. RPC hosts opt in with
-`--auto-title-sessions`:
+Auto-generated session titles are on by default only for interactive launches. A shared host decides titling per
+`open_session`: `auto_title: true` titles that session, `auto_title: false` leaves it untitled, and an omitted field
+keeps the host-wide default (`--auto-title-sessions` or the `auto_title_sessions` client capability). Probe
+`auto_title_per_session` in `get_protocol_info` before relying on the field; an older host ignores it. A non-boolean is
+refused with `invalid_launch_profile`. Sessions resumed with existing context messages are never retitled.
+
+`--auto-title-sessions` still opts every session on that host into titling when `auto_title` is omitted. It is
+deprecated for shared hosts — prefer per-session `open_session.auto_title` so two clients on one daemon do not collide
+over a launch-profile flag:
 
 ```bash
 senpi --mode rpc --multi-session --auto-title-sessions
 ```
-
-With the flag, every session the host opens (classic or multi-session) generates a title from its first user prompt and
-publishes it to clients through the existing `session_info_changed` event; no new command or event is involved. Sessions
-resumed with existing context messages are never retitled, with or without the flag.
 
 Startup: `senpi --mode rpc --multi-session` → NO default session is constructed (no default `AgentSessionRuntime`, no default extension/watcher load). Classic `senpi --mode rpc` is byte-identical to today. Mode is fixed at process start; there is no runtime transition.
 
@@ -361,8 +364,8 @@ containment, or containment of arbitrary native code. They are not an extension 
 
 | Command | Params | Success data | Notes |
 | --- | --- | --- | --- |
-| `get_protocol_info` | - | `{ protocolVersion: 1, serverVersion: string, capabilities: string[], mode: "classic"\|"multi" }` | Answered in BOTH modes; side-effect-free; the capability probe. Multi-session hosts include `multi_session`, `retain_on_disconnect`, `session_kind` and `session_context` plus the negotiated launch capabilities. Those three are HOST capabilities (a client never sends them) and are advertised only in multi-session mode, where the host owns the attachment refcount and the per-session launch profile. |
-| `open_session` | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?`, `kind?`, `context?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: true }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there, `session-manager.ts:926-940`); `provider`/`modelId` applied only on create (resume restores the session's model — mirrors `SenpiSessionRuntime.ts:198-200`); params form the immutable launch profile (D8). When the path is already held by a fully-open session, the open ATTACHES to it: same routing handle, `attached: true`, one more attachment counted; the runtime is torn down only when the last attachment closes. Idle sessions past the eviction window are closed by the host itself. `retain_on_disconnect: true` (default false) makes a dropped connection DETACH from this session instead of closing it — see "Retained sessions" below. `kind` (default `interactive`) and the opaque `context` map are described under "Session kind and context" above; both are stored frozen for the session's life and never influence auth, model or resource resolution. |
+| `get_protocol_info` | - | `{ protocolVersion: 1, serverVersion: string, capabilities: string[], mode: "classic"\|"multi" }` | Answered in BOTH modes; side-effect-free; the capability probe. Multi-session hosts include `multi_session`, `retain_on_disconnect`, `session_kind`, `session_context` and `auto_title_per_session` plus the negotiated launch capabilities. Those are HOST capabilities (a client never sends them) and are advertised only in multi-session mode, where the host owns the attachment refcount and the per-session launch profile. |
+| `open_session` | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?`, `kind?`, `context?`, `auto_title?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: true }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there, `session-manager.ts:926-940`); `provider`/`modelId` applied only on create (resume restores the session's model — mirrors `SenpiSessionRuntime.ts:198-200`); params form the immutable launch profile (D8). When the path is already held by a fully-open session, the open ATTACHES to it: same routing handle, `attached: true`, one more attachment counted; the runtime is torn down only when the last attachment closes. Idle sessions past the eviction window are closed by the host itself. `retain_on_disconnect: true` (default false) makes a dropped connection DETACH from this session instead of closing it — see "Retained sessions" below. `kind` (default `interactive`) and the opaque `context` map are described under "Session kind and context" above; both are stored frozen for the session's life and never influence auth, model or resource resolution. |
 | `close_session` | `sessionId` | `{}` | Refused with `unknown_session` when the requesting connection never attached to that handle (a close releases the CALLER's attachment, and `list_sessions` publishes every handle). Otherwise aborts active work, awaits agent idle + settled persistence for up to the host grace window (default 10s), then quarantines any worker that has not exited without releasing its path reservation; its response is the LAST record tagged with that handle for the first closer — no events after (test-pinned). An admitted concurrent close joins the same teardown and receives its own successful response; output saturation rejects admission with the bounded close-overflow/resync notice described above. |
 | `list_sessions` | `include_workers?` (default false) | `{ sessions: [{ sessionId, durableSessionId, sessionPath, cwd, name, status, attachments, kind, context? }] }` | Includes `opening`/`closing` entries. Internally quarantined workers remain externally `closing` until exit. `attachments` is the session's live client attachment count; `0` on an `open` row is a retained session with no client attached. Every row carries `kind`. Rows with `kind: "worker"` are omitted unless `include_workers: true`, and `context` is published ONLY on that listing — a default listing carries no `context` at all. |
 | every existing command | + `sessionId` (REQUIRED in multi mode) | unchanged | Routed to that session. |
@@ -385,6 +388,7 @@ In the response `error` field, machine-matchable:
 - `open_failed: <detail>`
 - `invalid_session_context: <detail>` (`open_session.context` past a documented cap: more than 32 keys, a key that does not match `^[a-z][a-z0-9_]*$`, a non-string or >16 KiB value, or more than 32 KiB of JSON in total; the detail names the cap and its byte budget)
 - `invalid_session_kind: <detail>` (`open_session.kind` other than `interactive` or `worker`)
+- `invalid_launch_profile: <detail>` (`open_session.auto_title` present but not a boolean)
 - `media_not_found` (`get_media` for an unknown `toolCallId`, or a `contentIndex` that does not point at an image block)
 
 ### Tagging

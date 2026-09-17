@@ -394,6 +394,8 @@ export class RpcClient {
 		permissionPreset?: string;
 		/** Keep the session alive when its last client disconnects; needs the host's `retain_on_disconnect`. */
 		retain_on_disconnect?: boolean;
+		/** Per-session auto-titling; needs the host's `auto_title_per_session`. */
+		auto_title?: boolean;
 	}): Promise<{ sessionId: string; state: RpcSessionState; attached?: boolean }> {
 		if (this.pendingOpenSession) throw new RpcClientOpenInFlightError();
 		this.pendingOpenSession = true;

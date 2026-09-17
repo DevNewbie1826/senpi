@@ -51,6 +51,12 @@ export const SESSION_CONTEXT_CAPABILITY = "session_context";
 export const SESSION_KIND_CAPABILITY = "session_kind";
 
 /**
+ * HOST capability: this host honors `open_session.auto_title`, so a session can opt
+ * into or out of engine-side titling independently of `--auto-title-sessions`.
+ */
+export const AUTO_TITLE_PER_SESSION_CAPABILITY = "auto_title_per_session";
+
+/**
  * Env var carrying client capabilities to a single-connection stdio RPC host
  * (comma-separated). A launcher may set it from a client handshake; a plain
  * stdio client leaves it unset and sees byte-identical default behavior.

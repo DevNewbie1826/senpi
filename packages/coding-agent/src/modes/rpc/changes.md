@@ -1,3 +1,26 @@
+## 2026-09-17 - Per-session `open_session.auto_title` (#1782)
+
+### What changed
+
+- `rpc-types.ts`: `open_session` accepts additive `auto_title?: boolean`. When present it decides titling for THAT session; when absent the host `--auto-title-sessions` / appMode / `auto_title_sessions` capability default applies. A non-boolean is refused with `RPC_ERROR_INVALID_LAUNCH_PROFILE` (`invalid_launch_profile`).
+- `rpc-input-validation.ts`: `sessionAutoTitleError(value)` parses the field at the wire boundary (absent or boolean only).
+- `session-command-router.ts`: validates `auto_title` before the registry call, puts a boolean onto the launch profile as `autoTitle` (not host lifecycle policy), and advertises host capability `auto_title_per_session`.
+- `src/main.ts` `resolveAutoTitleSessions`: optional `sessionAutoTitle` wins over the host-wide decision; context-message resumes still never retitle. `createCliRuntimeFactory` passes `launchProfile?.autoTitle`. Interactive TUI default is unchanged (no `open_session`, so the override is always absent).
+- `src/cli/args.ts`: `--auto-title-sessions` is documented as deprecated for shared hosts; the flag is not removed.
+- `custom-capability.ts`: `AUTO_TITLE_PER_SESSION_CAPABILITY`. `rpc-client.ts` exposes `openSession({ auto_title })`. `docs/rpc.md` and `rpc-mode.ts` carry the field, the capability and the error code.
+
+### Why
+
+- `--auto-title-sessions` is a process-wide launch-profile bit. A machine-wide daemon serving the desktop (titles on) and omo task children (titles off) cannot express both with one flag. Per-session `auto_title` is the OpenCode-level equivalent and stops that collision without removing the flag this release.
+
+### Why an extension could not handle it
+
+- Session title generation is started by `AgentSession` from a flag set at runtime construction. The wire field, the launch profile and the resolver live below the extension boundary.
+
+### Expected merge conflict zones
+
+- LOW: the `open_session` member of `RpcCommand` in `rpc-types.ts`, the capability set and the `open()` arm of `SessionCommandRouter`, `resolveAutoTitleSessions` in `src/main.ts`, and the advertised-capability pins in `test/rpc-multi-session.test.ts` and `test/auto-title-sessions-flag.test.ts`.
+
 ## 2026-09-17 - Parked retained sessions announce themselves; a close needs the caller's own attachment (#1782)
 
 ### What changed

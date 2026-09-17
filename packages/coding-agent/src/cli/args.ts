@@ -57,7 +57,10 @@ export interface Args {
 	grokNeo?: boolean;
 	/** Serve independently routed plain-RPC sessions over one host. */
 	multiSession?: boolean;
-	/** Opt non-interactive app modes (notably RPC) into engine-side session auto-titling. */
+	/**
+	 * Opt non-interactive app modes (notably RPC) into engine-side session auto-titling.
+	 * Deprecated for shared hosts: prefer per-session `open_session.auto_title`.
+	 */
 	autoTitleSessions?: boolean;
 	/** Multi-session RPC listener: stdio://, unix://, unix:///path, or a socket path. */
 	listen?: string;
@@ -386,7 +389,7 @@ ${chalk.bold("Options:")}
 ${grokNeoOptionsText}  --multi-session               Serve multiple routed RPC sessions
   --listen <address>            RPC listener: stdio://, unix://, unix:///path, or a socket path
   --session-runtime <kind>      Multi-session host runtime: in-process (socket default) or worker
-  --auto-title-sessions         Auto-generate session titles outside interactive mode
+  --auto-title-sessions         Auto-generate session titles outside interactive mode (deprecated for hosts; prefer open_session.auto_title)
   --help, -h                     Show this help
   --version, -v                  Show version number
 

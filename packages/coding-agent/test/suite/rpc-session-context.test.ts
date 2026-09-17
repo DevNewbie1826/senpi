@@ -221,3 +221,66 @@ it("carries kind and context across a real socket host", async () => {
 		await host.dispose();
 	}
 }, 600_000);
+
+it("titles a session that set auto_title true on a host started without the flag", async () => {
+	// Given: a host with no --auto-title-sessions and a faux model that answers turns and titles.
+	await using host = await contextHost({ titleModel: true });
+	const opened = await host.open("conn-a", { auto_title: true, sessionPath: join(host.scratch, "a.jsonl") });
+	const sessionId = String(opened.sessionId);
+
+	// When: that session completes its first turn.
+	await host.prompt("conn-a", sessionId, "fix the RPC session title pipeline");
+
+	// Then: the engine generated a title and published it.
+	expect(
+		host.inbox("conn-a").find((record) => record.type === "session_info_changed" && record.sessionId === sessionId),
+	).toMatchObject({ name: "Generated Title" });
+}, 120_000);
+
+it("does not title a session that omitted auto_title on a host started without the flag", async () => {
+	// Given: the same host default, and a session that did not set auto_title.
+	await using host = await contextHost({ titleModel: true });
+	const opened = await host.open("conn-a", { sessionPath: join(host.scratch, "b.jsonl") });
+	const sessionId = String(opened.sessionId);
+
+	// When: that session completes its first turn.
+	await host.prompt("conn-a", sessionId, "fix the RPC session title pipeline");
+
+	// Then: the host-wide default (off) applies, so no title call and no event.
+	expect(
+		host.inbox("conn-a").filter((record) => record.type === "session_info_changed" && record.sessionId === sessionId),
+	).toEqual([]);
+	expect(host.faux?.getCallLog()).toHaveLength(1);
+}, 120_000);
+
+it("does not title a session that set auto_title false on a host started with the flag", async () => {
+	// Given: a host started WITH --auto-title-sessions, and a session that opts out.
+	await using host = await contextHost({ titleModel: true, autoTitleSessions: true });
+	const opened = await host.open("conn-a", { auto_title: false, sessionPath: join(host.scratch, "c.jsonl") });
+	const sessionId = String(opened.sessionId);
+
+	// When: that session completes its first turn.
+	await host.prompt("conn-a", sessionId, "fix the RPC session title pipeline");
+
+	// Then: the per-session false wins over the host flag.
+	expect(
+		host.inbox("conn-a").filter((record) => record.type === "session_info_changed" && record.sessionId === sessionId),
+	).toEqual([]);
+	expect(host.faux?.getCallLog()).toHaveLength(1);
+}, 120_000);
+
+it("advertises auto_title_per_session in get_protocol_info", async () => {
+	await using host = await contextHost();
+	const data = responseData(await host.send("conn-a", { type: "get_protocol_info" }));
+	expect(z.array(z.string()).parse(data.capabilities)).toEqual(expect.arrayContaining(["auto_title_per_session"]));
+}, 120_000);
+
+it("refuses a non-boolean auto_title", async () => {
+	await using host = await contextHost();
+	expect(await host.openFailure("conn-a", { auto_title: "yes" })).toMatch(/^invalid_launch_profile/);
+}, 120_000);
+
+it("refuses a null auto_title instead of treating it as absent", async () => {
+	await using host = await contextHost();
+	expect(await host.openFailure("conn-a", { auto_title: null })).toMatch(/^invalid_launch_profile/);
+}, 120_000);

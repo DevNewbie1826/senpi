@@ -42,6 +42,11 @@ export interface AgentSessionLaunchProfile {
 	sessionKind?: SessionKind;
 	/** Opaque labels the opener attached (`open_session.context`), absent when none. */
 	sessionContext?: SessionContext;
+	/**
+	 * Per-session auto-titling (`open_session.auto_title`). When set, this session
+	 * ignores the host-wide `--auto-title-sessions` / appMode default.
+	 */
+	autoTitle?: boolean;
 }
 
 /**

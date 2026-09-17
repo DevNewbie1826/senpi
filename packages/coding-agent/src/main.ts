@@ -185,20 +185,24 @@ function toProjectTrustMode(appMode: AppMode): AppMode {
 /**
  * Interactive launches auto-title by default. RPC clients can opt in through
  * `auto_title_sessions`; every other non-interactive app mode opts in with
- * `--auto-title-sessions`. Sessions resumed with existing context messages are
- * never retitled, whatever the mode, capability, or flag.
+ * `--auto-title-sessions`. A per-session `open_session.auto_title`, when present,
+ * replaces that host-wide decision for that session only. Sessions resumed with
+ * existing context messages are never retitled, whatever the mode, capability,
+ * flag, or per-session override.
  */
 export function resolveAutoTitleSessions(
 	appMode: AppMode,
 	parsed: Args,
 	hasContextMessages: boolean,
 	clientCapabilities: readonly string[] = parseClientCapabilities(envValue("RPC_CLIENT_CAPABILITIES")),
+	sessionAutoTitle?: boolean,
 ): boolean {
+	if (hasContextMessages) return false;
+	if (sessionAutoTitle !== undefined) return sessionAutoTitle;
 	return (
-		(appMode === "interactive" ||
-			parsed.autoTitleSessions === true ||
-			(appMode === "rpc" && clientCapabilities.includes(AUTO_TITLE_SESSIONS_CAPABILITY))) &&
-		!hasContextMessages
+		appMode === "interactive" ||
+		parsed.autoTitleSessions === true ||
+		(appMode === "rpc" && clientCapabilities.includes(AUTO_TITLE_SESSIONS_CAPABILITY))
 	);
 }
 
@@ -878,6 +882,7 @@ export function createCliRuntimeFactory(
 				parsed,
 				sessionManager.hasContextMessages(),
 				parseClientCapabilities(envValue("RPC_CLIENT_CAPABILITIES")),
+				launchProfile?.autoTitle,
 			),
 		});
 		const cliThinkingOverride = runtimeParsed.thinking !== undefined || cliThinkingFromModel;

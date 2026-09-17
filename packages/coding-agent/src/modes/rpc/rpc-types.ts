@@ -186,6 +186,8 @@ export const RPC_ERROR_MEDIA_NOT_FOUND = "media_not_found";
 export const RPC_ERROR_INVALID_SESSION_CONTEXT = "invalid_session_context";
 /** `open_session.kind` was neither `interactive` nor `worker`; an unknown kind is never downgraded. */
 export const RPC_ERROR_INVALID_SESSION_KIND = "invalid_session_kind";
+/** A launch-profile field on `open_session` (currently `auto_title`) was the wrong type. */
+export const RPC_ERROR_INVALID_LAUNCH_PROFILE = "invalid_launch_profile";
 // edit_assistant_message failures (mirror AssistantEditError.code / SessionStreamingError.code)
 export const RPC_ERROR_STREAMING = "streaming";
 export const RPC_ERROR_ENTRY_NOT_FOUND = "not_found";
@@ -205,6 +207,7 @@ export type RpcErrorCode =
 	| typeof RPC_ERROR_MEDIA_NOT_FOUND
 	| typeof RPC_ERROR_INVALID_SESSION_CONTEXT
 	| typeof RPC_ERROR_INVALID_SESSION_KIND
+	| typeof RPC_ERROR_INVALID_LAUNCH_PROFILE
 	| typeof RPC_ERROR_STREAMING
 	| typeof RPC_ERROR_ENTRY_NOT_FOUND
 	| typeof RPC_ERROR_NOT_ASSISTANT
@@ -247,6 +250,13 @@ export type RpcCommand =
 			 * The host never interprets them. Requires the host capability `session_context`.
 			 */
 			context?: Record<string, string>;
+			/**
+			 * Whether THIS session auto-generates a title from its first prompt (default:
+			 * the host's `--auto-title-sessions` / appMode decision). Requires the host
+			 * capability `auto_title_per_session`. A non-boolean is refused with
+			 * `invalid_launch_profile`.
+			 */
+			auto_title?: boolean;
 	  }
 	| { id?: string; type: "close_session"; sessionId: string }
 	| {

@@ -1,15 +1,17 @@
 import { VERSION } from "../../config.ts";
 import { buildRpcSessionState } from "./connection-handler.ts";
 import {
+	AUTO_TITLE_PER_SESSION_CAPABILITY,
 	AUTO_TITLE_SESSIONS_CAPABILITY,
 	MEDIA_PLACEHOLDERS_CAPABILITY,
 	RETAIN_ON_DISCONNECT_CAPABILITY,
 	SESSION_CONTEXT_CAPABILITY,
 	SESSION_KIND_CAPABILITY,
 } from "./custom-capability.ts";
-import { sessionContextError, sessionKindError } from "./rpc-input-validation.ts";
+import { sessionAutoTitleError, sessionContextError, sessionKindError } from "./rpc-input-validation.ts";
 import type { RpcCommand, RpcResponse } from "./rpc-types.ts";
 import {
+	RPC_ERROR_INVALID_LAUNCH_PROFILE,
 	RPC_ERROR_INVALID_SESSION_CONTEXT,
 	RPC_ERROR_INVALID_SESSION_KIND,
 	RPC_ERROR_MISSING_SESSION_ID,
@@ -128,11 +130,12 @@ export class SessionCommandRouter {
 				MEDIA_PLACEHOLDERS_CAPABILITY,
 				// Host capabilities, not client opt-ins: only a multi-session host owns the
 				// attachment refcount `open_session.retain_on_disconnect` detaches from, the
-				// per-session launch profile `context` travels on, and the session listing
-				// `kind` filters.
+				// per-session launch profile `context`/`auto_title` travel on, and the session
+				// listing `kind` filters.
 				RETAIN_ON_DISCONNECT_CAPABILITY,
 				SESSION_CONTEXT_CAPABILITY,
 				SESSION_KIND_CAPABILITY,
+				AUTO_TITLE_PER_SESSION_CAPABILITY,
 				...(this.connectionOptions?.capabilities ?? []),
 			]);
 			return {
@@ -325,6 +328,9 @@ export class SessionCommandRouter {
 		const contextError = sessionContextError(command.context);
 		if (contextError)
 			return error(command.id, "open_session", `${RPC_ERROR_INVALID_SESSION_CONTEXT}: ${contextError}`);
+		const autoTitleError = sessionAutoTitleError(command.auto_title);
+		if (autoTitleError)
+			return error(command.id, "open_session", `${RPC_ERROR_INVALID_LAUNCH_PROFILE}: ${autoTitleError}`);
 		let opened: OpenRpcSession | undefined;
 		try {
 			opened = await this.registry.openSession(
@@ -339,6 +345,7 @@ export class SessionCommandRouter {
 					initialThinkingLevel: command.thinkingLevel ?? this.defaults.initialThinkingLevel,
 					sessionKind: command.kind,
 					sessionContext: command.context,
+					...(typeof command.auto_title === "boolean" ? { autoTitle: command.auto_title } : {}),
 				},
 				// Host lifecycle policy, deliberately outside the immutable launch profile.
 				{ retainOnDisconnect: command.retain_on_disconnect === true },

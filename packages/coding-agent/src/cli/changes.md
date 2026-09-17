@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-17 - `--auto-title-sessions` deprecated for shared hosts (senpi#1782)
+
+### What changed
+
+- `packages/coding-agent/src/cli/args.ts`: JSDoc and help for `--auto-title-sessions` mark it deprecated for shared hosts in favor of per-session `open_session.auto_title`. The flag still parses and still opts every session on that process into titling when `auto_title` is omitted.
+
+### Why
+
+- A host-wide flag is a launch-profile collision once two clients share one daemon. The flag stays for one release so existing hosts keep working; the help has to say so.
+
+### Why an extension could not handle it
+
+- CLI help and argument docs run before any extension is loaded.
+
+### Expected merge conflict zones
+
+- LOW: the `autoTitleSessions` JSDoc on `Args` and the `--auto-title-sessions` help row in `printHelp`.
+
 ## 2026-09-17 - `--session-runtime in-process|worker` for multi-session hosts (senpi#1782)
 
 ### What changed

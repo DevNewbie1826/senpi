@@ -6,6 +6,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
 import { z } from "zod";
 import { parseArgs } from "../../src/cli/args.ts";
 import { createCliRuntimeFactory } from "../../src/main.ts";
@@ -41,6 +42,7 @@ interface OpenFields {
 	readonly sessionPath?: string;
 	readonly kind?: "interactive" | "worker";
 	readonly context?: Record<string, string>;
+	readonly auto_title?: boolean;
 }
 
 /**
@@ -70,7 +72,9 @@ export function responseData(record: WireRecord | undefined): Record<string, unk
  * per-session runtimes that load the probe extension. Only the socket transport is
  * replaced, so every connection's inbox is observable per connection.
  */
-export async function contextHost(options: { idleEvictionMs?: number } = {}) {
+export async function contextHost(
+	options: { idleEvictionMs?: number; autoTitleSessions?: boolean; titleModel?: boolean } = {},
+) {
 	const scratch = await mkdtemp(join(tmpdir(), "senpi-session-context-"));
 	const cwd = join(scratch, "cwd");
 	const agentDir = join(scratch, "agent");
@@ -78,6 +82,14 @@ export async function contextHost(options: { idleEvictionMs?: number } = {}) {
 	await mkdir(agentDir);
 	const probe = join(scratch, "probe.mjs");
 	await writeFile(probe, PROBE_EXTENSION);
+	const faux = options.titleModel === true ? fauxProvider({ api: "fauxtitle", provider: "fauxtitle" }) : undefined;
+	const model = faux?.getModel();
+	if (faux) {
+		faux.setResponses([
+			fauxAssistantMessage("turn complete"),
+			fauxAssistantMessage("<title>Generated Title</title>"),
+		]);
+	}
 	const parsed = parseArgs([
 		"--mode",
 		"rpc",
@@ -87,11 +99,16 @@ export async function contextHost(options: { idleEvictionMs?: number } = {}) {
 		"--no-context-files",
 		"--extension",
 		probe,
+		...(options.autoTitleSessions === true ? ["--auto-title-sessions"] : []),
+		...(model ? ["--provider", model.provider, "--model", model.id, "--api-key", "faux-key"] : []),
 	]);
 	const clock = { now: 0 };
 	const registry = new RpcSessionRegistry({
 		agentDir,
-		createRuntime: createCliRuntimeFactory({ parsed, cwd, agentDir, appMode: "rpc" }),
+		createRuntime: createCliRuntimeFactory(
+			{ parsed, cwd, agentDir, appMode: "rpc" },
+			faux ? { extensionFactories: [(pi) => pi.registerProvider(faux.provider)] } : {},
+		),
 		closeGraceMs: 1_000,
 		now: () => clock.now,
 	});
@@ -161,9 +178,18 @@ export async function contextHost(options: { idleEvictionMs?: number } = {}) {
 		scratch,
 		clock,
 		router,
+		faux,
 		inbox: (connection: string): readonly WireRecord[] => inboxes.get(connect(connection)) ?? [],
 		connect,
 		send,
+		async prompt(connection: string, sessionId: string, message: string): Promise<void> {
+			const idle = waitFor((record) => record.type === "agent_idle" && record.sessionId === sessionId);
+			const record = await send(connection, { type: "prompt", sessionId, message });
+			if (record?.success === false) throw new Error(`prompt failed: ${String(record.error)}`);
+			await idle;
+			await settle();
+			await registry.peek(sessionId)?.runtime?.session.waitForSettledSessionWork();
+		},
 		async open(connection: string, fields: OpenFields): Promise<Record<string, unknown>> {
 			return responseData(await send(connection, { type: "open_session", cwd, ...fields }));
 		},

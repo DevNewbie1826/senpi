@@ -135,6 +135,16 @@ export function sessionKindError(kind: unknown): string | undefined {
 	return `kind must be "interactive" or "worker".`;
 }
 
+/**
+ * Detail for an `open_session.auto_title` the host refuses, or undefined when the
+ * value is absent or a boolean. Absent keeps the host-wide default; a non-boolean
+ * cannot be coerced without collapsing `true` / `false` / omitted into one state.
+ */
+export function sessionAutoTitleError(value: unknown): string | undefined {
+	if (value === undefined || typeof value === "boolean") return undefined;
+	return "auto_title must be a boolean.";
+}
+
 export function rpcCommandShapeError(command: unknown): string | undefined {
 	if (typeof command !== "object" || command === null || Array.isArray(command)) {
 		return "RPC command must be a JSON object.";
