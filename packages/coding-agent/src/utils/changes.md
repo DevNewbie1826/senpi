@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-17 - Detect managed tools by stat, not by spawn (senpi#1781)
+
+### What changed
+
+- `packages/coding-agent/src/utils/tools-manager.ts`: `commandExists` walks `PATH` and accepts a regular file carrying an exec bit, with a `PATHEXT` candidate list on Windows, instead of running `spawnSync(cmd, ["--version"])`.
+
+### Why
+
+- The probe sat on the interactive startup path through `ensureTool`, costing a process spawn per candidate. The new `tui` timing namespace measured that seam at a median of 11 ms with a 30 ms worst case on a loaded host; stat-ing the same directories answers the same question in about 1 ms and removes the spawn's load sensitivity.
+
+### Why an extension could not handle it
+
+- Managed-tool resolution is host infrastructure consumed by the bash and grep tools before extensions run.
+
+### Expected merge conflict zones
+
+- LOW: `commandExists` and its new `executableCandidates` helper in `tools-manager.ts`.
+
 ## 2026-09-15 - Track detached children by process group until the last descendant exits (senpi#1697)
 
 ### What changed

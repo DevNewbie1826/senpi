@@ -1,6 +1,6 @@
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { type SpawnSyncReturns, spawnSync } from "child_process";
-import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "fs";
+import { statSync, chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "fs";
 import { arch, platform } from "os";
 import { join } from "path";
 import { Readable } from "stream";
@@ -70,15 +70,37 @@ const TOOLS: Record<string, ToolConfig> = {
 	},
 };
 
-// Check if a command exists in PATH by trying to run it
+// Windows resolves a bare command name through PATHEXT; every other platform wants the exec bit.
+function executableCandidates(cmd: string): readonly string[] {
+	if (platform() !== "win32") return [cmd];
+	const extensions = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((value) => value.length > 0);
+	return [cmd, ...extensions.map((extension) => `${cmd}${extension.toLowerCase()}`)];
+}
+
+// Check if a command exists in PATH.
+//
+// This used to answer the question by RUNNING the binary (`spawnSync(cmd, ["--version"])`), which
+// costs a process spawn per probe and lands on the interactive startup path: two probes measured
+// 50ms of `interactiveMode.init` on an Apple Silicon host, and process spawns degrade badly on a
+// loaded machine. Stat-ing the PATH entries answers the same question without executing anything.
 function commandExists(cmd: string): boolean {
-	try {
-		const result = spawnSync(cmd, ["--version"], { stdio: "pipe" });
-		// Check for ENOENT error (command not found)
-		return result.error === undefined || result.error === null;
-	} catch {
-		return false;
+	const pathValue = process.env.PATH;
+	if (pathValue === undefined || pathValue.length === 0) return false;
+	const separator = platform() === "win32" ? ";" : ":";
+	for (const directory of pathValue.split(separator)) {
+		if (directory.length === 0) continue;
+		for (const candidate of executableCandidates(cmd)) {
+			try {
+				const stats = statSync(join(directory, candidate));
+				if (!stats.isFile()) continue;
+				// Any exec bit is enough: senpi only needs to know the command resolves.
+				if (platform() === "win32" || (stats.mode & 0o111) !== 0) return true;
+			} catch {
+				// Missing entry or an unreadable directory: keep looking.
+			}
+		}
 	}
+	return false;
 }
 
 // Get the path to a tool (system-wide or in our tools dir)

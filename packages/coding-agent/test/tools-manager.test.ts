@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ensureTool, getLatestVersion, type ToolStatus } from "../src/utils/tools-manager.ts";
 
 const originalOffline = process.env.PI_OFFLINE;
+const originalPath = process.env.PATH;
 
 vi.mock("fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof Fs>();
@@ -24,6 +25,8 @@ vi.mock("child_process", async (importOriginal) => {
 afterEach(() => {
 	if (originalOffline === undefined) delete process.env.PI_OFFLINE;
 	else process.env.PI_OFFLINE = originalOffline;
+	if (originalPath === undefined) delete process.env.PATH;
+	else process.env.PATH = originalPath;
 	vi.unstubAllGlobals();
 });
 
@@ -100,6 +103,7 @@ describe("getLatestVersion", () => {
 
 describe("ensureTool", () => {
 	it("reports status through a callback without writing to the console", async () => {
+		process.env.PATH = "";
 		process.env.PI_OFFLINE = "1";
 		const statuses: ToolStatus[] = [];
 		const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -118,6 +122,7 @@ describe("ensureTool", () => {
 	});
 
 	it("surfaces the error cause chain when a download fails", async () => {
+		process.env.PATH = "";
 		delete process.env.PI_OFFLINE;
 		const cause = new Error("connect ETIMEDOUT 140.82.113.3:443");
 		vi.stubGlobal(
