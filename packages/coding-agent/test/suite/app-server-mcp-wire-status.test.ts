@@ -60,11 +60,11 @@ describe("app-server MCP wire-status adapter", () => {
 			await writeMcpConfig(root, "deferred-server");
 			const adapter = createMcpWireStatusAdapter(service.getWireStatusSnapshot("thread-deferred"));
 			expect(adapter.getServerStatuses()).toEqual([]);
-			adapter.bindLiveUpdates(
-				service.onWireStatusChanged((sessionId, snapshot) => {
-					if (sessionId === "thread-deferred") adapter.update(snapshot);
-				}),
-			);
+			const unsubscribe = service.onWireStatusChanged((sessionId, snapshot) => {
+				if (sessionId === "thread-deferred") adapter.update(snapshot);
+			});
+			const unsubscribed = vi.fn(unsubscribe);
+			adapter.bindLiveUpdates(unsubscribed);
 
 			// When: that attach completes later, as a booting server makes it.
 			await service.attachSession(
@@ -77,12 +77,14 @@ describe("app-server MCP wire-status adapter", () => {
 			// Then: mcpServerStatus/list reports the server instead of staying frozen empty.
 			expect(adapter.getServerStatuses().map((server) => server.name)).toEqual(["deferred-server"]);
 
-			// And: disposing the thread stops it tracking the process-wide service.
+			// And: dropping the thread releases the subscription, so a thread that goes away stops
+			// holding a listener on the process-wide service. Asserted on the unsubscribe itself
+			// because a later refresh with an unchanged config is a no-op and could not fail.
 			const registry = createMcpWireStatusRegistry();
 			registry.registerThread("thread-deferred", adapter);
+			expect(unsubscribed).not.toHaveBeenCalled();
 			registry.removeThread("thread-deferred");
-			await service.refreshWireStatusSnapshot("thread-deferred");
-			expect(adapter.getServerStatuses().map((server) => server.name)).toEqual(["deferred-server"]);
+			expect(unsubscribed).toHaveBeenCalledTimes(1);
 		} finally {
 			await service.dispose("quit");
 			resetMcpServiceForTests();
