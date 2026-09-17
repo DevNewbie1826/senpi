@@ -1,3 +1,29 @@
+## 2026-09-17 - Guard and attribute event-loop stalls on the shared host (#1782)
+
+### What changed
+
+- `loop-lag-watchdog.ts` (new): an unref'd 200 ms timer measures how late it is invoked. Drift above `SENPI_RPC_LOOP_LAG_WARN_MS` (default 500) writes one stderr line per 10 s (`senpi rpc host stall: event loop blocked <drift>ms (sessionId=… tool=…)`); drift above `SENPI_RPC_LOOP_LAG_ERROR_MS` (default 5000) also emits a `host_stalled { driftMs, sessionId?, tool? }` lifecycle record to every connection. `tick()` is public so tests measure on an injected clock instead of waiting for real drift.
+- `session-attribution.ts` (new): `AsyncLocalStorage` carrying `{ sessionId, tool }` plus a clock-free activity registry (monotonic sequence, open spans, last finished activity). `SessionCommandRouter.handle` now wraps every routed command in `runWithSessionAttribution` and delegates to a private `dispatch`; `session-binding.ts` opens a span per `tool_execution_start` and closes it on `tool_execution_end`, on `agent_settled`/`agent_idle`, and on binding disposal. The watchdog samples the registry per tick and blames the synchronous work that finished inside the measured window, else the tool still executing; otherwise the record carries no session.
+- `host-memory-sampler.ts` (new): an unref'd 30 s sampler reads RSS. Above `SENPI_RPC_HOST_RSS_WARN_MB` (default 4096) it emits `host_memory_pressure { rssMb, sessions }` to every connection on every sample, writes one stderr line per 5 minutes, and raises a pressure flag on the router; `SessionCommandRouter.setMemoryPressure` HALVES the idle-eviction window while it is raised and restores it when RSS falls back. No admission control, no cap, no kill policy was added, and `sessionCount` is exposed only to publish the count.
+- `multi-session-host.ts`: `startHostObservers(router, writer)` arms both observers for the stdio and socket hosts and stops them on shutdown. `session-event-writer.ts` gained `broadcastHostRecord`, which delivers one host-level record to every registered connection (or the shared stdio lane), untagged - `host_stalled` carries the handle it blames, `host_memory_pressure` belongs to the process.
+- `rpc-types.ts`: `RpcHostStalledEvent` and `RpcHostMemoryPressureEvent`.
+- Audit (test-only): `test/suite/no-sync-in-session-path.test.ts` + `session-path-audit.ts` walk the transitive call graph (classic TypeScript API from `@typescript/typescript6`, as `scripts/check-runtime-deps.mjs` already does) rooted at `session-registry.ts`, `session-binding.ts`, `connection-handler.ts`, `session-command-router.ts`, `src/core/agent-session.ts`, `src/core/auth-storage.ts` and every `src/core/tools/**` module. Blocking primitives (`execSync`, `execFileSync`, `spawnSync`, `Bun.spawnSync`, `Bun.sleepSync`, `Atomics.wait`, including import aliases, resolved through the checker) fail unless `no-sync-in-session-path.ledger.json` already records that exact call site; synchronous filesystem calls are reported against the same ledger with a byte-size note, failing only on a NEW entry or a higher count. The ledger records the six pre-existing blocking call sites that are NOT the credential/footer probes; `src/core/resolve-config-value.ts` (3) and `src/core/footer-data-provider.ts` (1) are deliberately absent, so the audit is RED until they go async.
+
+### Why
+
+- The socket host now runs every session in the host process, so one session's synchronous work is the whole daemon's outage. The host could not say that it had stalled, which session caused it, or how much memory it was holding; an operator saw an unresponsive daemon and a desktop client saw silence. Detection, attribution and memory reporting are the observability half of that trade-off.
+- Attribution is registry-based rather than read from `AsyncLocalStorage` at the tick: the timer callback runs AFTER the blocked stack unwound, where the async context of the blocking work no longer exists. The registry is ordered by a monotonic counter instead of a clock, so the whole path is deterministic under an injected clock and needs no fake timers.
+- Pressure halves the idle-park window because parking is the only memory lever a daemon may pull that is invisible to clients: an evicted session reopens by path. Refusing or killing sessions is explicitly out of scope (capacity is memory, never a refusal).
+- The audit is a ban with a ledger rather than a bare ban because the clean tree is not empty: the credential lock (`auth-storage.ts`), the settings lock (`settings-manager.ts`), the `which`/`where` probe and win32 `taskkill` (`utils/shell.ts`) and the tool `--version`/extraction probes (`utils/tools-manager.ts`) are reachable today and are not part of the credential/footer work. Recording them with their bounds keeps the gate honest AND actionable: anything new fails immediately, and the two files that are being made async are the only RED.
+
+### Why an extension could not handle it
+
+- Event-loop drift, RSS of the host process, the routed-command dispatch seam and the idle-park window are host infrastructure below the extension boundary; an extension runs inside the very loop that is being measured.
+
+### Expected merge conflict zones
+
+- LOW: the `handle`/`dispatch` split and the idle-window expression in `session-command-router.ts`; the record pump in `session-binding.ts` (it became a closure so the tool spans and the writer share one walk); the observer start/stop lines in both hosts of `multi-session-host.ts`; the new method beside `closeSession` in `session-event-writer.ts`. The three new modules and the audit have no upstream counterpart.
+
 ## 2026-09-17 - Socket hosts run their sessions in the host process (#1782)
 
 ### What changed

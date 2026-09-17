@@ -313,6 +313,20 @@ export class SessionEventWriter {
 	}
 
 	/**
+	 * Queue one HOST-level lifecycle record for every registered connection, or the
+	 * shared stdio lane when none is registered. Unlike session records it is not tagged
+	 * with a routing handle by the writer: `host_stalled` carries the handle it blames,
+	 * and `host_memory_pressure` belongs to the process, not to a session.
+	 */
+	broadcastHostRecord(record: object): void {
+		if (this.fanout.isEmpty()) {
+			this.append(this.controlQueue, { ...record });
+			this.markReady(this.controlQueue);
+		} else this.fanout.broadcast(serializeJsonLine(record));
+		this.requestFlush();
+	}
+
+	/**
 	 * Prevent subsequent records for a session and append its terminal response.
 	 * Existing records retain FIFO order; this response is therefore that
 	 * session's final stdout record.

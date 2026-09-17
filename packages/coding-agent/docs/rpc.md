@@ -117,7 +117,8 @@ Socket event visibility is attachment-scoped for session content: each connectio
 attached to that connection, with every record tagged by its routing `sessionId`. Content-free lifecycle records
 (`agent_start`, `agent_settled`, `agent_idle`, `session_opened`, and `session_closed`) are broadcast to all registered
 connections, including the supervisor's unattached observer, so host lifecycle accounting remains accurate without exposing
-session content. Correlated responses and dialog extension UI
+session content. Host-level records (`host_stalled`, `host_memory_pressure`) are broadcast the same way and describe the
+host process rather than a session. Correlated responses and dialog extension UI
 requests (select, confirm, input, and editor) are requester-only; other extension UI state records go to the session's
 attached connections. To observe a foreign session, open it by its existing
 `sessionPath`; the host attaches that connection during `open_session`.
@@ -243,6 +244,31 @@ session contents; neither runtime provides process-fatal OOM containment. The ho
 
 Values are positive integers; invalid values fall through to the defaults. These lifecycle windows run inside the host process,
 so they hold even for embedders and hand-started hosts that have no supervisor.
+
+### Host self-observation (event-loop stalls and memory pressure)
+
+Every in-process session shares the host's event loop, so a session that blocks it freezes every other session and the
+transport with it. A multi-session host therefore watches itself. Both observers run on unref'd timers, and both only
+REPORT: nothing here aborts a turn, kills a session, or refuses an `open_session`.
+
+- **Event-loop stalls**: a 200 ms timer measures how late it is actually invoked; that lateness is the time the loop
+  could serve nobody. Drift above `SENPI_RPC_LOOP_LAG_WARN_MS` (default 500) writes one stderr line per 10 seconds,
+  `senpi rpc host stall: event loop blocked <drift>ms (sessionId=<handle> tool=<tool>)`. Drift above
+  `SENPI_RPC_LOOP_LAG_ERROR_MS` (default 5000) additionally broadcasts a `host_stalled` record
+  (`{ type, driftMs, sessionId?, tool? }`) to every connection, like the other content-free lifecycle records.
+- **Stall attribution**: each routed command is dispatched inside an `AsyncLocalStorage` scope carrying its routing
+  `sessionId`, and an in-process session's tool executions open a span carrying `{ sessionId, tool }` for as long as
+  the tool runs. A stall is blamed on the synchronous work that finished inside the measured window, or on the tool
+  still executing when it ended; when neither exists the record and the log line carry no session, because the stall
+  belongs to the host itself. Worker-runtime sessions block their own isolate rather than the host loop and
+  deliberately have no tool spans.
+- **Memory pressure**: a 30-second sampler reads the host's RSS. Above `SENPI_RPC_HOST_RSS_WARN_MB` (default 4096) it
+  broadcasts `host_memory_pressure` (`{ type, rssMb, sessions }`) on every sample, writes one stderr line per five
+  minutes, and HALVES the idle-eviction window above while the host stays above the threshold, so idle sessions return
+  their memory sooner. It is released as soon as RSS falls back under the threshold. Capacity remains memory, never a
+  refusal: there is no admission control, no session cap, and no kill policy on this path.
+
+`host_stalled` and `host_memory_pressure` are additive records: a client that does not know them ignores them.
 
 ### Worker ownership and flow control
 
@@ -1495,6 +1521,8 @@ Events are streamed to stdout as JSON lines during agent operation. Events do no
 | `loaded_surfaces_changed` | Loaded skills, extensions, or MCP inventory changed; re-read `get_commands` and `get_loaded_surfaces` |
 | `model_changed` | Active model changed (any source), with the thinking level in force afterwards |
 | `service_tier_changed` | Effective service tier or fast-mode state changed |
+| `host_stalled` | Multi-session host: the event loop was blocked past `SENPI_RPC_LOOP_LAG_ERROR_MS`, with the drift and the session/tool blamed for it |
+| `host_memory_pressure` | Multi-session host: RSS is above `SENPI_RPC_HOST_RSS_WARN_MB`, with the live session count |
 
 Event types are additive: a client that does not recognise a type must ignore that record rather than fail. `model_changed`
 and `service_tier_changed` were added after the initial protocol and are safe to ignore.

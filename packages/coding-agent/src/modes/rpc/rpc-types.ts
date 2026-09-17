@@ -877,6 +877,34 @@ export interface RpcAuthAccountsChangedEvent {
 	provider: string;
 }
 
+/**
+ * Emitted when the host's event loop was blocked long enough to stall every session it
+ * serves, naming the routing handle and tool whose work held it when that can be
+ * attributed. Informational: the host never aborts or refuses anything because of it.
+ */
+export interface RpcHostStalledEvent {
+	type: "host_stalled";
+	/** How late the host's own 200ms timer was invoked, i.e. how long the loop was held. */
+	driftMs: number;
+	/** Routing handle blamed for the stall, absent when no session work was running. */
+	sessionId?: string;
+	/** Tool that session was executing, when the stall happened inside one. */
+	tool?: string;
+}
+
+/**
+ * Emitted while the host process is above its RSS warning threshold. Capacity is memory,
+ * never a refusal: the host reports the pressure and parks idle sessions sooner, and
+ * never declines or kills a session because of it.
+ */
+export interface RpcHostMemoryPressureEvent {
+	type: "host_memory_pressure";
+	/** Resident set size of the host process, in megabytes. */
+	rssMb: number;
+	/** Live sessions the host is holding, including ones opening or closing. */
+	sessions: number;
+}
+
 /** Emitted when the SDK failover engine advances to a different account slot. */
 export interface RpcAccountFailoverEvent {
 	type: "account_failover";
