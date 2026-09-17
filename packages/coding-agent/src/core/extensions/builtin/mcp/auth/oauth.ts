@@ -1,12 +1,11 @@
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import {
-	discoverOAuthServerInfo,
-	fetchToken,
-	type OAuthDiscoveryState,
-	type OAuthServerInfo,
+import type {
+	OAuthClientProvider,
+	OAuthDiscoveryState,
+	OAuthServerInfo,
 	auth as sdkAuth,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { loadMcpSdkAuth } from "../sdk.lazy.ts";
 import { isInvalidGrant, OAuthFlowError } from "./oauth-errors.ts";
 import type { McpOAuthProvider } from "./oauth-provider.ts";
 import { assertS256Supported } from "./oauth-refresh.ts";
@@ -37,7 +36,8 @@ export async function beginAuthorization(
 	options: OAuthFlowOptions = {},
 ): Promise<BeginAuthResult> {
 	await assertAuthorizable(provider, options);
-	const result = await sdkAuth(provider, { serverUrl: provider.serverUrl, fetchFn: options.fetchFn });
+	const { auth } = await loadMcpSdkAuth();
+	const result = await auth(provider, { serverUrl: provider.serverUrl, fetchFn: options.fetchFn });
 	return {
 		status: result === "AUTHORIZED" ? "authorized" : "redirect",
 		authorizationUrl: provider.lastAuthorizationUrl,
@@ -69,8 +69,9 @@ export async function finishAuthorization(
 	options: OAuthFlowOptions = {},
 ): Promise<void> {
 	let result: Awaited<ReturnType<typeof sdkAuth>>;
+	const { auth } = await loadMcpSdkAuth();
 	try {
-		result = await sdkAuth(provider, {
+		result = await auth(provider, {
 			serverUrl: provider.serverUrl,
 			authorizationCode: code,
 			fetchFn: options.fetchFn,
@@ -135,6 +136,7 @@ export async function clientCredentialsGrant(
 			return params;
 		},
 	};
+	const { fetchToken } = await loadMcpSdkAuth();
 	const tokens = await fetchToken(credentialsProvider, info.authorizationServerUrl, {
 		metadata: info.authorizationServerMetadata,
 		resource: new URL(provider.serverUrl),
@@ -151,6 +153,7 @@ async function discover(provider: McpOAuthProvider, options: OAuthFlowOptions): 
 	if (options.discover !== undefined) return options.discover(provider.serverUrl);
 	const cached = provider.discoveryState();
 	if (cached !== undefined) return cached;
+	const { discoverOAuthServerInfo } = await loadMcpSdkAuth();
 	const info = await discoverOAuthServerInfo(provider.serverUrl, { fetchFn: options.fetchFn });
 	await provider.saveDiscoveryState(toDiscoveryState(info));
 	return info;
