@@ -46,7 +46,12 @@ import {
 } from "./overflow-retry.ts";
 import { computeEffectiveKeepRecentTokens, computeEffectiveThreshold } from "./policy.ts";
 import { buildPrompt, type MergedCompactionPromptVariant } from "./prompts.ts";
-import { generateSummaryMessage, getSummaryText, isAssistantMessage } from "./speculative-summary.ts";
+import {
+	generateSummaryMessage,
+	getSummaryText,
+	hasSummarizationReasoningOverride,
+	isAssistantMessage,
+} from "./speculative-summary.ts";
 
 import { allowSummarizationRetry, DEFAULT_SUMMARIZATION_RETRY_POLICY } from "./summarization-retry.ts";
 
@@ -307,7 +312,9 @@ export async function runExtensionCompaction(
 	const overflowRetryStartMs = Date.now();
 	let overflowAttempts = 0;
 	const summarizationToolsOffered = (requestSnapshot.tools?.length ?? 0) > 0;
+	const reasoningOverrideOffered = hasSummarizationReasoningOverride(requestSnapshot.model);
 	let toolUseRetrySpent = false;
+	let reasoningOverrideRetrySpent = false;
 
 	while (true) {
 		if (signal?.aborted) return undefined;
@@ -351,6 +358,7 @@ export async function runExtensionCompaction(
 							headers: auth.headers,
 							extraBody: auth.extraBody,
 						},
+						...(reasoningOverrideRetrySpent ? { omitReasoningOptions: true } : {}),
 					});
 					if (
 						attempt &&
@@ -424,6 +432,20 @@ export async function runExtensionCompaction(
 			// because Anthropic rejects tool_use history without the tools param.
 			if (stopReason === "toolUse" && summarizationToolsOffered && !toolUseRetrySpent) {
 				toolUseRetrySpent = true;
+				continue;
+			}
+			// Some OpenAI-completions relays complete with a normal stop but zero
+			// text when the summarization prompt pins an explicit reasoning effort
+			// (GLM-5.3-flash behind a custom relay, 2026-09-17: HTTP 200 carrying
+			// only the role prelude). Spend one retry without the reasoning
+			// override, but only when the first attempt carried one: a model with
+			// no override would just replay the identical prompt. On Anthropic the
+			// override is `thinkingEnabled: false`, so the retry runs with the
+			// provider's default thinking, clamped by the compaction deadline.
+			// Persistent emptiness still throws and the deterministic fallback
+			// owns recovery.
+			if (stopReason === "stop" && reasoningOverrideOffered && !reasoningOverrideRetrySpent) {
+				reasoningOverrideRetrySpent = true;
 				continue;
 			}
 			throw new SummaryGenerationError(
