@@ -22,13 +22,21 @@ const SUBCOMMANDS = [
 
 const AUTH_SUBCOMMANDS = new Set(["auth", "auth-start", "auth-complete", "logout"]);
 
-export function registerMcpCommands(pi: ExtensionAPI, service = getMcpService()): void {
+export function registerMcpCommands(
+	pi: ExtensionAPI,
+	service = getMcpService(),
+	pendingAttach: () => Promise<void> | undefined = () => undefined,
+): void {
 	pi.registerCommand("mcp", {
 		description: "Inspect and manage MCP servers.",
 		getArgumentCompletions: (prefix) =>
 			SUBCOMMANDS.filter((item) => item.startsWith(prefix)).map((value) => ({ value, label: value })),
 		handler: async (rawArgs, ctx) => {
 			try {
+				// Startup attach no longer blocks the first frame, so /mcp can be reached while it is still
+				// in flight. Every subcommand reports or mutates attached state, so wait for the single
+				// in-flight attach rather than rendering a half-connected snapshot.
+				await pendingAttach();
 				await handleMcpCommand(rawArgs, ctx, pi, service);
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
