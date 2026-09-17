@@ -1,3 +1,28 @@
+## 2026-09-17 - Host actions are decided by protocol, capabilities and ordinal (#1782)
+
+### What changed
+
+- `src/modes/rpc/host-decision.ts` (new): `decideHostAction(client, host, policy)` -> `{ action: "start" | "reuse" | "handoff" | "refuse" | "fallback", reason, upgradeable, warning? }`, the single place every client surface decides what to do with the process it found on the shared socket. `client = { protocolVersion, requiredCapabilities, identity: EngineBuildIdentity, launchProfile?, startedByUs, platform }` (the plan's `launchProfileId` is carried as the whole `RpcLaunchProfile`, because the superset rule needs `core.extensions`, and `profile_id` travels inside it); `host` is the parsed `get_protocol_info` answer or `undefined`; `policy` is `"never" | "fallback" | "upgrade"`. The result type is a discriminated union per action, so an impossible pair (`handoff` with `upgradeable: false`, `refuse` with reason `compatible`) cannot be constructed, and the `"never"` overload returns only `start | reuse | refuse`. Also exported: `HOST_PROTOCOL_VERSION`, `REQUIRED_HOST_CAPABILITIES` (`multi_session`, `extension_events`, `session_context`, `session_kind`), `GENERATION_HANDOFF_CAPABILITY`, and `parseHostProtocolInfo()` - the tolerant boundary parse of a reply, where every identity field an older host omits stays absent instead of being defaulted to zero.
+- `host-ensure.ts`: `isCompatible` no longer compares `serverVersion` to `VERSION`; it asks `decideHostAction(..., "never").action === "reuse"`, so the attach decision and the post-spawn readiness gate cannot drift apart. `ensureHostLocked` now switches on the decision - `reuse` attaches, `refuse` throws the new `HostEnsureRefusedError { socket, reason: "protocol" | "capability" | "foreign_writer" }`, `start` falls through to the spawn path. The pidfile gains `writer: { pid, startTime }` (this process's identity at write time), and a managed host is stopped ONLY when its pid still matches AND that writer is this process; a foreign writer refuses with `foreign_writer` and the host is never signalled. `probeProtocolInfo` returns the full parsed answer (identity fields included), and the readiness diagnostic names the protocol version and the required capabilities instead of a version string.
+- `src/modes/index.ts` / `src/index.ts`: the decision API, its types and `HostEnsureRefusedError` are exported from the barrel for the CLI, the omo runner and the desktop.
+- Docs: `docs/rpc.md` gains "Attach, start or refuse (`decideHostAction`)" - the full table, the two warnings, and I1/I2 stated in the terms the code enforces.
+- Tests: `test/suite/host-decision.test.ts` (new) is the truth table, one case per row, including the narrower-profile, spec-less-client, win32, uncomparable-ordinal and fallback rows; `test/rpc-host-ensure.test.ts` gains a compatible host with a DIFFERENT `serverVersion` being REUSED, a foreign-writer pidfile and a recycled-pid writer both refusing with the host still alive, a host missing `session_context` refused under policy `never`, and the D11 legacy proof: the published v2026.9.16-3 ensure decision, replayed with spies, fails closed against a daemon directory that carries no flat pidfile and never stops the host. `test/rpc-host-identity-regression.test.ts`'s fake host now answers with `protocolVersion` and the four required capabilities (its subject - not consulting the identity probe on a compatible endpoint - is unchanged).
+
+### Why
+
+- The old compatibility test was an exact equality between the host's `serverVersion` string and this build's `VERSION`, and it did not merely refuse a mismatch: it STOPPED the running host and started its own. With one machine-wide daemon serving the CLI, the task runner and the desktop, that turns "this client is a different build" into "every other client's sessions just died". Two builds with different version strings speak the same protocol; what a client actually needs to know is the protocol version and the capabilities, which is what the daemon advertises.
+- Refusing rather than starting a second host on a capability mismatch is the same rule from the other side: the host that answers OWNS the endpoint. Binding a second host over it would leave two processes fighting for one socket path - so a client either attaches, or fails with a reason its caller can act on (omo's per-child fallback consumes `fallback:capability` exactly this way).
+- The pidfile writer stamp is what makes I1 checkable at all. "Did I start this host?" was previously answered by "does the pid in the pidfile still exist?", which is true for every host on the machine, including one the desktop started thirty minutes ago. The recorded start time is the half that survives a pid the OS recycled after a reboot.
+- `handoff` is returned but not yet executable (the drain handoff is the next change); a client that asks for policy `"upgrade"` today can already see the decision, and `ensureHost` itself passes `"never"`.
+
+### Why an extension could not handle it
+
+- This is the code that runs BEFORE a host exists - the probe, the compatibility decision and the spawn/stop lifecycle of the host process itself. No extension is loaded at that point, and an extension could not be trusted with a decision whose failure mode is killing another client's host.
+
+### Expected merge conflict zones
+
+- LOW: one new module, plus `ensureHostLocked`, the pidfile write and the probe/readiness helpers in `host-ensure.ts`, and two barrel export lists. Anything upstream that also touches `isCompatible` or the pidfile shape in `host-ensure.ts` conflicts there.
+
 ## 2026-09-17 - `get_protocol_info` advertises engine build identity, ordinal and launch profile (#1782)
 
 ### What changed

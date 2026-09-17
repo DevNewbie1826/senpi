@@ -153,6 +153,46 @@ Compatibility is decided from `protocolVersion` + `capabilities`, and "is my bui
 A `serverVersion` string comparison is never a compatibility test: two hosts with different version strings can
 speak the same protocol, and a host whose ordinal is uncomparable is attached to, never replaced.
 
+### Attach, start or refuse (`decideHostAction`)
+
+A client that finds a host on the shared socket decides what to do with it through one exported function,
+`decideHostAction(client, host, policy)`, so every client surface answers the question the same way. `host` is
+the `get_protocol_info` answer (or `undefined` when nothing answered), and `policy` is `"never"` (attach only),
+`"fallback"` (prefer no host over a mismatched one) or `"upgrade"` (a generation handoff is allowed). The result
+is `{ action, reason, upgradeable, warning? }`.
+
+A host is COMPATIBLE when it answers `protocolVersion: 1` and advertises every required capability -
+`multi_session`, `extension_events`, `session_context`, `session_kind`. That is the whole test; the version
+string takes no part in it.
+
+| Situation | Action | Reason |
+| --- | --- | --- |
+| nothing answered on the socket | `start` | `no_host`, or `restart_own_host` when the pidfile is this process's |
+| the host answers another protocol version | `refuse` | `protocol` |
+| a required capability is missing | `refuse` (`fallback` under policy `fallback`) | `capability` |
+| policy `fallback` and the host runs a different engine build | `fallback` | `engine_mismatch` |
+| compatible, on win32 | `reuse`, `upgradeable: false` | `win32_attach_only` |
+| compatible, host does not advertise `generation_handoff` | `reuse`, `upgradeable: false` | `handoff_unsupported` |
+| compatible, policy `upgrade`, this build's ordinal is STRICTLY greater and its extensions cover the host's | `handoff` | `newer_engine` (`profile` when both are the same release and only the extensions grew) |
+| compatible, anything else | `reuse` | `compatible` |
+
+A `reuse` can carry a warning the caller should surface: `profile_narrower_attached` (this client would have
+upgraded, but its extension set does NOT cover what the running host loaded, so upgrading would drop those
+extensions) or `profile_mismatch_attached` (the launch profiles differ, or one of them is unknown - a client
+without a launch spec can prove nothing about extensions and therefore never initiates a handoff).
+
+Two invariants are encoded here, and every client is expected to keep them:
+
+- **I1 - never terminate, signal or replace a host this process did not start.** A missing capability or a
+  foreign protocol version ends in `refuse`, never in a second host bound over an endpoint somebody else owns.
+  `ensureHost` records a `writer: { pid, startTime }` stamp in its pidfile and stops the host it names only when
+  that stamp is this process (the start time is what keeps a recycled pid from inheriting the right). A pidfile
+  written by anyone else fails the ensure with `HostEnsureRefusedError { reason: "foreign_writer" }` and the host
+  keeps running.
+- **I2 - compatibility is protocol version + capabilities, never semver equality.** An ordinal that cannot be
+  compared (a build without git metadata, a host that reports none) is EQUAL, and since a handoff requires
+  STRICTLY greater, such a pair attaches instead of upgrading.
+
 ### Child reaping on a socket host (`SENPI_RPC_HOST_REAPER`)
 
 A socket host reaps the exited child processes that no thread is left to wait on. A `worker_threads` Worker owns the

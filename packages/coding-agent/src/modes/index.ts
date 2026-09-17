@@ -5,6 +5,22 @@
 export { InteractiveMode, type InteractiveModeOptions } from "./interactive/interactive-mode.ts";
 export type { JsonAgentSessionEvent } from "./json-event.ts";
 export { type PrintModeOptions, runPrintMode } from "./print-mode.ts";
+// Host compatibility and upgrade decisions: protocol version + capabilities + ordinal, never a version string
+export {
+	decideHostAction,
+	GENERATION_HANDOFF_CAPABILITY,
+	HOST_PROTOCOL_VERSION,
+	type HostAction,
+	type HostDecision,
+	type HostDecisionClient,
+	type HostDecisionPolicy,
+	type HostDecisionWarning,
+	HostEnsureRefusedError,
+	type HostProtocolInfo,
+	type HostRefusalReason,
+	parseHostProtocolInfo,
+	REQUIRED_HOST_CAPABILITIES,
+} from "./rpc/host-decision.ts";
 export {
 	createHostDaemonPaths,
 	type EnsuredHost,

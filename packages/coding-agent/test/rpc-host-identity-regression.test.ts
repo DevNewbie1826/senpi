@@ -64,7 +64,7 @@ describe("RPC ownership observation", () => {
 					const request = JSON.parse(buffer.slice(0, buffer.indexOf("\n")));
 					replies += 1;
 					socket.end(
-						`${JSON.stringify({ id: request.id, success: true, data: { serverVersion: VERSION, capabilities: ["multi_session", "extension_events"] } })}\n`,
+						`${JSON.stringify({ id: request.id, success: true, data: { protocolVersion: 1, serverVersion: VERSION, capabilities: ["multi_session", "extension_events", "session_context", "session_kind"] } })}\n`,
 					);
 				});
 			};

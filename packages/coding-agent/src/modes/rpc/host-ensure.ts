@@ -5,7 +5,8 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ENV_AGENT_DIR, getAgentDir, isBunBinary, VERSION } from "../../config.ts";
+import { ENV_AGENT_DIR, getAgentDir, isBunBinary } from "../../config.ts";
+import { engineBuildIdentity } from "../../core/engine-build-identity.ts";
 import {
 	type DaemonPidFile,
 	ProcessIdentityUnreadableError,
@@ -20,6 +21,15 @@ import {
 	EXTENSION_EVENTS_CAPABILITY,
 	RPC_CLIENT_CAPABILITIES_ENV,
 } from "./custom-capability.ts";
+import {
+	decideHostAction,
+	HOST_PROTOCOL_VERSION,
+	type HostDecisionClient,
+	HostEnsureRefusedError,
+	type HostProtocolInfo,
+	parseHostProtocolInfo,
+	REQUIRED_HOST_CAPABILITIES,
+} from "./host-decision.ts";
 import {
 	DEFAULT_HOST_IDLE_EXIT_MS,
 	type HostColdStart,
@@ -77,12 +87,6 @@ export interface EnsuredHost {
 	readonly reused: boolean;
 }
 
-type ProtocolInfo = {
-	readonly serverVersion: string;
-	readonly capabilities: readonly string[];
-};
-
-const REQUIRED_CAPABILITIES = ["multi_session", EXTENSION_EVENTS_CAPABILITY] as const;
 const SPAWNED_HOST_PROBE_TIMEOUT_MS = 10_000;
 const EXISTING_HOST_PROBE_TIMEOUT_MS = 10_000;
 const DEFAULT_READINESS_TIMEOUT_MS = 10_000;
@@ -152,23 +156,64 @@ async function ensureHostLocked(
 	policy: HostLifecyclePolicyInput | undefined,
 	testOptions: EnsureHostOptions["_test"],
 ): Promise<EnsuredHost> {
-	const pidFile = await readPidFile(paths);
+	const registered = await readPidFile(paths);
 	const protocol = await probeProtocolInfo(socket, EXISTING_HOST_PROBE_TIMEOUT_MS);
-	if (isCompatible(protocol)) {
-		// A compatible socket is attachable even when another client surface
-		// started it. Only hosts we spawned are eligible for lifecycle management.
-		return { pid: pidFile?.pid ?? 0, socket, reused: true };
+	const startedByUs = await writtenByThisProcess(registered?.writer);
+	const decision = decideHostAction(ensureClient(startedByUs), protocol, "never");
+	switch (decision.action) {
+		case "reuse":
+			// A compatible socket is attachable even when another client surface
+			// started it. Only hosts we spawned are eligible for lifecycle management.
+			return { pid: registered?.record.pid ?? 0, socket, reused: true };
+		case "refuse":
+			throw new HostEnsureRefusedError(socket, decision.reason, protocol);
+		case "start":
+			break;
+		default:
+			return assertNever(decision);
 	}
 	const probe = testOptions?.readProcessStartTime ?? readProcessStartTime;
-	const pidMatches = pidFile ? await matchesPidFileOrUnknown(pidFile, probe) : false;
-	if (protocol && !pidMatches) {
-		throw new Error(`RPC socket ${socket} is owned by an unmanaged host`);
-	}
-	if (pidFile && pidMatches) {
-		await stopManagedHost(pidFile, testOptions?.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS, probe);
+	const pidMatches = registered ? await matchesPidFileOrUnknown(registered.record, probe) : false;
+	if (registered && pidMatches) {
+		// I1: the socket is silent, but the process behind it is alive. Only the process that WROTE
+		// this record may end it - anyone else refuses rather than signalling somebody else's host.
+		if (!startedByUs) throw new HostEnsureRefusedError(socket, "foreign_writer", protocol);
+		await stopManagedHost(registered.record, testOptions?.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS, probe);
 	}
 	await cleanupState(paths);
 	return startHost(paths, socket, agentDir, policy, testOptions);
+}
+
+/** This build as a client: which protocol it speaks, what it needs from a host, and which build it is. */
+function ensureClient(startedByUs: boolean): HostDecisionClient {
+	return {
+		protocolVersion: HOST_PROTOCOL_VERSION,
+		requiredCapabilities: REQUIRED_HOST_CAPABILITIES,
+		identity: engineBuildIdentity(),
+		// ensureHost carries no launch spec of its own: it attaches or starts, and never upgrades.
+		startedByUs,
+		platform: process.platform,
+	};
+}
+
+/**
+ * I1 in one predicate: the pidfile names a host THIS process started. The recorded start time is what
+ * survives a pid the OS recycled, and a writer that cannot be proven ours reads as foreign - so the
+ * worst case of an unreadable identity is a refusal, never a signal sent to another owner's host.
+ */
+async function writtenByThisProcess(writer: HostPidFileWriter | undefined): Promise<boolean> {
+	if (writer === undefined || writer.pid !== process.pid || writer.startTime === null) return false;
+	return writer.startTime === (await thisProcessStartTime());
+}
+
+let selfStartTime: Promise<string | null> | undefined;
+
+function thisProcessStartTime(): Promise<string | null> {
+	selfStartTime ??= readProcessStartTime(process.pid).then(
+		(value) => value ?? null,
+		() => null,
+	);
+	return selfStartTime;
 }
 
 async function startHost(
@@ -236,7 +281,10 @@ async function startHost(
 		// reads it as unknown - so the worst case is a fresh host next time, not a killed healthy one.
 		pidFile = { pid: child.pid, processStartTime: processStartTime ?? null };
 		await testOptions?.beforePidFileWrite?.();
-		await writeFile(paths.pidFile, `${JSON.stringify(pidFile)}\n`, { mode: 0o600 });
+		// The writer stamp is what authorizes a later stop: only the process that wrote this record
+		// may signal the host it names, and the start time keeps a recycled pid from inheriting that right.
+		const writer: HostPidFileWriter = { pid: process.pid, startTime: await thisProcessStartTime() };
+		await writeFile(paths.pidFile, `${JSON.stringify({ ...pidFile, writer })}\n`, { mode: 0o600 });
 		child.unref();
 	} catch (error: unknown) {
 		// Whether the child died on its own decides which diagnostic is true, and the
@@ -290,7 +338,7 @@ async function startHost(
 		(error: unknown) => (error instanceof Error ? error.message : String(error)),
 	);
 	const message = result.protocol
-		? `RPC socket host answered get_protocol_info with serverVersion ${result.protocol.serverVersion} and capabilities ${JSON.stringify(result.protocol.capabilities)}, but is incompatible with serverVersion ${VERSION} and required capabilities ${JSON.stringify(REQUIRED_CAPABILITIES)}`
+		? `RPC socket host answered get_protocol_info with protocolVersion ${result.protocol.protocolVersion}, serverVersion ${result.protocol.serverVersion} and capabilities ${JSON.stringify(result.protocol.capabilities)}, but is incompatible with protocol version ${HOST_PROTOCOL_VERSION} and required capabilities ${JSON.stringify(REQUIRED_HOST_CAPABILITIES)}`
 		: result.exited
 			? `RPC socket host exited with code ${result.exited.code ?? "null"}${result.exited.signal ? ` (${result.exited.signal})` : ""} before answering get_protocol_info`
 			: `spawned RPC socket host did not answer get_protocol_info within ${readinessTimeoutMs}ms`;
@@ -405,7 +453,7 @@ async function waitForGone(
 
 type ChildExit = { readonly code: number | null; readonly signal: NodeJS.Signals | null };
 
-type ProtocolPollResult = { readonly protocol?: ProtocolInfo; readonly exited?: ChildExit };
+type ProtocolPollResult = { readonly protocol?: HostProtocolInfo; readonly exited?: ChildExit };
 
 async function pollProtocolInfo(
 	socket: string,
@@ -413,7 +461,7 @@ async function pollProtocolInfo(
 	childExit?: Promise<ChildExit>,
 ): Promise<ProtocolPollResult> {
 	const deadline = Date.now() + timeoutMs;
-	let lastProtocol: ProtocolInfo | undefined;
+	let lastProtocol: HostProtocolInfo | undefined;
 	while (Date.now() <= deadline) {
 		const probe = probeProtocolInfo(
 			socket,
@@ -442,11 +490,11 @@ async function pollProtocolInfo(
 	return { protocol: lastProtocol };
 }
 
-function isChildExit(value: ProtocolInfo | ChildExit | undefined): value is ChildExit {
+function isChildExit(value: HostProtocolInfo | ChildExit | undefined): value is ChildExit {
 	return !!value && "code" in value && "signal" in value;
 }
 
-async function probeProtocolInfo(socketPath: string, timeoutMs: number): Promise<ProtocolInfo | undefined> {
+async function probeProtocolInfo(socketPath: string, timeoutMs: number): Promise<HostProtocolInfo | undefined> {
 	let secret: Buffer | undefined;
 	if (process.platform === "win32") {
 		try {
@@ -459,7 +507,7 @@ async function probeProtocolInfo(socketPath: string, timeoutMs: number): Promise
 		const socket = createConnection(resolveSocketTransportAddress(socketPath, process.platform, secret));
 		let buffer = "";
 		let settled = false;
-		const finish = (value?: ProtocolInfo): void => {
+		const finish = (value?: HostProtocolInfo): void => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timeout);
@@ -486,36 +534,61 @@ async function probeProtocolInfo(socketPath: string, timeoutMs: number): Promise
 	});
 }
 
-function readProtocolInfo(text: string): ProtocolInfo | undefined {
+function readProtocolInfo(text: string): HostProtocolInfo | undefined {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(text);
 	} catch {
 		return undefined;
 	}
-	if (!isRecord(parsed) || parsed.id !== "ensure-host-probe" || parsed.success !== true || !isRecord(parsed.data)) {
-		return undefined;
-	}
-	const { serverVersion, capabilities } = parsed.data;
-	if (typeof serverVersion !== "string" || !Array.isArray(capabilities)) return undefined;
-	if (!capabilities.every((capability) => typeof capability === "string")) return undefined;
-	return { serverVersion, capabilities };
+	if (!isRecord(parsed) || parsed.id !== "ensure-host-probe" || parsed.success !== true) return undefined;
+	return parseHostProtocolInfo(parsed.data);
 }
 
-function isCompatible(protocol: ProtocolInfo | undefined): boolean {
-	return (
-		protocol?.serverVersion === VERSION &&
-		REQUIRED_CAPABILITIES.every((capability) => protocol.capabilities.includes(capability))
-	);
+/**
+ * Compatibility, for the attach decision and the readiness gate alike: a host is compatible exactly
+ * when a client that is forbidden to upgrade would attach to it. Never a version-string comparison (I2).
+ */
+function isCompatible(protocol: HostProtocolInfo | undefined): boolean {
+	return decideHostAction(ensureClient(false), protocol, "never").action === "reuse";
 }
 
-async function readPidFile(paths: HostDaemonPaths): Promise<DaemonPidFile | undefined> {
+/** Who wrote a host's pidfile: the process identity that a later stop must match to be allowed. */
+interface HostPidFileWriter {
+	readonly pid: number;
+	readonly startTime: string | null;
+}
+
+interface RegisteredHost {
+	readonly record: DaemonPidFile;
+	readonly writer?: HostPidFileWriter;
+}
+
+async function readPidFile(paths: HostDaemonPaths): Promise<RegisteredHost | undefined> {
+	let text: string;
 	try {
-		return parseDaemonPidFile(await readFile(paths.pidFile, "utf8"));
+		text = await readFile(paths.pidFile, "utf8");
 	} catch (error: unknown) {
 		if (isNodeErrorCode(error, "ENOENT")) return undefined;
 		throw error;
 	}
+	const record = parseDaemonPidFile(text);
+	if (record === undefined) return undefined;
+	const writer = parseWriter(text);
+	return writer === undefined ? { record } : { record, writer };
+}
+
+/** A record from a host started before writer stamps existed simply has no writer: it reads as foreign. */
+function parseWriter(text: string): HostPidFileWriter | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+	if (!isRecord(parsed) || !isRecord(parsed.writer) || typeof parsed.writer.pid !== "number") return undefined;
+	const { pid, startTime } = parsed.writer;
+	return { pid, startTime: typeof startTime === "string" ? startTime : null };
 }
 
 async function reapOrphanedInternalHostDirs(): Promise<void> {
@@ -629,4 +702,8 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 
 function isNodeErrorCode(error: unknown, code: string): boolean {
 	return error instanceof Error && "code" in error && error.code === code;
+}
+
+function assertNever(value: never): never {
+	throw new Error(`unreachable host decision: ${JSON.stringify(value)}`);
 }
