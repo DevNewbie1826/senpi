@@ -109,6 +109,26 @@ run - the wire protocol, attachment semantics and lifecycle windows are identica
 session is not isolated from the host: a session that blocks the event loop blocks every other session, and there is
 no per-session opening deadline like the worker runtime's 30-second budget.
 
+### Child reaping on a socket host (`SENPI_RPC_HOST_REAPER`)
+
+A socket host reaps the exited child processes that no thread is left to wait on. A `worker_threads` Worker owns the
+exit watchers of every child it spawned, so terminating one - which is what the session-worker quarantine does - turns
+its already-exited children into zombies of the HOST process, for every spawn API (`child_process.spawn`, `Bun.spawn`,
+`Bun.$`) and under both the source and compiled runtimes. Children spawned from a live thread are reaped by their own
+runtime and never reach the reaper.
+
+Latency and safety: a 1-second unref'd tick enumerates the host's DIRECT children, peeks at each with
+`waitid(P_PID, pid, WEXITED | WNOHANG | WNOWAIT)` - which reads the exit status without consuming it - and only
+`waitpid(pid, WNOHANG)`s a pid that stayed waitable across two ticks at least 30 seconds apart (`waitpid(-1)` is never
+called). So an abandoned child is claimed 30-31 seconds after it exits. That window is what keeps the reaper from
+stealing a child from a live owner: a thread blocked in a synchronous call cannot reap its own child until it unblocks,
+and a stolen child breaks the owner's contract (measured: `child_process` and `Bun.spawn` reject with `ECHILD`,
+`Bun.$` never settles). A thread that blocks synchronously for longer than the window while awaiting a child therefore
+loses that child's exit status; `SENPI_RPC_HOST_REAPER_MIN_WAITABLE_MS` raises the window (never below its 5-second
+floor) and `SENPI_RPC_HOST_REAPER=0` turns reaping off entirely. The bindings need `bun:ffi`: a host running under Node
+logs one warning at startup and reaps nothing. While at least ten children sit waiting, the host logs one line per
+five minutes with the count and the three commonest command names.
+
 On Windows, listeners and clients deterministically map the logical socket path to
 `\\.\pipe\senpi-rpc-<sha256[:32]>`. Callers keep using the same `unix://` CLI value; the logical path remains the
 ownership and settings identity, and callers never construct the pipe name themselves.

@@ -11,6 +11,7 @@ import {
 } from "../../core/output-guard.ts";
 import type { CliRuntimeConfiguration } from "../../main.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
+import { startHostChildReaper } from "./child-reaper.ts";
 import type { RpcConnectionSink } from "./connection-handler.ts";
 import { parseClientCapabilities } from "./custom-capability.ts";
 import { parseIdleExitMs } from "./host-lifecycle.ts";
@@ -292,9 +293,15 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 	server.on("error", (cause) => {
 		if (!shuttingDown) process.stderr.write(`senpi rpc socket listener failed: ${errorMessage(cause)}\n`);
 	});
+	// Long-lived hosts outlive many session workers, and a terminated worker thread
+	// takes its children's exit watchers with it (measured: every spawn API leaks
+	// that way). The reaper claims those abandoned children; it never touches one a
+	// live thread could still be waiting for.
+	const stopChildReaper = await startHostChildReaper(hostLog);
 	const shutdown = async (exitCode = 0, watchdogCleanup?: Promise<void>): Promise<never> => {
 		if (shuttingDown) process.exit(exitCode);
 		shuttingDown = true;
+		stopChildReaper();
 		// On Windows, destroying named-pipe sockets does not always make libuv's
 		// server.close callback fire: connected pipe instances can remain in the
 		// kernel after the JavaScript handles are destroyed. Keep the normal drain

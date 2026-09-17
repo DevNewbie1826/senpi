@@ -1,3 +1,28 @@
+## 2026-09-17 - Socket hosts reap the children a terminated worker orphaned (#1782)
+
+### What changed
+
+- `child-reaper.ts` (new): the reaping policy. `createChildReaper({ syscalls, now?, minWaitableMs?, log? })` returns a `tick()` that enumerates the host's DIRECT children, peeks at each with the `waitid(..., WNOWAIT)` oracle, and consumes with `waitpid(pid, WNOHANG)` only a pid that stayed waitable across two ticks at least `minWaitableMs` apart (default 30 s, hard floor 5 s). `waitpid(-1, ...)` is never called, so the reaper can never take a child it did not identify first. `startHostChildReaper(log)` arms it on a 1 s unref'd interval and returns the stop function.
+- `child-reaper-syscalls.ts` (new): the platform bindings behind `loadChildReaperSyscalls()`. darwin enumerates with libproc `proc_listchildpids` (which lists zombies) and names children with `proc_name`; linux scans `/proc/<pid>/stat` for the ppid and reads `comm` from the same file; both call `waitid`/`waitpid` through `bun:ffi` (`bun-ffi.d.ts`, new, mirrors the `bun:sqlite` declaration precedent). No `ps` spawn anywhere - a reaper that spawns children to find children is the bug #1721 removed. `proc_pidinfo` is NOT used to detect zombies.
+- `multi-session-host.ts`: `runSocketHost` arms the reaper before it listens and stops it in `shutdown`. The stdio host is unchanged: it lives and dies with the embedder that owns it.
+- Environment: `SENPI_RPC_HOST_REAPER=0` disables reaping; `SENPI_RPC_HOST_REAPER_MIN_WAITABLE_MS` raises the window (clamped to the 5 s floor). Under Node (no `bun:ffi`) the host logs one warning at startup and reaps nothing.
+- Observability: while at least 10 children sit waiting, or whenever a tick reaped, one line per 5 minutes carries `reaped=`, `waiting=` and the three commonest command names.
+- QA: `scripts/qa-rpc-socket/spawn-zombie-probe.mjs` + `spawn-zombie-matrix.mjs` (new) produce the {spawn API} x {thread} x {runtime} x {lifecycle} table; `worker-spawn-zombie.mjs` gained `--case quarantine` (terminate a session worker while its bash child runs) and `--reaper-ms`. Test: `test/suite/rpc-host-reaper.test.ts` (+ `rpc-host-reaper-support.ts`).
+
+### Why
+
+- Measured on this branch (56 cells, darwin arm64, bun 1.4.2): every steady-state cell is 0 - 50 short spawns through one in-process session, and every {`child_process.spawn`, `Bun.spawn`, `Bun.$`} x {main thread, worker thread} x {bun source, compiled binary, Node} combination where the spawning thread stays alive. Every cell where a Worker is terminated with children that exited or exit later leaks 20/20, on all three APIs and all three runtimes, and the zombies survive for the life of the process. The product path that does exactly that is the session-worker quarantine (`session-worker-client.ts`): measured, it leaks 1 zombie per quarantined session with a live child, and 0 with the reaper armed.
+- A long-lived machine-wide daemon is the process where those zombies accumulate; a stdio host dies with its embedder, which is why only the socket host arms the reaper.
+- Why the window is 30 s and not the 5 s floor: a zombie carries no hint about which thread meant to wait on it, so only time separates "abandoned" from "its owner is blocked". Measured: stealing a child from a thread blocked in `execSync` makes `child_process` and `Bun.spawn` reject with `ECHILD` and `Bun.$` never settle at all. With a 5 s window the 12 s blocked-thread cell loses its child's exit code; with the shipped 30 s window every blocked cell still resolves with the real code 7.
+
+### Why an extension could not handle it
+
+- Reaping is a process-wide operation on the host's own children, below the extension boundary: an extension cannot see children it did not spawn, and a per-extension reaper would race every other one.
+
+### Expected merge conflict zones
+
+- LOW: the `shutdown` preamble and the import block in `multi-session-host.ts`. Both new source files and both new QA scripts are additive; upstream has no host reaper.
+
 ## 2026-09-17 - Socket hosts run their sessions in the host process (#1782)
 
 ### What changed
