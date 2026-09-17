@@ -1,5 +1,6 @@
 import type { TUI } from "@earendil-works/pi-tui";
 import type { SettingsManager } from "../../../core/settings-manager.ts";
+import { readTerminalThemeHint, writeTerminalThemeHint } from "./terminal-theme-cache.ts";
 import {
 	detectTerminalBackgroundFromEnv,
 	detectTerminalBackgroundTheme,
@@ -12,7 +13,6 @@ import {
 	type TerminalTheme,
 	type Theme,
 } from "./theme.ts";
-import { readTerminalThemeHint, writeTerminalThemeHint } from "./terminal-theme-cache.ts";
 
 type ThemeResult = { success: boolean; error?: string };
 type AutoThemeSetting = NonNullable<ReturnType<typeof parseAutoThemeSetting>>;

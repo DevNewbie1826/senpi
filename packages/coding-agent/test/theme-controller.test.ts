@@ -1,6 +1,6 @@
-import type { TUI } from "@earendil-works/pi-tui";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAgentDir } from "../src/config.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -190,7 +190,13 @@ describe("InteractiveThemeController startup detection", () => {
 		// Given: an auto theme, a terminal that never answers, and a remembered light background
 		vi.useFakeTimers();
 		vi.stubEnv("COLORFGBG", "");
-		writeFileSync(join(mkdirSync(join(getAgentDir(), "cache"), { recursive: true }) ?? join(getAgentDir(), "cache"), "terminal-theme.json"), JSON.stringify({ terminalTheme: "light" }));
+		writeFileSync(
+			join(
+				mkdirSync(join(getAgentDir(), "cache"), { recursive: true }) ?? join(getAgentDir(), "cache"),
+				"terminal-theme.json",
+			),
+			JSON.stringify({ terminalTheme: "light" }),
+		);
 		const { ui, queryTerminalBackgroundColor, queryTerminalColorScheme } = createUi();
 		queryTerminalBackgroundColor.mockImplementation(({ timeoutMs }: { timeoutMs: number }) =>
 			unansweredQuery(timeoutMs),

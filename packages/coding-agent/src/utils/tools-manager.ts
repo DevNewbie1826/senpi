@@ -1,6 +1,6 @@
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { type SpawnSyncReturns, spawnSync } from "child_process";
-import { statSync, chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "fs";
+import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "fs";
 import { arch, platform } from "os";
 import { join } from "path";
 import { Readable } from "stream";
