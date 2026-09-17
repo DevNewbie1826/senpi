@@ -7,6 +7,12 @@
 ### Added
 
 ### Changed
+- Interactive startup is measurable at its seams. `PI_TIMING` gains a `tui` namespace that splits `InteractiveMode.init()` into changelog, component tree and `ui.start`, theme, managed tools, key handlers, session rebind and initial render, and the timing clock moved from `Date.now()` to `performance.now()` (rounded only when printed) because the phases now being measured are tens of milliseconds. The first run of it showed the session rebind is 749 ms of an 820 ms phase, with the terminal component tree at 2 ms - so that phase is mostly extension `session_start` and resource discovery rather than terminal work. ([#1781](https://github.com/code-yeongyu/senpi/issues/1781))
+
+- The terminal theme is applied without waiting for the terminal to answer. Startup used to `await` an OSC background-colour query with a 100 ms timeout whenever no theme was persisted or the setting was `auto`, so every such launch paid up to the full timeout before the first frame; the last known (or environment-derived) theme is now applied immediately, detection runs in the background, and a high-confidence answer is applied and persisted when it arrives. A pinned theme still skips detection entirely. Measured under a pty (median of 5): `interactiveMode.init` 591 ms to 500 ms with no persisted theme. ([#1781](https://github.com/code-yeongyu/senpi/issues/1781))
+
+- Agent-session services build the model runtime and load resources concurrently instead of one after the other. The two are independent - the resource loader is constructed from cwd, agent dir and settings and never touches the model runtime - so they are joined with a deterministic settle that keeps today's behavior: a model-runtime failure still surfaces first when both fail, and neither branch can leave an unhandled rejection behind. Measured (median of 5, warm): `createAgentSessionRuntime` 277 ms to 180 ms; a cold run is unchanged, since overlapping two CPU-bound phases on one thread only buys the I/O wait they share. ([#1781](https://github.com/code-yeongyu/senpi/issues/1781))
+
 
 ### Fixed
 

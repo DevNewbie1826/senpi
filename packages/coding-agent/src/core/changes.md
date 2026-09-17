@@ -1,5 +1,26 @@
 # changes
 
+## 2026-09-17 - Time the interactive startup seams and overlap the two startup branches (senpi#1781)
+
+### What changed
+
+- `packages/coding-agent/src/core/timings.ts`: adds the `tui` namespace to `TimingLabel`, takes its marks from `performance.now()` instead of `Date.now()`, and rounds only when printing or formatting.
+- `packages/coding-agent/src/core/startup-branch-join.ts` (new): settles two independent startup branches and rethrows the primary branch's error first, so the model-runtime failure still wins when both fail and neither branch leaves an unhandled rejection.
+- `packages/coding-agent/src/core/agent-session-services.ts`: runs `ModelRuntime.create` and `DefaultResourceLoader.reload` concurrently through that join; the drain, refresh and flag diagnostics stay after it, so their order is unchanged.
+
+### Why
+
+- The largest startup phase was reported as one opaque number, and a whole-millisecond clock cannot resolve the 20-60 ms items that remain. The first instrumented run showed the session rebind is 91% of that phase.
+- The model runtime and the resource loader share no objects: the loader is constructed from cwd, agent dir and the settings manager, while the runtime reads auth and the model catalogs. Sequencing them cost the I/O wait they could have shared.
+
+### Why an extension could not handle it
+
+- Startup instrumentation and service construction both run before the extension host exists.
+
+### Expected merge conflict zones
+
+- LOW: the `TimingLabel` union and the print helpers in `timings.ts`; MEDIUM: the services construction order in `agent-session-services.ts`.
+
 ## 2026-09-17 - Record a pre-main phase and stop resolving !command keys at startup (senpi#1781)
 
 ### What changed
