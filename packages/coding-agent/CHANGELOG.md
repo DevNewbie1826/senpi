@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- A new session's first turn no longer goes out without an MCP server's instructions and tools. Taking attach off the first-paint path means `session_start` returns while a cold server is still booting, and the first turn's system prompt was assembled from whatever had landed by then - on a loaded machine that is an empty catalog, so the turn carried no `<mcp_instructions>` block and none of that server's tools, and the instructions stay missing for the rest of the session because they are captured once per session. The prompt build now awaits the attach's own completion signal, bounded at 5 s; a server still connecting past that no longer blocks the turn, and its catalog lands on a later turn. ([#1797](https://github.com/code-yeongyu/senpi/issues/1797))
+
 ### Removed
 
 ## [2026.9.17-2] - 2026-09-17

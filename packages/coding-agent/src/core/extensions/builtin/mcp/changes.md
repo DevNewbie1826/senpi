@@ -1,5 +1,29 @@
 # mcp Extension Changes
 
+## 2026-09-17 - The prompt build observes the deferred attach (senpi#1797)
+
+### What changed
+
+- `startup-race.ts`: the connect that the startup race backgrounds is now handed to the caller through a required `onDeferred` option, and `McpDeferredAttach` holds those continuations as the attach's completion signal. `MCP_ATTACH_SETTLE_TIMEOUT_MS` (5 s) bounds anyone waiting on it; a connect that fails still settles the attach and is logged there, where it is finally handled.
+- `service.ts`: `#syncFromConfig` tracks every backgrounded connect, `whenAttachSettled(timeoutMs)` exposes the bounded wait, and `dispose` drops the pending set.
+- `index.ts`: `before_agent_start` awaits `whenAttachSettled()` before `injectMcpInstructions`, so the system prompt is assembled from a settled catalog; a timeout logs one warning and the turn still goes out.
+- `test/mcp/attach-prompt-ordering.test.ts` (new): drives the production seam with a zero startup window (`SENPI_MCP_STARTUP_TIMEOUT_MS=0`), so the attach is always deferred, and pins the instructions block, the turn-1 tool payload, and the connection state at prompt-build time.
+
+### Why
+
+- `attachSession` resolves at the startup-race deadline, not at connect completion, so `before_agent_start` was awaiting a promise that says nothing about the server being read. The instructions snapshot taken at attach time then held the cached (or empty) generation for the whole session, and turn 1's payload carried no MCP tools. On a fast machine the connect won the race and hid it; senpi#1797 caught it on a 534 s CI shard, twice, on a branch whose diff touches no MCP file.
+- Reproduced deterministically with the existing product knob: with `SENPI_MCP_STARTUP_TIMEOUT_MS=0`, `test/mcp/instructions.test.ts > keeps same-session instructions byte-identical until a new session starts` fails on main at the same assertion CI failed on, and passes with this change.
+- The wait is bounded rather than open-ended because each connect is already bounded by the server's `connectTimeoutMs` (15 s default); 5 s is the point where the user's turn stops paying for a wedged server and takes the catalog on a later turn instead.
+
+### Why an extension could not handle it
+
+- The startup race, the single-flight attach promise, and the session instructions snapshot are all private to this builtin; nothing outside it can observe when a backgrounded connect has settled, and `before_agent_start` ordering inside the builtin is what decides the first turn's prompt.
+
+### Expected merge conflict zones
+
+- LOW: the `raceMcpStartupConnect` tail in `startup-race.ts` and the `raceMcpStartupConnect({...})` option block in `service.ts`.
+- LOW: the `before_agent_start` body in `index.ts` between the skills block and `injectMcpInstructions`.
+
 ## 2026-09-17 - Do not await attach inside session_start (senpi#1781)
 
 ### What changed

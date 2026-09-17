@@ -18,6 +18,7 @@ import {
 	type SkillMcpDeclarations,
 	skillActivationTargets,
 } from "./skills.ts";
+import { MCP_ATTACH_SETTLE_TIMEOUT_MS } from "./startup-race.ts";
 import { reportMcpAsyncError, safeEventBusOn, wrapAsync } from "./wrap.ts";
 
 const MCP_BUILTIN_EXTENSION_PATH = "<builtin:mcp>";
@@ -151,6 +152,16 @@ export function createMcpExtension(service: McpService, sessionOwned = true): Ex
 						...(declared.size > 0 ? await service.attachSkillMcpServers(declared) : []),
 					];
 					for (const warning of warnings) createMcpLogger("skills").warn(warning);
+				}
+				// attachPromise resolves at the startup-race deadline, which leaves a slow
+				// server still handshaking: assembling the prompt here would publish that
+				// server's stale instructions - or none at all - for the whole session.
+				// Await the attach's own completion signal instead, bounded; on timeout the
+				// turn still goes out and the server's catalog lands on a later turn.
+				if ((await service.whenAttachSettled()) === "timeout") {
+					createMcpLogger("service").warn("MCP attach still settling at prompt build", {
+						timeoutMs: MCP_ATTACH_SETTLE_TIMEOUT_MS,
+					});
 				}
 				const systemPrompt = injectMcpInstructions(service, event.systemPrompt);
 				return systemPrompt === undefined ? undefined : { systemPrompt };
