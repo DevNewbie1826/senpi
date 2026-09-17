@@ -214,7 +214,12 @@ export class RpcSessionRegistry {
 			this.reservations.add(sessionPath);
 			// Another generation of this daemon may still be writing this file. Its claim is the only
 			// thing this process can see across a handoff, and a live one means "retry", not "gone".
-			const holder = await this.options.pathReservations?.claim(sessionPath);
+			// Only AWAIT when there is a cross-generation claim to take: `await undefined` still costs a
+			// microtask, and an embedded registry (no second generation) must reach the "opening" entry
+			// in the same tick a caller that raced it would look, exactly as it did before generations.
+			const holder = this.options.pathReservations
+				? await this.options.pathReservations.claim(sessionPath)
+				: undefined;
 			if (holder) {
 				this.reservations.delete(sessionPath);
 				throw new RpcSessionRegistryError("session_path_in_use", undefined, {
