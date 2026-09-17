@@ -1,5 +1,19 @@
 # changes
 
+## 2026-09-17 - Publish a bundled workspace's assets (senpi#1800)
+
+### What changed
+
+- `prepare-senpi-bundled-workspaces.mjs`: `shouldCopyWorkspaceFile` now copies `assets` and `assets/**` alongside `dist` and `native`; `@earendil-works/pi-agent-core` declares its two tree-sitter grammars in `requiredFiles`, so `assertSenpiPackedWorkspaceFiles` fails the release when they are missing.
+
+### Why
+
+- `pi-agent-core`'s `grammar-assets.js` embeds `import("../../../../../assets/tree-sitter/<name>.wasm", { with: { type: "file" } })`, which Bun's compiler must resolve at compile time. The staged copy omitted `assets/`, so the published tarball pointed outside itself and every `publish-platform` build in the consuming repo failed with `Could not resolve`.
+
+### Expected merge conflict zones
+
+- LOW: the `bundledWorkspaces` entry for pi-agent-core and the `shouldCopyWorkspaceFile` allowlist.
+
 ## 2026-09-17 - Keep the Bun-only reaper bindings out of the release bundle (senpi#1782)
 
 ### What changed

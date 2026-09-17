@@ -6,6 +6,18 @@
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+## [2026.9.17-3] - 2026-09-17
+
+### Breaking Changes
+
+### Added
+
 - A shared RPC host now names WHY a session closed. `session_closed` carries an optional `reason`: `client_close` when the client asked, `idle_evicted` when the idle window ended a session that was not retained, `host_shutdown` when the host process is exiting (SIGTERM of a retained session is a close, not a park), `replaced` when the handle ended because the live session was swapped, `handoff_parked` when a generation handoff parked it, and `error` when the session failed. A retained session that hits the idle window still arrives as `session_parked` rather than a close. Clients that do not know `reason` ignore the field. ([#1782](https://github.com/code-yeongyu/senpi/issues/1782))
 
 - The shared RPC daemon now keeps its state in a directory of its own per socket, `<agentDir>/rpc-host-daemon/<sha256(socket)[:16]>/`, with the running generation named by a pointer file and each generation's own record, settings and scratch space under `generations/<instanceId>/`. Directories are owner-only (`0700`) and every state file is `0600`. Two sockets in one agent directory can no longer read each other's state, a handoff repoints the pointer instead of overwriting the record of a host that is still serving, and `senpi host stop` drops the stopped generation's state with it. The shared directory keeps only a `layout.json` marker — and, deliberately, NO flat `host.pid`. That flat pidfile is exactly what makes an older client kill a daemon it did not start (a desktop that finds one takes the host over; a `senpi` from before this change stops it), so an un-updated client now fails CLOSED against the new daemon: it sees no host of its own, refuses, and leaves every other client's sessions running. A flat pidfile left by a genuinely older host is never rewritten and never removed, and while the process it names is alive an ensure refuses instead of starting a second host beside it. A daemon directory that cannot be created or written fails with an error naming that exact path, and starts no host. Stopping or draining a host that had already exited on its own now reports that outcome instead of failing with a raw signal error. ([#1782](https://github.com/code-yeongyu/senpi/issues/1782))
@@ -29,6 +41,10 @@
 ### Changed
 
 ### Fixed
+- The z.ai Coding Plan tests follow the provider's current catalog. Upstream retired `glm-4.7`, `glm-5.1`, `glm-5.2`, `glm-5.2-highspeed`, `glm-5-turbo` and `glm-5v-turbo` from `zai-coding-cn` in favour of the `glm-5.3` family, so assertions naming the retired ids stopped type-checking the moment the release regenerated the catalog, which blocked publishing. The suites now assert models both providers actually carry, and the `glm-5.3` reasoning map (`off: null`, `low: "low"`) rather than the `5.2` shape.
+
+- The published package now ships `@earendil-works/pi-agent-core`'s tree-sitter assets. Its `dist` reaches those grammars through compile-time `type: "file"` imports, but publish staging copied only `dist`, `native` and the manifest files, so the tarball carried specifiers pointing five directories above the package at files that were never published. Any consumer bundling senpi with `bun build --compile` failed to resolve them. Staging now copies a bundled workspace's `assets` as well, and the pack gate requires those two grammar files so a future drop fails the release instead of the consumer. ([#1800](https://github.com/code-yeongyu/senpi/issues/1800))
+
 
 - A shared RPC host started under its lifecycle supervisor no longer hangs when it decides to exit on its own. The host watches an inherited pipe to notice its supervisor dying, and reading that pipe through a file stream parked a thread-pool worker in a blocking read for the process's whole life — which `process.exit()` waits for, so a self-exit never completed and the host only died when something killed it. The same pipe is now watched on the event loop, so an idle exit (and the drain of a generation handoff) ends the process immediately. ([#1782](https://github.com/code-yeongyu/senpi/issues/1782))
 
