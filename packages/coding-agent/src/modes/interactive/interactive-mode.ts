@@ -122,7 +122,7 @@ import type { FullscreenExitOutput, TuiMode } from "../../core/settings-manager.
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
-import { formatTimings, time } from "../../core/timings.ts";
+import { resetTimings, formatTimings, time } from "../../core/timings.ts";
 import { withBuiltInRenderers } from "../../core/tools/renderers/index.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
@@ -1500,10 +1500,15 @@ export class InteractiveMode {
 	async init(): Promise<void> {
 		if (this.isInitialized) return;
 
+		// This method is the single largest startup phase, and `main.ts` measures it as one opaque
+		// number. The "tui" namespace splits it at the seams that own real work, so the next round
+		// budgets against measurements instead of guesses.
+		resetTimings("tui");
 		this.registerSignalHandlers();
 
 		// Load changelog (only show new entries, skip for resumed sessions)
 		this.changelogMarkdown = this.getChangelogForDisplay();
+		time("changelog", "tui");
 
 		if (this.session.scopedModels.length > 0 && (this.options.verbose || !this.settingsManager.getQuietStartup())) {
 			const modelList = this.session.scopedModels
@@ -1572,8 +1577,10 @@ export class InteractiveMode {
 		}
 		this.isInitialized = true;
 		(this.runtimeHost as Partial<HostUiCapableRuntime> | undefined)?.setClientInfo?.(this.ui.terminal.columns);
+		time("componentTree+uiStart", "tui");
 
 		await this.themeController.applyFromSettings();
+		time("theme", "tui");
 
 		// Add header with keybindings from config (unless silenced)
 		if (this.chrome) {
@@ -1661,17 +1668,21 @@ export class InteractiveMode {
 			ensureTool("rg", (status) => this.showManagedToolStatus(status)),
 		]);
 		this.fdPath = fdPath;
+		time("ensureTools", "tui");
 
 		// Enable the remaining input handlers only after managed-tool setup completes.
 		this.setupKeyHandlers();
 		this.setupEditorSubmitHandler();
 		this.ui.requestRender();
+		time("keyHandlers", "tui");
 
 		// Initialize extensions first so resources are shown before messages
 		await this.rebindCurrentSession();
+		time("rebindSession", "tui");
 
 		// Render initial messages AFTER showing loaded resources
 		this.renderInitialMessages();
+		time("renderInitial", "tui");
 
 		// Set up theme file watcher
 		onThemeChange(() => {
