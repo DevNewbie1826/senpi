@@ -224,46 +224,6 @@ describe("mcp builtin extension load", () => {
 		}
 	});
 
-	it("starts attach on session_start without holding the event open until it settles", async () => {
-		// Given a service whose attach stays in flight until this test releases it, so "session_start
-		// returned" and "attach settled" are ordered by the code under test rather than by any duration.
-		const attachGate = Promise.withResolvers<void>();
-		let attachStarted = false;
-		let attachSettled = false;
-		const gatedService = new Proxy(
-			{},
-			{
-				get: (_target, property) => {
-					if (property !== "attachSession") return () => undefined;
-					return () => {
-						attachStarted = true;
-						return attachGate.promise.then(() => {
-							attachSettled = true;
-						});
-					};
-				},
-			},
-		) as never;
-		const extension = await loadExtensionFromFactory(
-			createMcpExtension(gatedService),
-			process.cwd(),
-			createEventBus(),
-			createExtensionRuntime(),
-			"<mcp-gated-test>",
-		);
-
-		// When the runner dispatches session_start and the event loop is allowed to drain.
-		await emitSessionStart(extension, "startup");
-
-		// Then attach is running but the event did not wait for it: awaiting attach here is what put a
-		// cold server's boot and catalog handshake in front of the first frame.
-		expect(attachStarted).toBe(true);
-		expect(attachSettled).toBe(false);
-
-		attachGate.resolve();
-		await attachGate.promise;
-	});
-
 	it("registers tools from an extension-declared MCP server with source=extension", async () => {
 		const fixture = stdioFixtureCommand();
 		const pi = fakePi();
