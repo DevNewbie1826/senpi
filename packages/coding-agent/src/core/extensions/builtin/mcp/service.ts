@@ -49,6 +49,9 @@ import type {
 } from "./service-types.ts";
 import {
 	connectAndRefreshMcpCatalog,
+	MCP_ATTACH_SETTLE_TIMEOUT_MS,
+	McpDeferredAttach,
+	type McpStartupRaceResult,
 	raceMcpStartupConnect,
 	resolveMcpStartupTimeoutMs,
 	shouldRaceMcpStartup,
@@ -86,6 +89,7 @@ export class McpService {
 	#sessionOptions: McpSessionOptions = {};
 	#pi: Pick<ExtensionAPI, "getActiveTools" | "setActiveTools" | "registerTool"> | undefined;
 	#attachQueue: Promise<void> = Promise.resolve();
+	readonly #deferredAttach = new McpDeferredAttach();
 	#latestWireStatus: McpWireStatusSnapshot = { servers: [] };
 	readonly #wireStatusBySession = new Map<string, McpWireStatusSnapshot>();
 	readonly #connections = new Map<string, McpConnectionEntry>();
@@ -209,6 +213,17 @@ export class McpService {
 		return () => this.#registrationListeners.delete(listener);
 	}
 
+	/**
+	 * Await the startup connects the race backgrounded, bounded by `timeoutMs`.
+	 * `attachSession` resolves at the race deadline, so consumers that assemble
+	 * session state from the catalog - the first turn's system prompt - call this
+	 * to OBSERVE the attach. A `"timeout"` result means the turn goes out with
+	 * what has landed so far and the rest arrives on a later turn.
+	 */
+	whenAttachSettled(timeoutMs = MCP_ATTACH_SETTLE_TIMEOUT_MS): Promise<McpStartupRaceResult> {
+		return this.#deferredAttach.wait(timeoutMs);
+	}
+
 	/** Subscribe to live MCP inventory transitions for session-scoped hosts. */
 	onWireStatusChanged(listener: (sessionId: string | undefined, snapshot: McpWireStatusSnapshot) => void): () => void {
 		this.#wireStatusListeners.add(listener);
@@ -258,6 +273,7 @@ export class McpService {
 		this.#wireStatusListeners.clear();
 		this.#wireStatusBySession.clear();
 		this.#latestWireStatus = { servers: [] };
+		this.#deferredAttach.clear();
 		const entries = [...this.#connections.values()];
 		this.#connections.clear();
 		this.#connectionKeysByName.clear();
@@ -444,6 +460,7 @@ export class McpService {
 						serverConfig: server.config,
 						shouldRefreshTools: () => !this.#disposed && this.#toolRefreshGeneration === toolRefreshGeneration,
 						deadlineMs: resolveMcpStartupTimeoutMs(server.config.startupTimeoutMs),
+						onDeferred: (settled) => this.#deferredAttach.track(settled),
 					}),
 				);
 			}
