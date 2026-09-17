@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- JS eval kernel: a cell whose top-level declaration (`const`/`let`/`var`, plain or destructured) names an existing platform or prelude global (for example `const fetch = ...`) is now rejected before execution with an error naming the identifier and the rename remedy, instead of silently replacing that global for every later cell and wedging the session until a kernel reset. Cell-created globals stay re-declarable across cells, and explicit `globalThis.<name> = ...` assignments remain untouched as the deliberate escape hatch. (#1784)
+
 ### Removed
 
 ## [2026.9.17] - 2026-09-17
