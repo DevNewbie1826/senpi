@@ -8,6 +8,7 @@ import {
 	SESSION_CONTEXT_CAPABILITY,
 	SESSION_KIND_CAPABILITY,
 } from "./custom-capability.ts";
+import { protocolIdentity } from "./protocol-identity.ts";
 import { sessionAutoTitleError, sessionContextError, sessionKindError } from "./rpc-input-validation.ts";
 import type { RpcCommand, RpcResponse } from "./rpc-types.ts";
 import {
@@ -175,6 +176,7 @@ export class SessionCommandRouter {
 					serverVersion: VERSION,
 					capabilities: [...capabilities],
 					mode: "multi",
+					...protocolIdentity(),
 				},
 			};
 		}

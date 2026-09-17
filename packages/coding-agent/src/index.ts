@@ -49,6 +49,16 @@ export {
 	serializeConversation,
 	shouldCompact,
 } from "./core/compaction/index.ts";
+// Engine build identity: the ordinal clients compare instead of version strings
+export {
+	compareEngineOrdinal,
+	type EngineBuildIdentity,
+	type EngineBuildInput,
+	type EngineOrdinal,
+	type EngineOrdinalScheme,
+	engineBuildIdentity,
+	engineBuildIdentityFrom,
+} from "./core/engine-build-identity.ts";
 export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.ts";
 // Extension system
 export type {

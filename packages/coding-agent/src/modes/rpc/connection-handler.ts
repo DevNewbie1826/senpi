@@ -70,6 +70,7 @@ import {
 } from "./custom-capability.ts";
 import { createRpcEventOutputBuffer } from "./event-output-buffer.ts";
 import { createRpcLoginPromptCallbacks } from "./login-prompts.ts";
+import { protocolIdentity } from "./protocol-identity.ts";
 import { buildRpcCommandsForSession, createCommandsChangedEvent, rpcCommandListDigest } from "./rpc-command-surface.ts";
 import { rpcCommandPayloadError, rpcCommandShapeError, rpcMessageLengthError } from "./rpc-input-validation.ts";
 import type {
@@ -1070,6 +1071,7 @@ export function createRpcConnectionHandler(
 							]),
 						],
 						mode: "classic",
+						...protocolIdentity(),
 					},
 				};
 			case "open_session":

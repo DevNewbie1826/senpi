@@ -1,3 +1,30 @@
+## 2026-09-17 - `get_protocol_info` advertises engine build identity, ordinal and launch profile (#1782)
+
+### What changed
+
+- `src/core/engine-build-identity.ts` (new): `engineBuildIdentity()` -> `{ text, ordinal: [y, m, d, n, epoch], scheme: "epoch" | "nodef" }` and `compareEngineOrdinal(a, b)`. The version is parsed from `VERSION` (package.json CalVer, `2026.9.16` or `2026.9.16-3`, `n = 0` without the suffix); `epoch`/`sha7` come from the compile-time defines `SENPI_BUILD_EPOCH`/`SENPI_BUILD_SHA7`, read through `typeof` guards so a source run or a define-less build degrades to scheme `nodef` with epoch `0` instead of throwing. Comparison is lexicographic over `[y, m, d, n]`; the epoch breaks a tie ONLY when both sides are scheme `epoch`, otherwise EQUAL. Exported from the barrel (`src/index.ts`).
+- `src/modes/rpc/protocol-identity.ts` (new): `protocolIdentity()` = the identity fields of a `get_protocol_info` answer - `instanceId` (UUID minted once per host process), `generation` (`SENPI_RPC_HOST_GENERATION`, 0 when nobody ensured this host), `engineVersion`/`engineOrdinal` (the build identity above) and `launch_profile`. `hostLaunchProfile(argv, cwd)` derives the profile from the host's OWN argv through the production `parseArgs` + `resolveSessionRuntime`: `core = { extensions (absolute, deduplicated, sorted), multi_session, session_runtime }`, `profile_id = sha256` of the canonical JSON of `core` with keys in sorted order.
+- `rpc-types.ts`: new exported wire types `RpcLaunchProfileCore`, `RpcLaunchProfile`, `RpcProtocolIdentity`, `RpcProtocolInfo`; the `get_protocol_info` response member now names `RpcProtocolInfo` instead of an inline shape.
+- `connection-handler.ts` (classic) and `session-command-router.ts` (multi-session) spread `protocolIdentity()` into their `get_protocol_info` answer. Nothing else about the reply changed: `protocolVersion`, `serverVersion`, `capabilities` and `mode` are byte-identical.
+- `scripts/build-binaries.sh`: resolves the built commit's committer epoch and short sha once and passes `--define SENPI_BUILD_EPOCH=<epoch> --define SENPI_BUILD_SHA7="<sha7>"` to both platform compile lines. Without git metadata it prints one line and compiles with epoch `0` (scheme `nodef`) rather than failing; both compile lines stay a single shell-quotable argv, which `scripts/build-binaries-flags.test.mjs` and `scripts/read-summary-release-contract.test.mjs` require.
+- Docs: `docs/rpc.md` gains a "Host identity" section and an updated `get_protocol_info` row; the `rpc-mode.ts` D1 header table carries the same shape.
+- Tests: `test/suite/engine-build-identity.test.ts` (parse table, the ascending CalVer chain `2026.9.16 < 2026.9.16-2 < 2026.9.16-3 < 2026.9.16-10 < 2026.9.17`, an explicit assertion that `semver.compare` DISAGREES with it, `nodef` -> EQUAL, epoch decides only when both sides carry one) and `test/rpc-protocol-identity.test.ts` (the pure argv -> profile and env -> generation derivations, plus two spawned hosts - a socket host launched with `--session-runtime in-process --extension <path>` and a classic stdio host - whose replies carry every field, a stable `profile_id` across two connections, and the `engineVersion` of this tree). `test/rpc-multi-session.test.ts`'s exact protocol-info pin gained the new fields.
+
+### Why
+
+- Three clients share one machine-wide host, and today's only identity in the reply is a `serverVersion` STRING. Deployed clients compare it for equality and kill the host when it differs (invariant I2 exists because of exactly that), so the daemon has to publish what a compatibility decision actually needs: which process this is (`instanceId`), which generation, which build, and what that build loads.
+- The ordinal has to be a tuple rather than a string because this product's CalVer `-N` is a POST-release increment: `2026.9.16-3` ships after `2026.9.16`, while semver ranks the bare version higher. A client that reached for a semver comparison here would hand off backwards, which is why the module never imports semver and the suite pins the disagreement.
+- "Uncomparable is EQUAL" is the I2 rule in code: a binary built without git metadata has no age, and the handoff rule is "strictly greater", so such a build attaches instead of replacing a running host.
+- The launch profile is derived from the host's own argv rather than from a caller-supplied description because that is the only account of the host that cannot drift from what it actually loaded - and `profile_id` gives a client one value to compare instead of a path list.
+
+### Why an extension could not handle it
+
+- `get_protocol_info` is answered by the host before any session (and therefore any extension) exists; it is the probe a client uses to decide whether to attach at all. The build defines are compile-time inputs to the binary, and the launch profile describes the host process's own argv - none of it is reachable from an extension.
+
+### Expected merge conflict zones
+
+- LOW: two new modules plus one line inside each of the two `get_protocol_info` arms (`connection-handler.ts`, `session-command-router.ts`), the `get_protocol_info` member of `RpcResponse` in `rpc-types.ts`, the two compile lines in `scripts/build-binaries.sh`, and the protocol-info pin in `test/rpc-multi-session.test.ts`.
+
 ## 2026-09-17 - Load and contention proof for one in-process host (#1782)
 
 ### What changed

@@ -109,6 +109,50 @@ run - the wire protocol, attachment semantics and lifecycle windows are identica
 session is not isolated from the host: a session that blocks the event loop blocks every other session, and there is
 no per-session opening deadline like the worker runtime's 30-second budget.
 
+### Host identity (`get_protocol_info`)
+
+Every `get_protocol_info` answer - classic and multi-session alike - carries the identity of the host that
+answered it, so a client sharing one machine-wide host can tell hosts, builds and launches apart without
+parsing a version string:
+
+```json
+{
+  "protocolVersion": 1,
+  "serverVersion": "2026.9.17",
+  "capabilities": ["multi_session", "..."],
+  "mode": "multi",
+  "instanceId": "b46e6734-881f-493a-9bf5-705f9e15327a",
+  "generation": 0,
+  "engineVersion": "2026.9.17+1789656604.7b59713",
+  "engineOrdinal": [2026, 9, 17, 0, 1789656604],
+  "launch_profile": {
+    "profile_id": "ca7a4943…",
+    "core": { "extensions": [], "multi_session": true, "session_runtime": "in-process" }
+  }
+}
+```
+
+- `instanceId` - UUID minted when the host process booted. It is the only reliable "is this still the same
+  host?" signal: it changes whenever the process does, including after a replacement.
+- `generation` - which generation of its daemon directory this host is, handed to it at spawn time
+  (`SENPI_RPC_HOST_GENERATION`). A host nobody ensured reports `0`.
+- `engineVersion` - the build string: the CalVer package version plus `+<buildEpoch>.<sha7>` when the binary
+  was compiled with build metadata. Informational, like `serverVersion`.
+- `engineOrdinal` - `[year, month, day, postRelease, buildEpoch]`, the ONLY ordering a client may use.
+  `[y, m, d, n]` compares lexicographically, where `n` is the CalVer post-release increment (`2026.9.16-3`
+  ships AFTER `2026.9.16`, the opposite of the semver reading of those strings). The build epoch breaks a tie
+  only when BOTH sides carry one; otherwise the two builds are EQUAL, so a build whose age cannot be established
+  never outranks one that can. Binaries built without git metadata report an epoch of `0`, which is exactly how a
+  client reads "this build has no age": a non-zero epoch is comparable, `0` is not.
+- `launch_profile` - what the host was launched with: `core.session_runtime`, `core.multi_session` and
+  `core.extensions` (absolute roots, deduplicated and sorted). `profile_id` is the sha256 of the canonical JSON
+  of `core` with its keys in that sorted order (`extensions`, `multi_session`, `session_runtime`), so any client
+  can recompute it and compare two hosts without comparing paths.
+
+Compatibility is decided from `protocolVersion` + `capabilities`, and "is my build newer?" from `engineOrdinal`.
+A `serverVersion` string comparison is never a compatibility test: two hosts with different version strings can
+speak the same protocol, and a host whose ordinal is uncomparable is attached to, never replaced.
+
 ### Child reaping on a socket host (`SENPI_RPC_HOST_REAPER`)
 
 A socket host reaps the exited child processes that no thread is left to wait on. A `worker_threads` Worker owns the
@@ -411,7 +455,7 @@ containment, or containment of arbitrary native code. They are not an extension 
 
 | Command | Params | Success data | Notes |
 | --- | --- | --- | --- |
-| `get_protocol_info` | - | `{ protocolVersion: 1, serverVersion: string, capabilities: string[], mode: "classic"\|"multi" }` | Answered in BOTH modes; side-effect-free; the capability probe. Multi-session hosts include `multi_session`, `retain_on_disconnect`, `session_kind`, `session_context` and `auto_title_per_session` plus the negotiated launch capabilities. Those are HOST capabilities (a client never sends them) and are advertised only in multi-session mode, where the host owns the attachment refcount and the per-session launch profile. |
+| `get_protocol_info` | - | `{ protocolVersion: 1, serverVersion: string, capabilities: string[], mode: "classic"\|"multi", instanceId: string, generation: number, engineVersion: string, engineOrdinal: [y, m, d, n, epoch], launch_profile: { profile_id, core } }` | Answered in BOTH modes; side-effect-free; the capability probe. Multi-session hosts include `multi_session`, `retain_on_disconnect`, `session_kind`, `session_context` and `auto_title_per_session` plus the negotiated launch capabilities. Those are HOST capabilities (a client never sends them) and are advertised only in multi-session mode, where the host owns the attachment refcount and the per-session launch profile. The identity fields are described under "Host identity" above; compatibility is decided from `protocolVersion`, `capabilities` and `engineOrdinal`, NEVER from `serverVersion`. |
 | `open_session` | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?`, `kind?`, `context?`, `auto_title?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: true }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there, `session-manager.ts:926-940`); `provider`/`modelId` applied only on create (resume restores the session's model — mirrors `SenpiSessionRuntime.ts:198-200`); params form the immutable launch profile (D8). When the path is already held by a fully-open session, the open ATTACHES to it: same routing handle, `attached: true`, one more attachment counted; the runtime is torn down only when the last attachment closes. Idle sessions past the eviction window are closed by the host itself. `retain_on_disconnect: true` (default false) makes a dropped connection DETACH from this session instead of closing it — see "Retained sessions" below. `kind` (default `interactive`) and the opaque `context` map are described under "Session kind and context" above; both are stored frozen for the session's life and never influence auth, model or resource resolution. |
 | `close_session` | `sessionId` | `{}` | Refused with `unknown_session` when the requesting connection never attached to that handle (a close releases the CALLER's attachment, and `list_sessions` publishes every handle). Otherwise aborts active work, awaits agent idle + settled persistence for up to the host grace window (default 10s), then quarantines any worker that has not exited without releasing its path reservation; its response is the LAST record tagged with that handle for the first closer — no events after (test-pinned). An admitted concurrent close joins the same teardown and receives its own successful response; output saturation rejects admission with the bounded close-overflow/resync notice described above. |
 | `list_sessions` | `include_workers?` (default false) | `{ sessions: [{ sessionId, durableSessionId, sessionPath, cwd, name, status, attachments, kind, context? }] }` | Includes `opening`/`closing` entries. Internally quarantined workers remain externally `closing` until exit. `attachments` is the session's live client attachment count; `0` on an `open` row is a retained session with no client attached. Every row carries `kind`. Rows with `kind: "worker"` are omitted unless `include_workers: true`, and `context` is published ONLY on that listing — a default listing carries no `context` at all. |

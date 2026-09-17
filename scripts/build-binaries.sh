@@ -106,6 +106,22 @@ npm rebuild canvas --foreground-scripts
 
 node scripts/prepare-bun-compile-assets.mjs
 
+# Build identity (engineBuildIdentity(): packages/coding-agent/src/core/engine-build-identity.ts).
+# The committer epoch and short sha of the built commit are compiled in, so two binaries
+# of the same CalVer version can still be ordered and a host can say WHICH build it runs.
+# Git metadata is not guaranteed (source archive, exported tree, no git installed): the
+# epoch then stays 0, the binary reports scheme `nodef` instead of an invented age, and
+# the build still succeeds - a build must never fail over its own provenance.
+BUILD_EPOCH=$(git -C "$REPO_ROOT" log -1 --format=%ct 2>/dev/null || true)
+BUILD_SHA7=$(git -C "$REPO_ROOT" log -1 --format=%h --abbrev=7 2>/dev/null || true)
+if [[ ! "$BUILD_EPOCH" =~ ^[0-9]+$ || ! "$BUILD_SHA7" =~ ^[0-9a-f]+$ ]]; then
+    echo "==> No git metadata; binaries report build scheme nodef"
+    BUILD_EPOCH=0
+    BUILD_SHA7=""
+else
+    echo "==> Build identity: epoch $BUILD_EPOCH, commit $BUILD_SHA7"
+fi
+
 echo "==> Building binaries..."
 cd packages/coding-agent
 
@@ -134,9 +150,9 @@ for platform in "${PLATFORMS[@]}"; do
     # Disable cwd bunfig.toml autoload so project preload scripts cannot crash the
     # standalone binary before pi starts (see #7684).
     if [[ "$platform" == windows-* ]]; then
-        bun build --compile --splitting --compile-autoload-package-json --no-compile-autoload-dotenv --no-compile-autoload-bunfig --minify --keep-names --target="$bun_target" ./dist/bun/cli.js ./src/modes/rpc/session-worker.ts ./src/utils/image-resize-worker.ts --outfile "$OUTPUT_DIR/$platform/pi.exe"
+        bun build --compile --splitting --compile-autoload-package-json --no-compile-autoload-dotenv --no-compile-autoload-bunfig --minify --keep-names --define "SENPI_BUILD_EPOCH=$BUILD_EPOCH" --define "SENPI_BUILD_SHA7=\"$BUILD_SHA7\"" --target="$bun_target" ./dist/bun/cli.js ./src/modes/rpc/session-worker.ts ./src/utils/image-resize-worker.ts --outfile "$OUTPUT_DIR/$platform/pi.exe"
     else
-        bun build --compile --splitting --compile-autoload-package-json --no-compile-autoload-dotenv --no-compile-autoload-bunfig --minify --keep-names --target="$bun_target" ./dist/bun/cli.js ./src/modes/rpc/session-worker.ts ./src/utils/image-resize-worker.ts --outfile "$OUTPUT_DIR/$platform/pi"
+        bun build --compile --splitting --compile-autoload-package-json --no-compile-autoload-dotenv --no-compile-autoload-bunfig --minify --keep-names --define "SENPI_BUILD_EPOCH=$BUILD_EPOCH" --define "SENPI_BUILD_SHA7=\"$BUILD_SHA7\"" --target="$bun_target" ./dist/bun/cli.js ./src/modes/rpc/session-worker.ts ./src/utils/image-resize-worker.ts --outfile "$OUTPUT_DIR/$platform/pi"
         if [[ "$platform" == darwin-* ]] && command -v codesign >/dev/null 2>&1; then
             codesign --remove-signature "$OUTPUT_DIR/$platform/pi" 2>/dev/null || true
             codesign --force --sign - "$OUTPUT_DIR/$platform/pi"
