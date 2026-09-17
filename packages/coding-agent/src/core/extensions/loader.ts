@@ -1,6 +1,6 @@
 // allow: SIZE_OK - pre-existing extension API wiring, aliases, cache, and discovery glue; the native Bun filesystem importer lives in its own module.
 /**
- * Extension loader - native Bun imports in compiled binaries, lazy jiti on Node.
+ * Extension loader - native Bun imports on any Bun runtime, lazy jiti on Node.
  *
  */
 
@@ -21,7 +21,7 @@ import * as _bundledPiTui from "@earendil-works/pi-tui";
 import * as _bundledTypebox from "typebox";
 import * as _bundledTypeboxCompile from "typebox/compile";
 import * as _bundledTypeboxValue from "typebox/value";
-import { CONFIG_DIR_NAME, getAgentDir, isBunBinary, isBundledNode } from "../../config.ts";
+import { CONFIG_DIR_NAME, getAgentDir, isBunBinary, isBundledNode, isBunRuntime } from "../../config.ts";
 // NOTE: This import works because loader.ts exports are NOT re-exported from index.ts,
 // avoiding a circular dependency. Extensions can import from @code-yeongyu/senpi.
 import * as _bundledPiCodingAgent from "../../index.ts";
@@ -86,6 +86,10 @@ const isNodeSeaBinary =
 	("sea" in process.features && process.features.sea === true) ||
 	process.getBuiltinModule("node:sea")?.isSea() === true;
 const isTypeScriptSourceRuntime = !isBunBinary && path.extname(fileURLToPath(import.meta.url)) === ".ts";
+// Bun.Transpiler, Bun.resolveSync and Bun.plugin exist on every Bun runtime, not
+// just inside compiled binaries: a bun-global install must not pay jiti + Babel
+// for the bundled codemode extension and user TypeScript extensions on each boot.
+const usesNativeBunImports = isBunBinary || isBunRuntime;
 
 /**
  * Get aliases for jiti (used in built Node.js mode).
@@ -694,7 +698,7 @@ function createExtensionAPI(
 const importNodeOnlyApi = (specifier: string): Promise<typeof import("jiti/static")> => import(specifier);
 
 async function createExtensionModuleImporter(): Promise<ExtensionModuleImporter> {
-	if (isBunBinary) {
+	if (usesNativeBunImports) {
 		const { createBunExtensionImporter } = await import("./bun-extension-importer.ts");
 		return createBunExtensionImporter(VIRTUAL_MODULES);
 	}
@@ -790,7 +794,7 @@ async function initializeExtension(
 	try {
 		await factory(load.api);
 		load.commit();
-		if (isBunBinary) {
+		if (usesNativeBunImports) {
 			const factories = runtimeFactories.get(runtime) ?? new Set<ExtensionFactory>();
 			factories.add(factory);
 			runtimeFactories.set(runtime, factories);
