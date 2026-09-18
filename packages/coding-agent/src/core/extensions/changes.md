@@ -1,5 +1,24 @@
 # Core Extensions Changes
 
+## 2026-09-18 - Named imports from CommonJS packages link through the extension graph (senpi#1807)
+
+### What changed
+
+- `bun-extension-importer.ts`: `load()` resolves each static import to its real path and, when the target has no module syntax (or is `.cjs`), replaces the whole import statement with a `default` import plus destructuring instead of only rewriting the specifier. `resolve()` now delegates to a `resolveTarget` helper that returns both the graph id and the real path.
+- `bun-extension-commonjs.ts` (new): `isCommonJsFile` (cached lexer probe, `.cjs`/`.mjs`/TypeScript short-circuits) and `rewriteCommonJsImport` / `parseImportClause`, which turn `import { A, B as C } from "x"`, `import * as ns`, and `import d` into bindings off `module.exports`.
+
+### Why
+
+- A CommonJS module in the graph is wrapped to expose only `export default module.exports`, so Bun's ESM linker rejected `import { Readability } from "@mozilla/readability"` with `Export named 'Readability' not found in module 'senpi-extension:...'`, while the same import works in plain Bun and Node (they synthesize named exports with cjs-module-lexer). CommonJS has no live bindings, so `default` plus destructuring is exactly Node's interop semantics, with no new dependency.
+
+### Why an extension could not handle it
+
+- The failure happens while the loader links the extension's own module graph, before any extension code runs.
+
+### Expected merge conflict zones
+
+- MEDIUM: the import-edge loop inside `load()` and the `resolve` member of `graph` in `bun-extension-importer.ts`. `bun-extension-commonjs.ts` is fork-only.
+
 ## 2026-09-17 - ExtensionAPI publishes the session's kind and opaque context (senpi#1782)
 
 ### What changed

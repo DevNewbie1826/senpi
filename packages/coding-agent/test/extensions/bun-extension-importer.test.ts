@@ -229,6 +229,30 @@ assert.equal(factory(false), 97);
 		);
 	});
 
+	it("binds named, aliased, namespace, and default imports from a CommonJS package (#1807)", () => {
+		// Given: a CommonJS dependency, as @mozilla/readability and jsdom ship, imported four ways.
+		const root = fixture(`import { Thing, Other as Renamed } from "cjs-lib";
+import * as ns from "cjs-lib";
+import whole from "cjs-lib";
+export default () => [Thing(), Renamed, ns.Other, whole.deflt];`);
+		const directory = join(root, "node_modules", "cjs-lib");
+		mkdirSync(directory, { recursive: true });
+		writeFileSync(join(directory, "package.json"), JSON.stringify({ name: "cjs-lib", main: "index.js" }));
+		writeFileSync(
+			join(directory, "index.js"),
+			'exports.Thing = function Thing() { return "thing"; };\nexports.Other = "other";\nmodule.exports.deflt = "d";\n',
+		);
+		// When / Then: every binding resolves through module.exports, as Node and plain Bun do.
+		run(
+			root,
+			`
+const importer = await createBunExtensionImporter({});
+const factory = await importer.import(entry, { default: true });
+assert.deepEqual(factory(), ["thing", "other", "other", "d"]);
+`,
+		);
+	});
+
 	it("propagates transform and resolution errors when extension input is malformed", () => {
 		// Given
 		const root = fixture("export const broken: = ;");

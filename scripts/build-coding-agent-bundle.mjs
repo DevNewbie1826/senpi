@@ -12,8 +12,13 @@ const codingAgentDir = join(repoRoot, "packages", "coding-agent");
 const aiDistDir = join(repoRoot, "packages", "ai", "dist");
 const codingAgentDistDir = join(codingAgentDir, "dist");
 const bundleDir = join(codingAgentDistDir, "bundle");
+// undici's CacheStorage instantiates at module init and calls
+// worker_threads.markAsUncloneable, a Node >= 23 API that Bun 1.3.x lacks (#1806).
+// Every emitted file evaluates this prologue before any bundled module code.
+const runtimeGuards =
+	'{ const __piWorkerThreads = require("node:worker_threads"); if (typeof __piWorkerThreads.markAsUncloneable !== "function") { __piWorkerThreads.markAsUncloneable = () => {}; } }';
 const banner = {
-	js: 'import { createRequire as __piCreateRequire } from "node:module"; const require = __piCreateRequire(import.meta.url);',
+	js: `import { createRequire as __piCreateRequire } from "node:module"; const require = __piCreateRequire(import.meta.url); ${runtimeGuards}`,
 };
 const allowedExternalPackages = new Set([
 	"@earendil-works/chord",

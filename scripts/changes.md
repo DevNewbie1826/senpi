@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-18 - Guard worker_threads.markAsUncloneable in the bundle prologue (senpi#1806)
+
+### What changed
+
+- `build-coding-agent-bundle.mjs`: the esbuild banner every emitted file starts with now reads `node:worker_threads` and installs a no-op `markAsUncloneable` when the runtime has none.
+
+### Why
+
+- `undici@8.10.2` instantiates `CacheStorage` at module init, and that constructor calls `webidl.util.markAsUncloneable(this)` — bound unconditionally from `worker_threads.markAsUncloneable`, a Node >= 23 API. Bun 1.3.x has no such export, so the first `require("undici")` threw and every published senpi from `2026.9.17-3` failed to boot there, TUI and headless alike. senpi never uses `caches`; the crash was undici's own init. The banner is the one place guaranteed to run before any bundled module in every chunk, including `session-worker.js`.
+
+### Why an extension could not handle it
+
+- Extensions load after the engine has already imported undici. Only the bundle prologue runs early enough.
+
+### Expected merge conflict zones
+
+- LOW: the `banner` constant in `build-coding-agent-bundle.mjs`.
+
 ## 2026-09-17 - Compiled binaries carry the build epoch and short sha (#1782)
 
 ### What changed

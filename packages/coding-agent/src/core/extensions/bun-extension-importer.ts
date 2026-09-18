@@ -3,6 +3,7 @@ import { createRequire, isBuiltin } from "node:module";
 import { dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "es-module-lexer/js";
+import { isCommonJsFile, rewriteCommonJsImport } from "./bun-extension-commonjs.ts";
 import { ExtensionSourceError } from "./bun-extension-error.ts";
 import {
 	ExtensionGenerationDisposedError,
@@ -36,15 +37,19 @@ export function createBunExtensionImporter(
 	};
 	const moduleId = (filename: string) =>
 		`${extensionNamespace}:${registration.generation}/${encodeURIComponent(filename)}`;
+	const resolveTarget = (specifier: string, filename: string): { readonly id: string; readonly path?: string } => {
+		assertActive();
+		if (Object.hasOwn(virtualModules, specifier) || isBuiltin(specifier) || specifier.startsWith("bun:"))
+			return { id: specifier };
+		if (specifier.startsWith(`${extensionNamespace}:`)) return { id: specifier };
+		const path = specifier.startsWith("file:") ? fileURLToPath(specifier) : specifier;
+		const resolved = realpathSync(Bun.resolveSync(path, dirname(filename)));
+		return { id: moduleId(resolved), path: resolved };
+	};
 	const graph = {
 		assertActive,
 		resolve(specifier: string, filename: string): string {
-			assertActive();
-			if (Object.hasOwn(virtualModules, specifier) || isBuiltin(specifier) || specifier.startsWith("bun:"))
-				return specifier;
-			if (specifier.startsWith(`${extensionNamespace}:`)) return specifier;
-			const path = specifier.startsWith("file:") ? fileURLToPath(specifier) : specifier;
-			return moduleId(realpathSync(Bun.resolveSync(path, dirname(filename))));
+			return resolveTarget(specifier, filename).id;
 		},
 		require(specifier: string, filename: string): unknown {
 			const id = graph.resolve(specifier, filename);
@@ -78,17 +83,24 @@ export function createBunExtensionImporter(
 			}
 			const [imports, , , hasModuleSyntax] = parse(contents, filename);
 			const edits: { readonly start: number; readonly end: number; readonly text: string }[] = [];
+			let commonJsImports = 0;
 			for (const edge of imports) {
 				if (edge.d >= 0) {
 					// Replace the keyword, not its argument: nested expressions, templates,
 					// import attributes, and unavailable optional dependencies stay lazy.
 					edits.push({ start: edge.ss, end: edge.d, text: `${name}.import` });
 				} else if (edge.n !== undefined) {
-					edits.push({
-						start: edge.s - 1,
-						end: edge.e + 1,
-						text: JSON.stringify(graph.resolve(edge.n, filename)),
-					});
+					const target = resolveTarget(edge.n, filename);
+					if (target.path !== undefined && isCommonJsFile(target.path)) {
+						const clause = contents.slice(edge.ss + "import".length, edge.s - 1).replace(/\bfrom\s*$/, "");
+						edits.push({
+							start: edge.ss,
+							end: edge.se,
+							text: rewriteCommonJsImport(clause, target.id, `${name}Cjs${commonJsImports++}`),
+						});
+					} else {
+						edits.push({ start: edge.s - 1, end: edge.e + 1, text: JSON.stringify(target.id) });
+					}
 				}
 			}
 			for (const edit of edits.sort((a, b) => b.start - a.start)) {
