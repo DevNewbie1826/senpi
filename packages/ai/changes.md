@@ -2,21 +2,32 @@
 
 ### What changed
 
-- `scripts/model-shards.ts` gains `importedModelShards` and a third argument to
+- `packages/ai/scripts/model-shards.ts` gains `importedModelShards` and a third argument to
   `isPrunableModelShard`: a shard a committed provider module imports is never prunable, whoever was
   supposed to write it. `FORK_OWNED_MODEL_SHARDS` stays for shards no module imports.
-- `scripts/generate-models.ts` reads the provider modules beside the shards and passes the
+- `packages/ai/scripts/generate-models.ts` reads the provider modules beside the shards and passes the
   imported set to the prune, so a provider models.dev has stopped describing keeps its catalog.
-- `test/model-shards.test.ts` adds the fresh-generation case: every imported shard survives a
+- `packages/ai/test/model-shards.test.ts` adds the fresh-generation case: every imported shard survives a
   run that wrote none of them. It fails without the guard.
 
 ### Why
 
 - The release job regenerates catalogs before type-checking. models.dev no longer describes `kimi-coding`,
-  so the prune deleted `src/providers/kimi-coding.models.ts` while `src/providers/kimi-coding.ts` still imported it, and two
-  consecutive releases died on `TS2307` with fifteen cascades. Ordinary CI type-checks the committed
-  catalog instead of regenerating it, and the existing ownership test compares against that same committed
-  aggregator, so only the release job could see it.
+  so the prune deleted `packages/ai/src/providers/kimi-coding.models.ts` while
+  `packages/ai/src/providers/kimi-coding.ts` still imported it, and two consecutive releases died on
+  `TS2307` with fifteen cascades. Ordinary CI type-checks the committed catalog instead of regenerating
+  it, and the existing ownership test compares against that same committed aggregator, so only the release
+  job could see it.
+
+### Why an extension could not handle it
+
+- The prune happens inside the generator's own write-and-sweep pass. Nothing outside it knows which shards
+  the run produced, so the decision to keep a shard has to be made where that set exists.
+
+### Expected merge conflict zones
+
+- `packages/ai/scripts/model-shards.ts` around `isPrunableModelShard`, and the prune loop in
+  `packages/ai/scripts/generate-models.ts`, if upstream reshapes the shard sweep.
 
 ## 2026-09-18 - Generate the official B.AI chat catalog
 
