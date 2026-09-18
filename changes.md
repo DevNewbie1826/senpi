@@ -1,5 +1,26 @@
 # changes — senpi-monorepo root
 
+## Make B.AI credentials available to development environments (2026-09-18)
+
+### What changed
+
+- `.devcontainer/devcontainer.json` exposes an optional B.AI secret alongside the other provider keys.
+- `pi-test.sh`, `pi-test.ps1`, `test.sh`, and
+  `packages/coding-agent/scripts/qa-app-server/lib/env.mjs` scrub `BAI_API_KEY` from hermetic test processes.
+
+### Why
+
+- The native B.AI provider should work consistently in local checkouts and dev containers without storing
+  credentials in tracked files.
+
+### Why an extension could not handle it
+
+- Development environment bootstrapping and container secret declarations run before Senpi or its extensions.
+
+### Expected merge conflict zones
+
+- LOW: the provider-key arrays in the setup script and devcontainer secret block.
+
 ## claude-sdk-oauth re-login refreshes the slot; stored pool blocks bind to credential revisions (2026-09-17)
 
 ### What changed

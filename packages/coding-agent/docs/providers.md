@@ -215,6 +215,29 @@ The provider streams through Ollama's OpenAI-compatible `/v1/chat/completions` e
 Existing local Ollama configurations remain supported. When an `ollama` provider in `models.json` includes
 an explicit `models` catalog, that catalog takes precedence and Senpi does not run Ollama Cloud discovery.
 
+## B.AI
+
+Use `/login bai` to store an API key, or export `BAI_API_KEY`. B.AI model availability is credential-scoped,
+so refresh the catalog after login:
+
+```bash
+export BAI_API_KEY=...
+senpi update --models
+senpi --provider bai --model gpt-5.6-sol
+```
+
+Senpi discovers available IDs from `https://api.b.ai/v1/models` and enriches classified chat models with
+B.AI's documented context, output, input modality, reasoning-level, and standard pricing metadata. The provider
+routes GPT and DeepSeek through OpenAI Responses, Claude through Anthropic Messages, and other supported chat
+families through OpenAI Chat Completions.
+
+B.AI requires every function tool schema to declare a root `type: "object"`. The provider adds that missing root
+only on B.AI requests, preserving existing object schemas and other providers. Image-only IDs such as
+`gpt-image-2` remain on B.AI's image API and are not listed as chat models.
+
+Reference prices do not include temporary promotions, top-up bonuses, load-dependent rates, or account benefits;
+B.AI's final billing record remains authoritative.
+
 ## API Keys
 
 ### Environment Variables or Auth File
@@ -232,6 +255,7 @@ senpi
 | Ant Ling | `ANT_LING_API_KEY` | `ant-ling` |
 | Azure OpenAI Responses | `AZURE_OPENAI_API_KEY` | `azure-openai-responses` |
 | OpenAI | `OPENAI_API_KEY` | `openai` |
+| B.AI | `BAI_API_KEY` | `bai` |
 | Ollama Cloud | `OLLAMA_API_KEY` | `ollama` |
 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek` |
 | NVIDIA NIM | `NVIDIA_API_KEY` | `nvidia` |

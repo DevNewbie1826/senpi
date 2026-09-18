@@ -55,6 +55,7 @@ describe("GPT-6 Astra series catalog context window", () => {
 		expect(files).toEqual([
 			"amazon-bedrock.json",
 			"azure-openai-responses.json",
+			"bai.json",
 			"cloudflare-ai-gateway.json",
 			"github-copilot.json",
 			"openai-codex.json",

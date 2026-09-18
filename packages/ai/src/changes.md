@@ -1,3 +1,35 @@
+## Native B.AI provider with credential-scoped catalog and schema compatibility (2026-09-18)
+
+### What changed
+
+- `packages/ai/src/providers/bai.ts`: adds the built-in `bai` provider, API-key auth, credential-scoped
+  `/v1/models` discovery, generated-metadata filtering, cached catalog remapping, and mixed Responses /
+  Messages / Chat Completions dispatch.
+- `packages/ai/src/providers/bai-stream.ts`: composes each B.AI payload transform and restores a missing
+  root `type: "object"` on function schemas without mutating caller-owned payloads.
+- `packages/ai/src/providers/all.ts`: registers B.AI among built-in providers.
+- `packages/ai/src/env-api-keys.ts`: maps `bai` to `BAI_API_KEY`.
+- `packages/ai/src/types.ts`: adds `bai` to `KnownProvider`.
+
+### Why
+
+- B.AI exposes one API key and a credential-scoped `/v1/models` list across multiple compatible wire APIs.
+  IDs alone do not contain the capabilities, limits, reasoning levels, or pricing Senpi needs for selection
+  and accounting.
+- B.AI rejects union-root function schemas such as `workpool` unless the root explicitly declares
+  `type: "object"`, while the same schemas are accepted by less strict Responses backends.
+
+### Why an extension could not handle it
+
+- A user extension can prove the transport, but cannot add B.AI to the shipped built-in provider registry,
+  generated catalog, canonical environment-key map, or every consumer of `KnownProvider`.
+
+### Expected merge conflict zones
+
+- LOW: provider import/order additions in `packages/ai/src/providers/all.ts`.
+- LOW: one member in `KnownProvider` and one environment-key mapping.
+- NONE: `bai.ts` and `bai-stream.ts` are new fork-owned files.
+
 ## 2026-09-17 - Follow the z.ai catalog to the glm-5.3 family
 
 ### What changed

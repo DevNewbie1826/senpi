@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
+import { getBaiModels } from "./generate-models-bai.ts";
 import { fetchOpenGatewayModels } from "./generate-models-opengateway.ts";
 import { isPrunableModelShard } from "./model-shards.ts";
 import { getEffortThinkingLevelMap, type ModelsDevReasoningOption } from "./models-dev-reasoning-options.ts";
@@ -2792,6 +2793,7 @@ async function generateModels() {
 			!(model.provider === "xai" && XAI_BUILTIN_EXCLUDED_MODEL_IDS.has(model.id)) &&
 			!((model.provider === "opencode" || model.provider === "opencode-go") && model.id === "gpt-5.3-codex-spark"),
 	);
+	allModels.push(...getBaiModels());
 
 	// Temporary overrides until upstream model metadata is corrected.
 	for (const candidate of allModels) {

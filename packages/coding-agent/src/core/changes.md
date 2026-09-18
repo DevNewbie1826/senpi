@@ -1,5 +1,25 @@
 # changes
 
+## 2026-09-18 - Default B.AI model selection
+
+### What changed
+
+- `packages/coding-agent/src/core/model-resolver.ts`: adds `bai/gpt-5.6-sol` to
+  `defaultModelPerProvider`.
+
+### Why
+
+- Every built-in provider needs a resolvable default for CLI startup and model selection. B.AI is dynamic at
+  runtime, but its generated classified catalog still owns the default model identity.
+
+### Why an extension could not handle it
+
+- Default provider selection runs in the core resolver before extension code can amend the built-in map.
+
+### Expected merge conflict zones
+
+- LOW: one entry in `defaultModelPerProvider`.
+
 ## 2026-09-17 - Launch profile carries the session's kind and context to its resources (senpi#1782)
 
 ### What changed
