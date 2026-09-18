@@ -10,6 +10,9 @@
 
 ### Fixed
 
+- **senpi boots again on Bun 1.3.x.** Every release since 2026.9.17-3 crashed at startup there with `webidl.util.markAsUncloneable is not a function`, TUI and headless alike. The bundled `undici` instantiates a `CacheStorage` at module init, and that constructor reaches for `worker_threads.markAsUncloneable`, an API Node added in 23 and Bun 1.3 does not have. The bundle prologue now installs a no-op when the runtime lacks it; nothing in senpi ever used `caches`. ([#1806](https://github.com/code-yeongyu/senpi/issues/1806))
+- **Extensions can import named bindings from CommonJS packages.** `import { Readability } from "@mozilla/readability"` (and `jsdom`, and anything that reached `tldts` through `tough-cookie`) failed to load with `Export named 'X' not found in module 'senpi-extension:...'`, though the same line works in plain Bun and Node. The loader wrapped CommonJS as `default`-only; it now rewrites named, aliased, and namespace imports of a CommonJS target to bind off `module.exports`, which is the semantics CommonJS has anyway. ([#1807](https://github.com/code-yeongyu/senpi/issues/1807))
+
 ### Removed
 
 ## [2026.9.17-4] - 2026-09-17
