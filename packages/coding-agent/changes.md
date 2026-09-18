@@ -1,5 +1,28 @@
 # Local fork changes
 
+## 2026-09-18 - One reusable live-QA run for the in-process daemon, on real compiled binaries (#1782)
+
+### What changed
+
+- `packages/coding-agent/scripts/qa-rpc-socket/inprocess-daemon-qa.mjs` (new): the whole shared-daemon matrix as ONE runnable driver, printing one JSON line per step with a synchronous `writeFileSync(1, ...)` so a step that hangs has still printed everything before it. The cells, in order: two compiled generations whose `SENPI_BUILD_EPOCH` differ; `pi host ensure --json --launch-spec` into a throwaway agent directory; two `kind: "worker"` sessions with different `context`, each probed through its OWN extension instance (`probe.identity`); `list_sessions` with and without `include_workers`; fifty sessions with the daemon's thread count before and after; a retained session dropped at the socket and reopened (`attached: true`); two hundred `bash true` calls followed by the host's own `status --json` Z-count after a settle; and a generation handoff driven by the newer binary while a client is still connected - old connection still answering, session paths equal, transcripts monotonic, one socket inode change, and an ensure from the OLDER binary afterwards answering `reuse`. The LAST line is always the cleanup receipt (hosts stopped, hosts still alive, `pgrep -f rpc-host-fixture.mjs`, anything still naming the sandbox, sandbox removed), and a surviving host makes the run exit non-zero.
+- `packages/coding-agent/scripts/qa-rpc-socket/lib/compiled-generations.mjs` (new): the two binaries. `bun build --compile --define SENPI_BUILD_EPOCH=... --define SENPI_BUILD_SHA7=...` twice over the built bundle, one day apart, plus the `package.json` and `theme/*.json` a standalone resolves beside itself and the darwin ad-hoc re-sign - the same staging `scripts/build-binaries.sh` performs. `--older`/`--newer` accept two prebuilt binaries instead.
+- `packages/coding-agent/scripts/qa-rpc-socket/lib/daemon-sandbox.mjs` (new): the throwaway world one daemon is driven in - a real (symlink-resolved) short root so `<socket>.next-<generation>` fits `sun_path` and the host's own reported session paths compare equal, the launch spec with its probe extension, and the `pi host ...` spawn that answers one JSON line with an explicitly built environment.
+- `packages/coding-agent/scripts/qa-rpc-socket/lib/daemon-sessions.mjs` (new): the session vocabulary those cells drive over real socket connections - open (and an admission result that does not throw, so a cap stays a measurement), the per-session extension probe, `list_sessions`, one real turn awaited on the host's `agent_idle`, and the detach observation a retained session is re-opened after.
+
+### Why
+
+- The matrix had been run ad hoc, so its numbers could not be re-measured: a later change to the daemon would have needed the same hours of hand-driving to know whether context isolation, worker visibility, retention, child reaping or the handoff still held. It is now one command against two binaries a release would ship.
+- It runs on COMPILED binaries because the surfaces it measures only exist there: a standalone re-enters itself through `--internal-rpc-host-supervisor` rather than a script path, and the build epoch a generation handoff is decided on is a compile-time define that a source run does not carry.
+- The receipt is part of the contract rather than a convenience. A shared host outlives the client that started it, so a QA run that fails in the middle leaves a daemon serving a deleted sandbox; this driver stops every host it started, escalates to `SIGKILL` for one that will not stop, and reports what is left running.
+
+### Why an extension could not handle it
+
+- The subject is the engine's process lifecycle - which binary owns the socket, which generation serves it, which processes survive a run. None of it is reachable from inside an extension, which by then is already loaded into the very host under test.
+
+### Expected merge conflict zones
+
+- LOW: four new files under `packages/coding-agent/scripts/qa-rpc-socket/`. Nothing existing is edited; a conflict is possible only if upstream adds a file at one of those paths.
+
 ## 2026-09-17 - Build the bundled CLI the package declares as bin.pi, and skip completed scan migrations (senpi#1781)
 
 ### What changed
