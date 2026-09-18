@@ -1,6 +1,6 @@
 # builtin/prompt-preset
 
-Builtin extension #7. On `before_agent_start` and `model_select`, picks a system prompt preset by **model family** (gpt-5.x through gpt-5.6, gpt-6-astra, claude-fable-5, claude-fable-5-1, claude-opus-5, claude-opus-4-{5,6,7,8}, glm-5.2, glm-5.3, deepseek-v4-{flash,flash-0731,pro}, deepseek-v4-1-flash, kimi-k2-{6,7}, kimi-k3) and falls back to the senpi dynamic prompt when nothing matches. Renders the active preset name in the startup header. After 2026-04-30, presets are thin wrappers around `buildDynamicSystemPrompt()` carrying only model-specific tuning.
+Builtin extension #7. On `before_agent_start` and `model_select`, picks a system prompt preset by **model family** (gpt-5.x through gpt-5.6, gpt-6-astra, claude-fable-5, claude-fable-5-1, claude-opus-5, claude-opus-4-{5,6,7,8}, glm-5.2, glm-5.3, deepseek-v4-{flash,flash-0731,pro}, deepseek-v4-1-flash, kimi-k2-{6,7,8}, kimi-k3) and falls back to the senpi dynamic prompt when nothing matches. Renders the active preset name in the startup header. After 2026-04-30, presets are thin wrappers around `buildDynamicSystemPrompt()` carrying only model-specific tuning.
 
 ## FILES
 
@@ -30,7 +30,8 @@ prompt-preset/
 ├── deepseek-v4-flash-0731.ts # DeepSeek V4 Flash 0731 snapshot preset — dated snapshot resolves before the generic flash alias
 ├── deepseek-v4-1-flash.ts # DeepSeek V4.1 Flash preset — execution-tooling stance + claude dialect only, none of the V4 rules (new pre-train; DeepSeek's own scaffold table favours the thinnest harness); resolves every V4.1 id shape (deepseek-flash, v4.1/v4p1/v4-1-flash) and the official provider's retired deepseek-v4-flash / -vision-exp aliases, which the DeepSeek API serves with V4.1 since 2026-09-10
 ├── deepseek-v4-pro.ts   # DeepSeek V4 Pro preset (deep-reasoner calibration)
-├── kimi-k2-{6,7}.ts     # Kimi K2.6 / K2.7 presets (kimi-k2-6.ts, kimi-k2-7.ts)
+├── kimi-k2-code.ts      # Shared Kimi K2 coding-family core (`buildKimiK2CodePrompt`): execution-tooling stance in the kimi dialect + the restrained outcome-first tuning, parameterized by model name. K2.7 Code and K2.8 Preview share one prompting surface — Moonshot upgraded Kimi Code's rolling `kimi-for-coding` id to K2.8 in place, same family, same posture
+├── kimi-k2-{6,7,8}.ts   # Kimi K2.6 preset (kimi-k2-6.ts) plus the K2.7 / K2.8 thin aliases over `buildKimiK2CodePrompt` (kimi-k2-7.ts, kimi-k2-8.ts). Kimi Code's rolling ids resolve by exact match: `kimi-for-coding` -> kimi-k2-8, `kimi-for-coding-highspeed` -> kimi-k2-7
 ├── kimi-k3.ts           # Kimi K3 preset — full-core rewrite via `corePrompt` on the Fable 5.1 skeleton, tuned for Moonshot's documented K3 "excessive proactiveness" (Scope section: request = deliverable, pre-existing problems are follow-ups, test scope; reflect-then-ask ambiguity gate; bounded failure cap; delegation with propagated stop condition) + binding stop contract (declared stop condition in the routing line)
 └── changes.md           # Fork tracker (model-family rename 2026-04-30, file-operations 2026-05-07)
 ```
