@@ -227,16 +227,22 @@ senpi --provider bai --model gpt-5.6-sol
 ```
 
 Senpi discovers available IDs from `https://api.b.ai/v1/models` and enriches classified chat models with
-B.AI's documented context, output, input modality, reasoning-level, and standard pricing metadata. The provider
-routes GPT and DeepSeek through OpenAI Responses, Claude through Anthropic Messages, and other supported chat
-families through OpenAI Chat Completions.
+B.AI's documented context, output, input modality, reasoning-level, and standard pricing metadata. Because that
+list is credential-scoped, a model you are not entitled to never appears.
 
-B.AI requires every function tool schema to declare a root `type: "object"`. The provider adds that missing root
-only on B.AI requests, preserving existing object schemas and other providers. Image-only IDs such as
-`gpt-image-2` remain on B.AI's image API and are not listed as chat models.
+B.AI serves one API key over three protocols and documents several models on more than one of them, so the
+endpoint is a client choice rather than a per-model property. Senpi pins one protocol per model: GPT and
+DeepSeek use OpenAI Responses (the two families B.AI names for that endpoint), Claude uses Anthropic Messages,
+and the remaining chat families use OpenAI Chat Completions.
 
-Reference prices do not include temporary promotions, top-up bonuses, load-dependent rates, or account benefits;
-B.AI's final billing record remains authoritative.
+B.AI rejects a function tool whose root parameters schema declares no `type`. On the Responses endpoint Senpi
+merges such a union root into a single object schema so the tool keeps its parameters; the Chat Completions and
+Messages paths already do the same normalization for every provider. Image-only IDs such as `gpt-image-2` remain
+on B.AI's image API and are not listed as chat models.
+
+The catalog records B.AI's standard reference prices in USD per 1M tokens. They exclude temporary promotions,
+top-up bonuses, DeepSeek idle-period rates, and account benefits, so B.AI's final billing record remains
+authoritative.
 
 ## API Keys
 

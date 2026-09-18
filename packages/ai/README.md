@@ -331,9 +331,11 @@ const fresh = models.getModel('llamacpp', 'qwen3-30b');
 Static built-in providers are no-ops for `refresh()`. See [createProvider()](#createprovider) for building a dynamic provider.
 
 B.AI is dynamic: `GET https://api.b.ai/v1/models` returns the model IDs available to the current credential,
-while the shipped catalog supplies B.AI's documented capabilities and standard reference pricing. GPT and
-DeepSeek models use OpenAI Responses, Claude models use Anthropic Messages, and the remaining chat families use
-OpenAI Chat Completions. Image-only IDs such as `gpt-image-2` are not exposed through the chat catalog.
+while the shipped catalog supplies B.AI's documented capabilities and standard reference pricing. B.AI serves
+one key over three protocols and documents several models on more than one of them, so Senpi pins the endpoint
+per model rather than treating it as a B.AI property: GPT and DeepSeek use OpenAI Responses, Claude uses
+Anthropic Messages, and the remaining chat families use OpenAI Chat Completions. Image-only IDs such as
+`gpt-image-2` are not exposed through the chat catalog.
 
 ## Auth
 

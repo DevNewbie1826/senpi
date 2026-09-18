@@ -6,6 +6,9 @@
 
 ### Added
 
+- B.AI provider support: set `BAI_API_KEY` or run `/login bai`, then `senpi update --models` to pull the
+  models your key is entitled to. `bai` defaults to `gpt-5.6-sol`.
+
 ### Changed
 
 ### Fixed
@@ -332,6 +335,7 @@
 - Fixed the `/btw` panel having no off switch: a bare `/btw` now dismisses the panel (or cancels the in-flight side query), Escape is matched through the shared key matcher so it also works under the kitty keyboard protocol (and kitty key-release events are ignored so they cannot cancel the query), and the panel footer names both.
 
 - Fixed publish staging so the packed tarball mirrors `publish-deps.lock.json` exactly regardless of how the developer's package manager laid out `node_modules`: nested manifest entries (such as `htmlparser2`'s own `entities@7`) are staged at their manifest path from a version-matched installed copy, npm's workspace-local placements keep the top-level slot with a conflicting root copy re-nested under the dependents npm resolved to it, and packages the manifest no longer lists are pruned instead of riding along. A tarball staged from a bun-hoisted install previously shipped `htmlparser2@10` next to a stale `entities@8` (compiling the engine failed with `No matching export ... for import "fromCodePoint"`), and the published tarball carried `zod@3` and `https-proxy-agent@7` under a manifest declaring `zod@4.4.3` and `https-proxy-agent@9.1.0` ([#1677](https://github.com/code-yeongyu/senpi/issues/1677)).
+
 ### Removed
 
 ## [2026.9.13-2] - 2026-09-13
@@ -837,6 +841,7 @@
 - Starting a session with a compatible `-fast` catalog variant now keeps fast mode enabled and preserves the requested thinking level when the variant is normalized to its base model; remembered service-tier behavior for ordinary base-model starts is unchanged.
 - Interactive shared-host regression tests now wait for RPC child processes to exit before removing their temporary roots, preventing teardown `ENOTEMPTY` races.
 - Make the reftable polling fallback detect content changes without relying on filesystem timestamp precision, and test the fallback with deterministic timer/event control.
+
 ### Removed
 
 ## [2026.9.4-3] - 2026-09-04
@@ -859,6 +864,7 @@
 - Image generation no longer fails with an OpenAI 401 when a placeholder API key is stored for the `openai` provider. A seeded `SK-SENTINEL-DO-NOT-LOG` value is treated as absent instead of as a credential, so resolution falls through to a configured OpenAI-compatible gateway, and image generation is reported as not configured when no gateway exists.
 - Hook trust-state reads no longer fail tool execution when the lock directory cannot be created (`EPERM`/`EACCES`/`EROFS` in sandboxed or read-only children); writers still fail closed on those errors.
 - File-backed credential, auth, and settings locks now wait through bounded contention retries; exhausted waits report an actionable transient `CredentialStoreBusyError` instead of burning the provider fallback chain.
+
 ### Removed
 
 ## [2026.9.4-2] - 2026-09-04
@@ -988,6 +994,7 @@
 - The wait-as-subscription guidance moved from the model presets into the `eval` tool description, where it can name the reachable `tool.monitor(...)` form. Because the preset rule was gated on `monitor` being directly selectable, it would otherwise have stopped rendering entirely once monitor became eval-only.
 - Per-model system prompt presets for Claude Opus 4.5-4.8, Claude Opus 5, and GLM 5.2/5.3 are audited against their prompting guides and the dieted shared core: the Opus 5 core is rebuilt on the Fable 5.1 skeleton with the Opus 5 guide behaviors stated once each and gains the guide's outcome-first final-summary shape; Opus 4.7/4.8 keep only their documented deltas and gain the same-turn subagent fan-out direction; Opus 4.6 drops tuning text the core now carries; GLM 5.2/5.3 share one builder, gain the eval/monitor execution-tooling stance, and lose the lineage preamble, undefined-mode reference, and unconditional todo procedure. The shared core gains a conditional delegation rule and states the auto-compaction mechanism behind the context-limits rule.
 - The Kimi K3 prompt preset is rebuilt on the Fable 5.1 skeleton for Moonshot's documented K3 "excessive proactiveness": a Scope section makes the request the deliverable (pre-existing problems become follow-ups, tests are committed only where the task or repository calls for them), the ambiguity gate does the answer-independent work first and then asks one question, a bounded failure cap stops improvisation after three failed approaches, delegation propagates a stop condition to subagents, and the K2.6-era act-bias repetition that outvoted those boundaries is gone - at 11 fewer Kimi K3 tokens than before.
+
 ### Fixed
 
 - RPC logins now answer providers' mid-flow prompts over the extension UI dialog channel (`extension_ui_request` `input` for pasted codes, text, and secrets; `select` for account choices) and release an unanswered dialog when the login settles, so Anthropic Claude Pro/Max and other prompt-driven OAuth flows complete through the browser callback instead of failing with `Interactive login input is not supported over RPC` and a dead callback port ([#1316](https://github.com/code-yeongyu/senpi/issues/1316)).
@@ -1534,6 +1541,7 @@
 ### Breaking Changes
 
 - Renamed the inherited `GoogleThinkingLevel` type to `GoogleApiThinkingLevel` and added `ResolvedGoogleThinkingLevel` for normalized adapter levels.
+
 ### Fixed
 
 - Cursor token-bearing `resource_exhausted` failures now fall back to the next provider model without incorrectly triggering compaction, and terminal quota failures explain the likely usage-pool cause.
@@ -1592,6 +1600,7 @@
 - **PowerShell tool** — Use optional native PowerShell command execution on Windows. See [PowerShell Tool](docs/windows.md#powershell-tool).
 - **Safer managed updates** — Stage, verify, and atomically activate updates for installer-managed installations. See [Install and Manage](docs/packages.md#install-and-manage).
 - **Model and thinking controls** — Select thinking levels with `/thinking`, search defaults, keep selections session-scoped, and persist them explicitly with Ctrl+S. See [Models and Thinking](docs/keybindings.md#models-and-thinking).
+
 ### Changed
 
 - RPC child startup now lazy-loads the interactive TUI mode graph at mode dispatch, avoiding parsing interactive-only components for headless sessions while preserving the interactive path.
@@ -1604,6 +1613,7 @@
 - Changed the bundled Node.js runtime to load jiti only when importing an extension and Babel only when uncached source needs transformation, reducing CLI startup time and bundle size.
 - Changed syntax highlighting to initialize only twenty common languages eagerly and defer the remaining grammars until after the initial TUI render, reducing CLI startup time.
 - Changed the Node.js CLI and RPC entrypoints to load a bundled runtime, reducing startup filesystem reads while keeping the public library and legacy module paths on the modular runtime for normal dependency identity.
+
 ### Removed
 
 ## [2026.8.24] - 2026-08-24
