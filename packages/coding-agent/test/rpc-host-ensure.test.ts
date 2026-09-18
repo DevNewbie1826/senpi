@@ -210,6 +210,18 @@ describe("ensureHost", () => {
 		await expectGone(old.pidFile);
 	}, 15_000);
 
+	it("never signals a host whose socket still accepts connections", async () => {
+		// A daemon serving many sessions can miss the probe budget while its event loop is busy.
+		// Ending it would destroy every live session to replace a host that was never broken.
+		const qa = await scratch("busy-socket");
+		const busy = await startBusySocketHost(qa, "self");
+
+		await expect(ensureFixtureHost(qa, { stopTimeoutMs: 200 })).rejects.toThrow(/host_busy|accepts connections/);
+
+		expect(processIsLive(busy.pid)).toBe(true);
+		busy.stop?.();
+	}, 30_000);
+
 	it("fails within the readiness budget and includes stderr diagnostics", async () => {
 		const qa = await scratch("readiness-failure");
 		await expect(
@@ -724,6 +736,20 @@ async function startManagedProcess(qa: Qa, options: { writer: Writer; ignoreTerm
 		? "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"
 		: "setInterval(() => {}, 1000)";
 	return register(qa, spawn(process.execPath, ["-e", script], { detached: true, stdio: "ignore" }), options.writer);
+}
+
+/**
+ * A host that is ALIVE and holds the socket, but never answers: it accepts every connection and
+ * then goes silent. This is a busy daemon, not a dead one - the difference an ensure must respect.
+ */
+async function startBusySocketHost(qa: Qa, writer: Writer): Promise<Managed> {
+	const script = `const net = require("node:net"); const server = net.createServer(() => {}); server.listen(process.argv[1], () => process.stdout.write("up\\n")); setInterval(() => {}, 1000)`;
+	const child = spawn(process.execPath, ["-e", script, qa.socket], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
+	await new Promise<void>((resolve, reject) => {
+		child.stdout?.once("data", () => resolve());
+		child.once("exit", () => reject(new Error("busy host exited before listening")));
+	});
+	return register(qa, child, writer);
 }
 
 async function register(qa: Qa, child: ChildProcess, writer: Writer): Promise<Managed> {

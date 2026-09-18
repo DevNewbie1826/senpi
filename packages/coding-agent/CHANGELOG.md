@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- RPC host: an ensure no longer ends a daemon whose socket still accepts connections. A host under load that misses the protocol probe budget is refused as `host_busy` rather than replaced, so its live sessions survive.
+
 ### Breaking Changes
 
 ### Added
