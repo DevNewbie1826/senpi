@@ -13,6 +13,8 @@
 
 ### Fixed
 
+- **Agent-dir extensions load reliably when many test workers run at once.** The runtime shim every extension imports was served as a Bun plugin virtual module, and on a loaded Windows machine that registration intermittently stopped answering while the plugin's own hooks kept running, so a worker could load 40 extensions and then fail the 41st with `Cannot find package 'runtime'`. It resolves to a real file now, which has no registration window to lose; compiled binaries, where the shim has no path on disk, keep the virtual module they never had trouble with. ([omo#8427](https://github.com/code-yeongyu/oh-my-openagent/issues/8427))
+
 ### Removed
 
 ## [2026.9.18-2] - 2026-09-18
