@@ -24,6 +24,7 @@ import { buildGrok45Prompt } from "./grok-4.5.ts";
 import { buildGrok46Prompt } from "./grok-4.6.ts";
 import { buildKimiK26Prompt } from "./kimi-k2-6.ts";
 import { buildKimiK27Prompt } from "./kimi-k2-7.ts";
+import { buildKimiK28Prompt } from "./kimi-k2-8.ts";
 import { buildKimiK3Prompt } from "./kimi-k3.ts";
 import { type PromptPresetName, type PromptPresetSettings, parsePromptPreset } from "./settings.ts";
 
@@ -87,12 +88,29 @@ function isKimiK26Model(model: ModelWithPromptPresetMetadata): boolean {
 	return hasKimiK26Signal(model.id) || (model.name !== undefined && hasKimiK26Signal(model.name));
 }
 
+// Kimi Code addresses its models by rolling product ids rather than version tags:
+// Moonshot upgraded `kimi-for-coding` to K2.8 Preview in place on 2026-09-11 and
+// left `kimi-for-coding-highspeed` on K2.7 Code HighSpeed.
+// https://www.kimi.com/code/docs/en/kimi-code/models.html (checked 2026-09-18)
+const KIMI_CODE_K27_MODEL_ID = "kimi-for-coding-highspeed";
+const KIMI_CODE_K28_MODEL_ID = "kimi-for-coding";
+
 function hasKimiK27Signal(value: string): boolean {
-	return /(?:^|[/@._-])kimi-k2(?:[._-]|p)7(?:$|[/@._:-])/.test(normalizeModelId(value));
+	const normalized = normalizeModelId(value);
+	return normalized === KIMI_CODE_K27_MODEL_ID || /(?:^|[/@._-])kimi-k2(?:[._-]|p)7(?:$|[/@._:-])/.test(normalized);
 }
 
 function isKimiK27Model(model: ModelWithPromptPresetMetadata): boolean {
 	return hasKimiK27Signal(model.id) || (model.name !== undefined && hasKimiK27Signal(model.name));
+}
+
+function hasKimiK28Signal(value: string): boolean {
+	const normalized = normalizeModelId(value);
+	return normalized === KIMI_CODE_K28_MODEL_ID || /(?:^|[/@._-])kimi-k2(?:[._-]|p)8(?:$|[/@._:-])/.test(normalized);
+}
+
+function isKimiK28Model(model: ModelWithPromptPresetMetadata): boolean {
+	return hasKimiK28Signal(model.id) || (model.name !== undefined && hasKimiK28Signal(model.name));
 }
 
 function hasKimiK3Signal(value: string): boolean {
@@ -271,6 +289,9 @@ export function resolvePresetName(
 	if (isSWE2Model(model) || isKimiK3Model(model)) {
 		return "kimi-k3";
 	}
+	if (isKimiK28Model(model)) {
+		return "kimi-k2-8";
+	}
 	if (isKimiK27Model(model)) {
 		return "kimi-k2-7";
 	}
@@ -353,6 +374,8 @@ function buildPreset(name: ResolvedPresetName, options: BuildDynamicSystemPrompt
 			return { name, prompt: buildGrok45Prompt(options) };
 		case "kimi-k3":
 			return { name, prompt: buildKimiK3Prompt(options) };
+		case "kimi-k2-8":
+			return { name, prompt: buildKimiK28Prompt(options) };
 		case "kimi-k2-7":
 			return { name, prompt: buildKimiK27Prompt(options) };
 		case "kimi-k2-6":

@@ -1,5 +1,29 @@
 # prompt-preset Extension Changes
 
+## Kimi K2.8 Preview preset + Kimi Code rolling-id routing (2026-09-18)
+
+### What changed
+
+- `kimi-k2-code.ts` (new): the K2.7 tuning text moved here as `buildKimiK2CodePrompt(options, modelName)` - the execution-tooling stance in the `kimi` dialect plus the restrained outcome-first tuning, parameterized by the model name it announces. `kimi-k2-7.ts` and the new `kimi-k2-8.ts` are thin aliases over it (the `glm-5.ts` / `glm-5-{2,3}.ts` shape), so both prompts are byte-identical apart from `running on Kimi K2.7` / `running on Kimi K2.8`.
+- `presets.ts`: added `hasKimiK28Signal` / `isKimiK28Model` and dispatched `kimi-k2-8` ahead of `kimi-k2-7`. Both Kimi matchers now also accept Kimi Code's rolling product ids by exact match - `kimi-for-coding` (K2.8 Preview) and `kimi-for-coding-highspeed` (K2.7 Code HighSpeed) - alongside the version-tagged `kimi-k2(.|p|-)8` shapes.
+- `settings.ts`: `"kimi-k2-8"` joins `PromptPresetName` and `VALID_PRESETS`; `docs/settings.md`, this extension's `AGENTS.md`, and `builtin/AGENTS.md` list it.
+- Tests: new `test/suite/prompt-presets-kimi-k2-8.test.ts` covers the id shapes, the display-name path, settings forcing, model-level `promptPreset` metadata, the live Kimi Code catalog rows, and a byte-equality assertion that the K2.8 prompt is the K2.7 prompt with the model name swapped. `prompt-presets-execution-tooling.test.ts` adds `kimi-k2-8` to `PRESET_DIALECT`.
+
+### Why
+
+- Moonshot rolled K2.8 Preview out across Kimi Code on 2026-09-11 and kept the model id unchanged, so every Kimi Code session has been served by K2.8 while resolving to no preset at all - the Kimi dialect, the workstation dialect, and the tuning were all missing. The published model table is the evidence for both mappings: <https://www.kimi.com/code/docs/en/kimi-code/models.html> (checked 2026-09-18).
+- K2.8 is an efficiency and context upgrade inside the same K2 coding family rather than a new prompting contract, so it takes the K2.7 prompt verbatim instead of a bespoke one. Sharing a builder rather than copying the text keeps the two from drifting.
+- Rolling product ids carry no version signal, so they are matched by exact equality and re-checked when Moonshot next upgrades an id in place.
+
+### Why extension system couldn't handle this differently
+
+- This is the builtin `prompt-preset` extension's own model-family dispatch; no core prompt code changed.
+
+### Expected merge conflict zones on next upstream sync
+
+- LOW: the `presets.ts` Kimi matcher block and the Kimi rows in `prompt-presets-extension.test.ts` if upstream adds its own Kimi aliases.
+- LOW: `kimi-k2-code.ts` and `kimi-k2-8.ts` are new and fork-only; `kimi-k2-7.ts` shrank to an alias, so an upstream edit to its tuning text belongs in `kimi-k2-code.ts` instead.
+
 ## DeepSeek V4.1 Flash catalog drift: provider-presence assertions (2026-09-12)
 
 ### What changed
