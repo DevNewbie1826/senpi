@@ -1510,6 +1510,35 @@ export default function (pi: ExtensionAPI) {
 
 ## ExtensionAPI Methods
 
+### pi.sessionKind / pi.sessionContext / pi.sharedHostEnabled
+
+Read-only facts about the session this extension instance was loaded for, available at factory time so an extension
+can decide what to register before it registers anything:
+
+| Property | Type | Value |
+|---|---|---|
+| `pi.cwd` | `string` | Absolute working directory of this session |
+| `pi.sharedHostEnabled` | `boolean` | Whether this session runs on a shared RPC host |
+| `pi.sessionKind` | `"interactive" \| "worker"` | Visibility class the opener chose (`open_session.kind`); `interactive` for classic launches and any open that omits it |
+| `pi.sessionContext` | `Readonly<Record<string, string>>` | Opaque labels the opener attached (`open_session.context`), or `{}` |
+
+```typescript
+export default function ({ pi }) {
+  // One extension set serves every session of a shared daemon; gate per session, not per host.
+  if (pi.sessionKind === "worker" && pi.sessionContext.role === "child") {
+    pi.registerTool(reportToParentTool);
+    return;
+  }
+  pi.registerCommand("review", reviewCommand);
+}
+```
+
+The engine never interprets `sessionContext`: it takes no part in authentication, model selection, resource loading
+or any other host decision, and it is republished only on `list_sessions { include_workers: true }`. Its caps are
+enforced at the RPC boundary (at most 32 keys matching `^[a-z][a-z0-9_]*$`, each value at most 16 KiB, at most 32 KiB
+of JSON in total), so an extension receives an already-validated map. Both values are frozen for the session's life;
+there is no setter. See [Session kind and context](rpc.md#session-kind-and-context-open_session) for the wire side.
+
 ### pi.on(event, handler)
 
 Subscribe to events. See [Events](#events) for event types and return values.
@@ -2065,6 +2094,12 @@ pi.events.emit("my:event", { ... });
 ## Config reload
 
 Senpi's default-on `config-reload` builtin watches configured global surfaces and trusted project-local `.senpi` surfaces. A real content change requests the normal full session reload when the agent is idle; busy or compacting sessions defer it until a safe idle edge. When an extension vetoes the reload through `session_before_reload` (for example while subagents it owns are still running), the change also defers quietly: one `Hot-reload deferred: <reason>` notice per distinct veto reason, silent retries on later idle edges plus a periodic veto recheck, and the usual `Hot-reloading:`/`Hot-reloaded:` notifications only once the veto clears and the reload actually runs. Parseable built-in files (`settings.json`, `models.json`, and `keybindings.json`) are validated before reload, so a rejected edit keeps the running configuration active.
+
+> **Cost on a shared host:** the watcher runs per session. Each session's `config-reload` instance lazily spawns one
+> `node:worker_threads` Worker for recursive filesystem watching, so a host serving N sessions carries about N extra
+> OS threads and ~5 MB per session ([senpi#1794](https://github.com/code-yeongyu/senpi/issues/1794)). It is the
+> dominant per-session cost of a shared RPC daemon ([RPC: session runtime](rpc.md#session-runtime---session-runtime-in-processworker));
+> a host whose settings disable the builtin adds no thread per session at all.
 
 Configure it in `settings.json` with optional fields; omitted fields use the defaults shown here. Invalid `configReload` fields are ignored individually, so a malformed block falls back to these defaults rather than disabling watching:
 

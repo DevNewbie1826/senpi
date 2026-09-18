@@ -109,6 +109,17 @@ run - the wire protocol, attachment semantics and lifecycle windows are identica
 session is not isolated from the host: a session that blocks the event loop blocks every other session, and there is
 no per-session opening deadline like the worker runtime's 30-second budget.
 
+What an in-process session costs is memory and host accounting, never an admission decision - but that cost is
+linear, not flat. Measured on one socket host with the default builtins: about **one OS thread, two file descriptors
+and 5-8 MB of RSS per open session**, with no plateau. At 1,000 concurrent sessions on one host the process went
+from 20 to 1,023 threads, 14 to 2,014 descriptors and 151 MB to 4.7 GB resident, with zero errors and no refusal.
+The thread is not the session runtime - the in-process runtime allocates none - it is the `config-reload` builtin,
+which lazily spawns one filesystem-watch Worker per session
+([senpi#1794](https://github.com/code-yeongyu/senpi/issues/1794)); the same driver with that builtin disabled
+measured 0 additional threads per session. Size a daemon from those numbers: it never refuses an `open_session` for
+occupancy, so the ceiling is the machine's memory and its per-process thread and descriptor limits, not a session
+count the host enforces.
+
 ### Host identity (`get_protocol_info`)
 
 Every `get_protocol_info` answer - classic and multi-session alike - carries the identity of the host that
@@ -181,7 +192,8 @@ upgraded, but its extension set does NOT cover what the running host loaded, so 
 extensions) or `profile_mismatch_attached` (the launch profiles differ, or one of them is unknown - a client
 without a launch spec can prove nothing about extensions and therefore never initiates a handoff).
 
-Two invariants are encoded here, and every client is expected to keep them:
+Four invariants govern every client of a shared host, and every client is expected to keep all four. The first two
+are what this decision encodes; the other two are what a client must not undo elsewhere:
 
 - **I1 - never terminate, signal or replace a host this process did not start.** A missing capability or a
   foreign protocol version ends in `refuse`, never in a second host bound over an endpoint somebody else owns.
@@ -192,6 +204,18 @@ Two invariants are encoded here, and every client is expected to keep them:
 - **I2 - compatibility is protocol version + capabilities, never semver equality.** An ordinal that cannot be
   compared (a build without git metadata, a host that reports none) is EQUAL, and since a handoff requires
   STRICTLY greater, such a pair attaches instead of upgrading.
+- **I3 - only the generation that owns the daemon state writes it; every other client reads.** A running host's
+  pidfile, settings, reservations and socket belong to that generation. A client that cannot use what it finds
+  fails CLOSED - it reports the refusal, or starts its own private host on its own endpoint - and never edits a
+  shared host's state files, unlinks its socket, or removes its pidfile to "clean up". A handoff is the one
+  exception and it still writes only its OWN generation directory before repointing the pointer (see
+  [Daemon state directory](#daemon-state-directory-layout-2)); the drained predecessor keeps its registration until
+  it exits, because it is still serving.
+- **I4 - machine-driven work is invisible by default.** A session opened with `kind: "worker"` is omitted from
+  `list_sessions` unless the caller passes `include_workers: true`, its `context` is published on that listing only,
+  and its `session_closed`/`session_parked` records reach only the connections attached to it. A client that never
+  asked for worker sessions sees a daemon serving hundreds of them exactly as it saw an empty one, so a task runner
+  fanning out children cannot flood a desktop's session list.
 
 ### Generation handoff (`handoffHost`, `probeHost`, `stopHost`)
 
@@ -373,6 +397,21 @@ spec's `env` states. Matching is case-sensitive on POSIX and case-insensitive on
 (`SystemRoot`, `ComSpec`, `PATHEXT`, ...) is allowed as well. Values are never inspected; `status` reports
 the granted NAMES as `env_keys` and never a value.
 
+#### Verifying a daemon build (live QA drivers)
+
+Two POSIX-only drivers in this repository exercise the whole daemon against real processes in a sandbox agent
+directory, printing one JSON line per step (written synchronously, so a step that hangs has still printed every step
+before it) and a final cleanup receipt. They are how a build is checked before it is trusted with other clients'
+sessions:
+
+| Driver | What it proves |
+|---|---|
+| `node scripts/qa-rpc-socket/inprocess-daemon-qa.mjs` | Two COMPILED binaries of the tree differing only in build epoch; `host ensure --json` run from the older one; per-session `context` isolation (each session's extension sees only its own); `list_sessions` with and without `include_workers`; 50 sessions with the measured thread cost and no refusal; a retained session re-attached across a dropped connection; 200 bash calls leaving zero zombies; and a generation handoff by the newer binary while a client stays connected. |
+| `node scripts/qa-rpc-socket/generation-handoff.mjs` | The handoff alone, against the source supervisor: `ensureHost` -> generation 0, `handoffHost` -> generation 1 on a new pid, `session_path_in_use` naming the owner while the held session is parking, `session_closed { reason: "handoff_parked" }`, the predecessor exiting, the transcript reopening intact in the new generation, and `stopHost({ drain: true })` draining to exit. |
+
+Both exit non-zero if a daemon, a fixture host or the sandbox survives the run: a shared host outliving its QA is
+exactly the failure they exist to catch.
+
 ### Child reaping on a socket host (`SENPI_RPC_HOST_REAPER`)
 
 A socket host reaps the exited child processes that no thread is left to wait on. A `worker_threads` Worker owns the
@@ -440,8 +479,13 @@ auth, model, extension or resource resolution, and they are never merged into th
   `invalid_session_context: <detail>`, where the detail names the cap that was broken.
 
 One shared host therefore loads ONE extension set and still lets an extension recognize the session it was loaded for
-(`pi.sessionKind`, `pi.sessionContext`). Probe `session_kind` and `session_context` in `get_protocol_info` capabilities
-before relying on either: an older host ignores both fields and lists every session.
+(`pi.sessionKind`, `pi.sessionContext` - see
+[ExtensionAPI session identity](extensions.md#pisessionkind--pisessioncontext--pisharedhostenabled)). Probe
+`session_kind` and `session_context` in `get_protocol_info` capabilities before relying on either: an older host
+ignores both fields and lists every session.
+
+Default-invisible worker sessions are invariant **I4** above: a client that does not pass `include_workers: true`
+sees the daemon exactly as it saw a host serving only that client.
 
 ### Session auto-titling
 
@@ -514,11 +558,16 @@ internal directory. The supervisor also exports `SENPI_RPC_HOST_WATCH_PPID` as a
 set only by the supervisor: a host started any other way (plain `senpi --mode rpc --listen …`, embedders, hand-started
 hosts) sees neither variable and is unaffected. A host whose supervisor is alive is never touched by this binding.
 
-### Shared host occupancy (idle eviction, session cap, empty-host exit)
+### Shared host occupancy (idle eviction, retention, empty-host exit)
 
-On the worker runtime every CLI shared-host session owns a worker isolate and a complete runtime; on the in-process
-runtime (the socket-host default) each session is a runtime in the host process. Memory depends on its extensions and
-session contents; neither runtime provides process-fatal OOM containment. The host enforces these occupancy bounds:
+**The daemon does not cap sessions.** On the in-process runtime - the default for a `--listen` socket host, i.e. the
+shared daemon clients attach to - there is no session limit, no admission counter, and no eviction of a live session
+to make room for another: capacity is memory, and `open_session` is never refused for occupancy. `too_many_sessions`
+exists only on the worker runtime described below. On that runtime every session owns a worker isolate and a complete
+runtime; on the in-process runtime each session is a runtime in the host process. Memory depends on a session's
+extensions and contents; neither runtime provides process-fatal OOM containment.
+
+What the host does enforce are lifecycle windows, and they only ever return memory from work nobody is doing:
 
 - **Idle eviction**: a session with no routed command and no session-owned work for
   `SENPI_RPC_SESSION_IDLE_EVICTION_MS` (default 30 minutes) is closed through the exact `close_session` sequence
@@ -536,14 +585,15 @@ session contents; neither runtime provides process-fatal OOM containment. The ho
   background terminal jobs and any other published wake source (terminal monitors, loop-guard holds), compaction,
   and barrier-held session work all defer eviction, and the idle clock restarts when that work settles. An evicted
   session resumes like any other: the next `open_session` with the same `sessionPath` reopens it.
-- **Worker capacity** (worker runtime only; an in-process host has no session cap of any kind): at most 20 workers
-  may be preparing, open, closing, or quarantined together. Admission beyond
-  this bound fails explicitly with `open_failed: too_many_sessions`; it never evicts another session or starts an OS
-  process as a fallback. This is a new externally visible bound for CLI shared mode, which previously admitted
-  unlimited logical sessions. It applies to new worker allocation, not attachments: a known canonical path or
-  original opening spelling joins its already-bound owner without allocating a worker, even at capacity. An
-  unknown path/alias still needs a preparation worker slot. In-process SDK registries using an injected runtime
-  factory retain their existing behavior.
+- **Worker capacity** (worker runtime ONLY - a stdio host, `--listen stdio://`, an embedder, or a socket host that
+  passed `--session-runtime worker` explicitly): at most 20 workers may be preparing, open, closing, or quarantined
+  together, because each one is an isolate the host must keep alive. Admission beyond this bound fails explicitly
+  with `open_failed: too_many_sessions`; it never evicts another session or starts an OS process as a fallback. It
+  applies to new worker allocation, not attachments: a known canonical path or original opening spelling joins its
+  already-bound owner without allocating a worker, even at capacity. An unknown path/alias still needs a preparation
+  worker slot. In-process SDK registries using an injected runtime factory retain their existing behavior. A socket
+  host on its default runtime never reaches this bound and never answers `too_many_sessions` - there is nothing to
+  raise, tune, or shard.
 - **Retained sessions**: a session opened with `open_session { retain_on_disconnect: true }` treats a client's
   disconnect as a DETACH, not a close. The dropped connection's attachment is released immediately (no waiting for a
   streaming turn, since nothing is being torn down), the entry stays `open` with `attachments: 0`, keeps running any
@@ -590,6 +640,30 @@ REPORT: nothing here aborts a turn, kills a session, or refuses an `open_session
   refusal: there is no admission control, no session cap, and no kill policy on this path.
 
 `host_stalled` and `host_memory_pressure` are additive records: a client that does not know them ignores them.
+
+#### The no-sync rule
+
+One event loop serves every session of the daemon, so a synchronous wait taken while handling one session is an
+outage for all of them: a five-second `spawnSync` inside a tool is five seconds in which the host answers nobody -
+not another session's `prompt`, not even `get_protocol_info`. The rule for code on the session path is therefore
+absolute: **no blocking primitive, and no unbounded synchronous filesystem read.**
+
+- Banned inside the engine: `execSync`, `execFileSync`, `spawnSync`, `Bun.spawnSync`, `Bun.sleepSync`, `Atomics.wait`.
+  A ban-with-ledger audit (`test/suite/no-sync-in-session-path.test.ts`) walks the transitive call graph rooted at the
+  session registry, session binding, connection handler, command router, `AgentSession`, auth storage and every tool,
+  and fails on any call site the checked-in ledger does not already record with the reason it is still there.
+  Synchronous filesystem calls are reported against the same ledger: a new call site, or one more call inside a
+  ledgered function, fails; removing one never does. The blocking ledger is five bounded entries - the sync credential
+  and settings lock backoffs (1 s budget each), the memoized `which`/`where` probe, the win32 `taskkill` path and an
+  on-demand tool extraction - and the filesystem ledger records each remaining synchronous read/write with the bytes
+  it moves (the JSONL transcript append is deliberately there), so "how long can this host be frozen by its own code"
+  has a written answer instead of a guess.
+- The same rule applies to EXTENSIONS, where nothing can enforce it: an extension that shells out synchronously,
+  sleeps synchronously, or reads a large file synchronously inside an event handler freezes every other client's
+  session on that host. Use the async API, and give genuinely CPU-bound work its own worker or child process.
+- The rule is observable rather than enforced at runtime: the stall watchdog above is what names the offender.
+  `host_stalled { driftMs, sessionId, tool }` and the matching stderr line are how a blocking call in a session or a
+  tool becomes a report instead of an unexplained freeze.
 
 ### Worker ownership and flow control
 
@@ -1847,6 +1921,10 @@ Events are streamed to stdout as JSON lines during agent operation. Events do no
 | `service_tier_changed` | Effective service tier or fast-mode state changed |
 | `host_stalled` | Multi-session host: the event loop was blocked past `SENPI_RPC_LOOP_LAG_ERROR_MS`, with the drift and the session/tool blamed for it |
 | `host_memory_pressure` | Multi-session host: RSS is above `SENPI_RPC_HOST_RSS_WARN_MB`, with the live session count |
+| `session_opened` | Multi-session host: a session was opened on this host (content-free lifecycle record) |
+| `session_closed` | Multi-session host: a routing handle ended, with an optional `reason` (`handoff_parked` = a generation handoff put the session back on disk; reopen it by `sessionPath`) |
+| `session_parked` | Multi-session host: a retained session's handle was released while the session itself stays on disk (`{ sessionId, sessionPath }`); reopen it with `open_session { sessionPath }` |
+| `session_replaced` | The live session was swapped by `new_session`, `switch_session` or `fork`, carrying the new `durableSessionId` |
 
 Event types are additive: a client that does not recognise a type must ignore that record rather than fail. `model_changed`
 and `service_tier_changed` were added after the initial protocol and are safe to ignore.

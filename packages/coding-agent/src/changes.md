@@ -1,5 +1,25 @@
 # changes
 
+## 2026-09-18 - Every daemon surface this fork added is documented where its client reads (senpi#1782)
+
+### What changed
+
+- `packages/coding-agent/docs/rpc.md`: the in-process session runtime with its measured per-session cost, the occupancy section rewritten so nothing implies the daemon caps sessions, invariants I3/I4 beside I1/I2, the no-sync rule, the `session_opened`/`session_closed`/`session_parked`/`session_replaced` event rows, and the two live QA drivers that verify a daemon build.
+- `packages/coding-agent/docs/extensions.md`: `pi.sessionKind` / `pi.sessionContext` / `pi.sharedHostEnabled` with a gating example, and the measured per-session cost of the `config-reload` watcher (senpi#1794).
+- `packages/coding-agent/src/modes/rpc/AGENTS.md`: host-lifecycle and daemon-state modules in the structure block, the I1-I4 and no-sync sections, daemon suites, the fixture-reaper receipt and the QA drivers.
+
+### Why
+
+- The daemon work of this plan (in-process runtime, session kind/context, retention, generation handoff, `senpi host`, the stall guard) landed across four increments; each documented its own slice, and the result described a host with a session cap it no longer has. One pass makes the public reference match the shipped behaviour, including the cost it is honest about.
+
+### Why an extension could not handle it
+
+- Documentation of engine process lifecycle, wire protocol and the extension contract itself.
+
+### Expected merge conflict zones
+
+- LOW: docs prose in sections upstream rarely edits, plus this fork's own `AGENTS.md`.
+
 ## 2026-09-17 - `senpi host` is routed before argument parsing and exported for launchers (senpi#1782)
 
 ### What changed

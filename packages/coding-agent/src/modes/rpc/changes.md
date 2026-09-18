@@ -1,3 +1,30 @@
+## 2026-09-18 - The RPC reference describes the daemon that shipped, cap-free and honestly priced (#1782)
+
+### What changed
+
+- `docs/rpc.md` "Session runtime": the in-process runtime now states its MEASURED cost - ~1 OS thread, ~2 file descriptors and 6-8 MB of RSS per open session, linear to 1,000 sessions (1,023 threads, 5.9 GB), with the thread attributed to the `config-reload` builtin's per-session watch Worker (senpi#1794) rather than to the session runtime, which allocates none. "Flat" is not claimed anywhere, because it is not true.
+- `docs/rpc.md` occupancy section: retitled "Shared host occupancy (idle eviction, retention, empty-host exit)" - the old title advertised a "session cap" the daemon does not have. It now opens with the daemon having NO session limit, no admission counter and no eviction-for-room, and the 20-worker paragraph is scoped to the worker runtime (stdio hosts, embedders, an explicit `--session-runtime worker`), naming it as the only source of `too_many_sessions`.
+- `docs/rpc.md` invariants: I3 (only the owning generation writes daemon state; every other client reads and fails closed) and I4 (worker sessions invisible without `include_workers: true`) join I1/I2 under "Attach, start or refuse", so the four invariants every client surface must keep are in one place.
+- `docs/rpc.md` "The no-sync rule" (new, under host self-observation): the ban list, the ban-with-ledger audit that enforces it inside the engine, the same rule restated for extension authors where nothing can enforce it, and `host_stalled` as the report that names an offender.
+- `docs/rpc.md` "Verifying a daemon build" (new): the two live QA drivers - `scripts/qa-rpc-socket/inprocess-daemon-qa.mjs` and `scripts/qa-rpc-socket/generation-handoff.mjs` - with what each proves and the receipt they end on.
+- `docs/rpc.md` event table: `session_opened`, `session_closed` (with the `handoff_parked` reason), `session_parked` and `session_replaced` are listed as event types instead of being described only in prose; the kind/context section links the extension-side view.
+- `src/modes/rpc/AGENTS.md`: the structure block covers the host-lifecycle and daemon-state modules and both session runtimes; new "Shared-daemon invariants (I1-I4)" and "The no-sync rule" sections; the where-to-look table gains the decision, handoff, daemon-state, `senpi host` and observability rows; validation lists the daemon suites, the fixture-reaper receipt and the two QA drivers.
+
+### Why
+
+- The reference still described the shape the host had BEFORE the in-process runtime became the socket default: a heading promising a session cap, and a 20-worker paragraph written as the rule rather than the worker-runtime exception. A client integrator reading it would have built admission control and sharding against a daemon that refuses nothing.
+- The per-session cost is published because "unlimited" is only honest next to a number. The plan's phrasing ("thread count flat") did not survive measurement: threads grow ~1 per session with no plateau, and naming the cause (senpi#1794) is what lets an operator size a host and a maintainer fix it.
+- I3 and I4 were enforced by code and proven by tests, but stated nowhere a client author would read. An invariant a second implementation cannot find is an invariant the second implementation breaks.
+- The no-sync rule is the price of one loop serving every session, and extensions are the part of that loop no audit can gate - so it is documented where extension authors look, not only in the test that enforces the engine half.
+
+### Why an extension could not handle it
+
+- Documentation of the engine's own process-lifecycle and wire contracts; an extension cannot publish the protocol reference clients read before they connect.
+
+### Expected merge conflict zones
+
+- LOW: `docs/rpc.md` sections upstream rarely touches (multi-session host lifecycle, occupancy, event table) and this fork's own `AGENTS.md`.
+
 ## 2026-09-17 - `senpi host` - one command every client calls for the shared daemon (#1782)
 
 ### What changed
