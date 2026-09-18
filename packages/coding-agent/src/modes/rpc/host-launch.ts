@@ -34,10 +34,11 @@ export const PINNED_HOST_CLIENT_CAPABILITIES = [EXTENSION_EVENTS_CAPABILITY, CUS
 export function defaultHostLaunch(
 	supervisorArgs: readonly string[],
 	compiled: boolean = isBunBinary,
+	/** Null stands for a bundled layout, where no standalone sibling program exists. */
+	sibling: string | null = resolveHostLifecycleEntryPath() ?? null,
 ): { command: string; args: string[] } {
 	if (compiled) return { command: process.execPath, args: [INTERNAL_SUPERVISOR_FLAG, ...supervisorArgs] };
-	const sibling = resolveHostLifecycleEntryPath();
-	if (sibling !== undefined)
+	if (sibling !== null)
 		return { command: process.execPath, args: [...process.execArgv, sibling, ...supervisorArgs] };
 	// Bundled, the host-lifecycle entry beside us is a bundler chunk, not the standalone
 	// program the unbundled tree ships: run directly it returns immediately without ever

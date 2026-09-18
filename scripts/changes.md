@@ -1204,3 +1204,26 @@ The divergence lives in core wiring, package identity, or build plumbing that ex
 
 - LOW: the public-package lists and the classic-API import in these three scripts; upstream edits them only for new release tooling.
 
+## fix(rpc): a bundled build can start its daemon again
+
+### Why
+
+A published install could not start a host at all. `senpi host ensure` answered
+`RPC socket host exited with code 0 before answering get_protocol_info`, and the
+daemon's stderr log was empty because it is truncated on each generation start.
+
+### What
+
+- `packages/coding-agent/src/modes/rpc/host-launch.ts`: bundled builds re-enter the CLI
+  through `--internal-rpc-host-supervisor` instead of spawning the neighbour named
+  host-lifecycle, which is an emitted chunk in that layout and returns without listening.
+- `packages/coding-agent/src/modes/rpc/host-lifecycle.ts`: `resolveCliMainPath()` takes the
+  entry from the package's declared `bin` rather than counting `..`, which reaches the
+  package root once this module is bundled.
+- `packages/coding-agent/test/rpc-host-ensure.test.ts`: regression covering the bundled
+  layout; the pinned unbundled contract is unchanged.
+
+### Verification
+
+Unbundled 36/36. Bundled: ensure -> `start` (socket present), ensure -> `reuse` (same
+pid), stop -> `stopped` (socket removed).
