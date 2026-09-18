@@ -752,6 +752,34 @@ async function startBusySocketHost(qa: Qa, writer: Writer): Promise<Managed> {
 	return register(qa, child, writer);
 }
 
+/**
+ * A host that is ALIVE and OWNS the socket, but never answers: it accepts every connection and then
+ * stays silent. That is a busy daemon, not a dead one, and the difference decides whether an ensure
+ * may end it. The path arrives by env (an `-e` script's argv is not worth relying on) and a stale
+ * path is removed first, so a reused scratch directory cannot fail the listen.
+ */
+async function startBusySocketHost(qa: Qa, writer: Writer): Promise<Managed> {
+	const script = [
+		'const net = require("node:net"), fs = require("node:fs");',
+		'try { fs.unlinkSync(process.env.BUSY_SOCKET) } catch {}',
+		'const server = net.createServer(() => {});',
+		'server.on("error", (error) => { process.stderr.write(String(error)); process.exit(1) });',
+		'server.listen(process.env.BUSY_SOCKET, () => process.stdout.write("listening\\n"));',
+		"setInterval(() => {}, 1000);",
+	].join(" ");
+	const child = spawn(process.execPath, ["-e", script], {
+		detached: true,
+		stdio: ["ignore", "pipe", "pipe"],
+		env: { ...process.env, BUSY_SOCKET: qa.socket },
+	});
+	await new Promise<void>((resolve, reject) => {
+		child.stdout?.once("data", () => resolve());
+		child.stderr?.once("data", (chunk: Buffer) => reject(new Error(`busy host failed to listen: ${chunk.toString("utf8")}`)));
+		child.once("exit", (code) => reject(new Error(`busy host exited before listening (code ${code})`)));
+	});
+	return register(qa, child, writer);
+}
+
 async function register(qa: Qa, child: ChildProcess, writer: Writer): Promise<Managed> {
 	children.push(child);
 	if (child.pid === undefined) throw new Error("managed host did not spawn");
