@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Model catalog generation no longer prunes a provider shard that a committed provider module imports, so a provider models.dev stops describing cannot break the build at release time.
+
 ### Breaking Changes
 
 ### Added

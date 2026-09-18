@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { getBaiModels } from "./generate-models-bai.ts";
 import { fetchOpenGatewayModels } from "./generate-models-opengateway.ts";
-import { isPrunableModelShard } from "./model-shards.ts";
+import { MODEL_SHARD_SUFFIX, importedModelShards, isPrunableModelShard } from "./model-shards.ts";
 import { getEffortThinkingLevelMap, type ModelsDevReasoningOption } from "./models-dev-reasoning-options.ts";
 import { getOpenRouterThinkingLevelMap, type OpenRouterReasoningMetadata } from "./openrouter-reasoning-options.ts";
 import {
@@ -3622,8 +3622,13 @@ async function generateModels() {
 					generatedShardFiles.add(filename);
 					writeFileSync(join(providersDir, filename), output);
 				}
+				const importedShards = importedModelShards(
+					readdirSync(providersDir)
+						.filter((entry) => entry.endsWith(".ts") && !entry.endsWith(MODEL_SHARD_SUFFIX))
+						.map((entry) => readFileSync(join(providersDir, entry), "utf8")),
+				);
 				for (const entry of readdirSync(providersDir)) {
-					if (isPrunableModelShard(entry, generatedShardFiles)) rmSync(join(providersDir, entry));
+					if (isPrunableModelShard(entry, generatedShardFiles, importedShards)) rmSync(join(providersDir, entry));
 				}
 
 				let output = generatedHeader;

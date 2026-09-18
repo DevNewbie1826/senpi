@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { readModelDataStructure } from "../scripts/model-data.ts";
-import { FORK_OWNED_MODEL_SHARDS, isPrunableModelShard, MODEL_SHARD_SUFFIX } from "../scripts/model-shards.ts";
+import { FORK_OWNED_MODEL_SHARDS, importedModelShards, isPrunableModelShard, MODEL_SHARD_SUFFIX } from "../scripts/model-shards.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const providersDir = join(packageRoot, "src/providers");
@@ -59,5 +59,32 @@ describe("model catalog shard ownership", () => {
 
 	it("accepts the committed catalog while fork-owned shards sit beside the generated ones", () => {
 		expect(() => readModelDataStructure(packageRoot)).not.toThrow();
+	});
+});
+
+/**
+ * The ownership test above compares against the COMMITTED aggregator, so a provider models.dev has
+ * since stopped describing still looks generated and passes. The release job regenerates first, and
+ * there the shard is written by nobody - so pruning it deleted a file `kimi-coding.ts` imports and
+ * the release died on a type error. Nothing a module imports may be pruned, whoever wrote it.
+ */
+describe("model catalog shard pruning against a fresh generation", () => {
+	function providerModuleSources(): string[] {
+		return readdirSync(providersDir)
+			.filter((entry) => entry.endsWith(".ts") && !entry.endsWith(MODEL_SHARD_SUFFIX))
+			.map((entry) => readFileSync(join(providersDir, entry), "utf8"));
+	}
+
+	it("keeps every imported shard when the run wrote none of them", () => {
+		const imported = importedModelShards(providerModuleSources());
+		expect(imported.size).toBeGreaterThan(0);
+
+		const pruned = [...imported].filter((shard) => isPrunableModelShard(shard, new Set(), imported));
+
+		expect(pruned).toEqual([]);
+	});
+
+	it("still prunes a shard no module imports and no fork owns", () => {
+		expect(isPrunableModelShard("retired-provider.models.ts", new Set(), new Set())).toBe(true);
 	});
 });
