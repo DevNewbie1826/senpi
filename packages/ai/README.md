@@ -58,6 +58,7 @@ Unified LLM API with provider collections, automatic auth resolution, token and 
 ## Supported Providers
 
 - **OpenAI**
+- **B.AI** (credential-scoped multi-provider catalog)
 - **Ant Ling**
 - **Azure OpenAI (Responses)**
 - **OpenAI Codex** (ChatGPT Plus/Pro subscription, requires OAuth, see below)
@@ -329,6 +330,13 @@ const fresh = models.getModel('llamacpp', 'qwen3-30b');
 
 Static built-in providers are no-ops for `refresh()`. See [createProvider()](#createprovider) for building a dynamic provider.
 
+B.AI is dynamic: `GET https://api.b.ai/v1/models` returns the model IDs available to the current credential,
+while the shipped catalog supplies B.AI's documented capabilities and standard reference pricing. B.AI serves
+one key over three protocols and documents several models on more than one of them, so Senpi pins the endpoint
+per model rather than treating it as a B.AI property: GPT and DeepSeek use OpenAI Responses, Claude uses
+Anthropic Messages, and the remaining chat families use OpenAI Chat Completions. Image-only IDs such as
+`gpt-image-2` are not exposed through the chat catalog.
+
 ## Auth
 
 Every provider owns its auth: how API keys resolve (stored credentials, environment variables, ambient sources like AWS profiles or gcloud ADC) and, where supported, OAuth login/refresh flows.
@@ -421,6 +429,7 @@ Built-in providers resolve these env vars (Node.js; in browsers pass `apiKey` ex
 | Provider | Environment Variable(s) |
 |----------|------------------------|
 | OpenAI | `OPENAI_API_KEY` |
+| B.AI | `BAI_API_KEY` |
 | Ollama Cloud | `OLLAMA_API_KEY` |
 | Ant Ling | `ANT_LING_API_KEY` |
 | Azure OpenAI | `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_BASE_URL` (e.g. `https://{resource}.ai.azure.com`) or `AZURE_OPENAI_RESOURCE_NAME`. Supports `*.openai.azure.com`, `*.cognitiveservices.azure.com` and `*.ai.azure.com`; root endpoints auto-normalize to `/openai/v1`. Optional: `AZURE_OPENAI_API_VERSION` (default `v1`), `AZURE_OPENAI_DEPLOYMENT_NAME_MAP`. |

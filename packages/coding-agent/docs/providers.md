@@ -215,6 +215,35 @@ The provider streams through Ollama's OpenAI-compatible `/v1/chat/completions` e
 Existing local Ollama configurations remain supported. When an `ollama` provider in `models.json` includes
 an explicit `models` catalog, that catalog takes precedence and Senpi does not run Ollama Cloud discovery.
 
+## B.AI
+
+Use `/login bai` to store an API key, or export `BAI_API_KEY`. B.AI model availability is credential-scoped,
+so refresh the catalog after login:
+
+```bash
+export BAI_API_KEY=...
+senpi update --models
+senpi --provider bai --model gpt-5.6-sol
+```
+
+Senpi discovers available IDs from `https://api.b.ai/v1/models` and enriches classified chat models with
+B.AI's documented context, output, input modality, reasoning-level, and standard pricing metadata. Because that
+list is credential-scoped, a model you are not entitled to never appears.
+
+B.AI serves one API key over three protocols and documents several models on more than one of them, so the
+endpoint is a client choice rather than a per-model property. Senpi pins one protocol per model: GPT and
+DeepSeek use OpenAI Responses (the two families B.AI names for that endpoint), Claude uses Anthropic Messages,
+and the remaining chat families use OpenAI Chat Completions.
+
+B.AI rejects a function tool whose root parameters schema declares no `type`. On the Responses endpoint Senpi
+merges such a union root into a single object schema so the tool keeps its parameters; the Chat Completions and
+Messages paths already do the same normalization for every provider. Image-only IDs such as `gpt-image-2` remain
+on B.AI's image API and are not listed as chat models.
+
+The catalog records B.AI's standard reference prices in USD per 1M tokens. They exclude temporary promotions,
+top-up bonuses, DeepSeek idle-period rates, and account benefits, so B.AI's final billing record remains
+authoritative.
+
 ## API Keys
 
 ### Environment Variables or Auth File
@@ -232,6 +261,7 @@ senpi
 | Ant Ling | `ANT_LING_API_KEY` | `ant-ling` |
 | Azure OpenAI Responses | `AZURE_OPENAI_API_KEY` | `azure-openai-responses` |
 | OpenAI | `OPENAI_API_KEY` | `openai` |
+| B.AI | `BAI_API_KEY` | `bai` |
 | Ollama Cloud | `OLLAMA_API_KEY` | `ollama` |
 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek` |
 | NVIDIA NIM | `NVIDIA_API_KEY` | `nvidia` |

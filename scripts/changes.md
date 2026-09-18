@@ -1,5 +1,24 @@
 # changes
 
+## 2026-09-18 - Seed B.AI credentials in development setup
+
+### What changed
+
+- `scripts/devenv-setup.mjs` recognizes `BAI_API_KEY` when seeding the local development environment.
+
+### Why
+
+- The native B.AI provider should work in a fresh development checkout without storing credentials in tracked
+  files.
+
+### Why an extension could not handle it
+
+- Development environment bootstrapping runs before Senpi or its extensions.
+
+### Expected merge conflict zones
+
+- LOW: one entry in the provider-key array.
+
 ## 2026-09-18 - Emit the Devin and Cursor lazy modules beside the bundle (senpi#1810)
 
 ### What changed

@@ -4,7 +4,7 @@ import { envApiKeyAuth } from "../src/auth/helpers.ts";
 import type { AuthContext, AuthEvent } from "../src/auth/types.ts";
 import { createModels, createProvider } from "../src/models.ts";
 import { InMemoryModelsStore } from "../src/models-store.ts";
-import { builtinModels, builtinProviders, getBuiltinModel } from "../src/providers/all.ts";
+import { builtinModels, builtinProviders, getBuiltinModel, getBuiltinModels } from "../src/providers/all.ts";
 import { amazonBedrockProvider } from "../src/providers/amazon-bedrock.ts";
 import { anthropicProvider } from "../src/providers/anthropic.ts";
 import { cloudflareAIGatewayProvider } from "../src/providers/cloudflare-ai-gateway.ts";
@@ -39,6 +39,7 @@ describe("builtin providers", () => {
 		const providers = models.getProviders();
 		expect(providers.length).toBe(builtinProviders().length);
 		expect(providers.map((p) => p.id)).toContain("anthropic");
+		expect(providers.map((p) => p.id)).toContain("bai");
 		expect(providers.map((p) => p.id)).toContain("ollama");
 
 		const anthropic = models.getModel("anthropic", "claude-haiku-4-5");
@@ -47,15 +48,43 @@ describe("builtin providers", () => {
 		const all = models.getModels();
 		expect(all.length).toBeGreaterThan(500);
 
-		// Static providers list models immediately; Radius and Ollama are purely
-		// dynamic, and Cursor is authentication-only until its chat protocol is ported.
+		// Static providers list models immediately; Radius, Ollama, B.AI, and Cursor
+		// discover account-specific availability only after authentication.
 		for (const provider of providers) {
 			const list = models.getModels(provider.id);
-			if (provider.id === "radius" || provider.id === "ollama" || provider.id === "cursor") {
+			if (
+				provider.id === "radius" ||
+				provider.id === "ollama" ||
+				provider.id === "bai" ||
+				provider.id === "cursor"
+			) {
 				expect(list).toEqual([]);
 			} else expect(list.length).toBeGreaterThan(0);
 			expect(list.every((m) => m.provider === provider.id)).toBe(true);
 		}
+	});
+
+	it("ships B.AI standard metadata while leaving availability credential-scoped", () => {
+		expect(getBuiltinModel("bai", "gpt-5.6-sol")).toMatchObject({
+			api: "openai-responses",
+			provider: "bai",
+			baseUrl: "https://api.b.ai/v1",
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5 },
+			contextWindow: 922_000,
+			maxTokens: 128_000,
+		});
+		expect(getBuiltinModel("bai", "claude-sonnet-5")).toMatchObject({
+			api: "anthropic-messages",
+			baseUrl: "https://api.b.ai",
+		});
+		expect(getBuiltinModel("bai", "gemini-3.8-flash")).toMatchObject({
+			api: "openai-completions",
+			input: ["text", "image", "video"],
+		});
+		expect(getBuiltinModels("bai")).toHaveLength(56);
+		expect(getBuiltinModels("bai").some((entry) => entry.id === "gpt-image-2")).toBe(false);
 	});
 
 	it("stores native constrained-sampling capabilities in model metadata", () => {

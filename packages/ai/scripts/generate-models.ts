@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
+import { getBaiModels } from "./generate-models-bai.ts";
 import { fetchOpenGatewayModels } from "./generate-models-opengateway.ts";
 import { isPrunableModelShard } from "./model-shards.ts";
 import { getEffortThinkingLevelMap, type ModelsDevReasoningOption } from "./models-dev-reasoning-options.ts";
@@ -673,6 +674,20 @@ function supportsOpenAiXhigh(modelId: string): boolean {
 		modelId.includes("gpt-5.6") ||
 		modelId.includes("gpt-6-astra")
 	);
+}
+
+/**
+ * `getBaiModels()` derives `reasoning` from B.AI's own published metadata, but
+ * the shared thinking-level passes merge levels by model id afterwards. Without
+ * this re-derivation a B.AI model that gained a selectable level keeps
+ * `reasoning: false`, and the Responses and Messages adapters then skip the
+ * reasoning payload entirely, making that level unreachable.
+ */
+function applyBaiReasoningConsistency(model: Model<Api>): void {
+	if (model.provider !== "bai" || model.thinkingLevelMap === undefined) return;
+	if (Object.values(model.thinkingLevelMap).some((level) => level !== null && level !== undefined)) {
+		model.reasoning = true;
+	}
 }
 
 function supportsOpenAiMax(model: Model<Api>): boolean {
@@ -2792,6 +2807,7 @@ async function generateModels() {
 			!(model.provider === "xai" && XAI_BUILTIN_EXCLUDED_MODEL_IDS.has(model.id)) &&
 			!((model.provider === "opencode" || model.provider === "opencode-go") && model.id === "gpt-5.3-codex-spark"),
 	);
+	allModels.push(...getBaiModels());
 
 	// Temporary overrides until upstream model metadata is corrected.
 	for (const candidate of allModels) {
@@ -3462,6 +3478,7 @@ async function generateModels() {
 				max: "max",
 			});
 		}
+		applyBaiReasoningConsistency(model);
 	}
 	applyAnthropicAllowedFallbackModelMetadata(allModels.filter(isAnthropicFallbackMetadataModel));
 

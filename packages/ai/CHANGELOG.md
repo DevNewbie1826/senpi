@@ -6,6 +6,10 @@
 
 ### Added
 
+- Built-in `bai` provider for B.AI: API-key auth via `BAI_API_KEY` or `/login bai`, credential-scoped
+  `GET /v1/models` discovery, and a generated catalog of the 56 chat models B.AI documents, routed to OpenAI
+  Responses, Anthropic Messages, or OpenAI Chat Completions per model.
+
 ### Changed
 
 ### Fixed
@@ -485,6 +489,7 @@
 ### Added
 
 - `OAuthPrompt` and `OAuthSelectPrompt` carry an optional `signal` so login callbacks can observe a provider abandoning a prompt (for example a manual-code prompt raced against a local callback server) ([#1316](https://github.com/code-yeongyu/senpi/issues/1316)).
+
 ### Changed
 
 ### Fixed
@@ -728,6 +733,7 @@
 
 - Changed built-in xAI models to use the Responses API with encrypted reasoning replay and made Grok 4.6 the default xAI model ([#8124](https://github.com/earendil-works/pi/pull/8124) by [@Jaaneek](https://github.com/Jaaneek)).
 - Changed the Anthropic, Azure OpenAI, Google Generative AI, Google Vertex, Mistral, OpenAI Chat Completions, and OpenAI Responses adapters to send Pi's default `User-Agent` unless overridden ([#8305](https://github.com/earendil-works/pi/issues/8305)).
+
 ### Fixed
 
 - Fixed OpenAI-compatible Chat Completions reasoning replay to preserve and resend assistant-level `reasoning_details` (`reasoning.text`, `reasoning.summary`, and `reasoning.encrypted`) verbatim and in order ([#7994](https://github.com/earendil-works/pi/issues/7994)).
@@ -942,6 +948,7 @@
   `<invoke name="mcp_49f0-Todo">` recovers into the registered `todo` tool
   call instead of rendering as literal text. Alias collisions between
   registered tools stay literal text.
+
 ### Removed
 
 ## [2026.8.18-2] - 2026-08-18

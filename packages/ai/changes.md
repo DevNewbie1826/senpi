@@ -1,3 +1,38 @@
+## 2026-09-18 - Generate the official B.AI chat catalog
+
+### What changed
+
+- `packages/ai/scripts/bai-models.json` records B.AI's published standard context, output, modality,
+  reasoning-level, and pricing metadata for the 56 chat models B.AI documents as active, sourced from each
+  `docs.b.ai/llmservice/models/<slug>/` page and the standard pricing table. Promotional, DeepSeek idle, and
+  long-cache rates are deliberately excluded.
+- `packages/ai/scripts/generate-models-bai.ts` converts that source into provider models with family-specific
+  API selection and B.AI endpoint shapes.
+- `packages/ai/scripts/generate-models.ts` adds the curated B.AI rows before the shared normalization and
+  generated-shard pipeline.
+- Regenerated `packages/ai/src/providers/data/bai.json`, `bai.models.ts`, `models.generated.ts`, and the model
+  data manifest. Image-only `gpt-image-2` is intentionally absent from the chat catalog.
+- `packages/ai/test/gpt-6-astra-context-window.test.ts` includes the B.AI shard in the cross-provider Astra
+  context-window invariant.
+- `packages/ai/scripts/generate-models.ts` re-derives `reasoning` for B.AI models after the shared
+  thinking-level passes, so a model that gains a selectable level cannot keep `reasoning: false` and silently
+  lose its reasoning payload at request time.
+
+### Why
+
+- B.AI `/v1/models` is credential-scoped and returns IDs only. The committed generated catalog is the
+  maintainable source for model capabilities and standard reference prices, while runtime discovery decides
+  which classified IDs the current key may use.
+
+### Why an extension could not handle it
+
+- Catalog generation and validation run before extensions load and feed every built-in provider consumer.
+
+### Expected merge conflict zones
+
+- LOW: one import and one append in `packages/ai/scripts/generate-models.ts`.
+- NONE: the B.AI generator source and metadata file are new fork-owned files.
+
 ## 2026-09-13 - Publish static provider module subpaths
 
 ### What changed
