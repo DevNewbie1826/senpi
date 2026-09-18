@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { publishRuntimeMetadata } from "./extension-runtime-module.ts";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -29,7 +30,19 @@ declare const Bun: {
 
 export const extensionNamespace = "senpi-extension";
 const RUNTIME_SPECIFIER = "runtime";
-const runtimeModulePath = fileURLToPath(new URL("./extension-runtime-module.js", import.meta.url));
+// Inside a `bun build --compile` binary the shim has no on-disk path (import.meta.url is a
+// $bunfs URL), so the file route is only available when the file is really there; the compiled
+// binary keeps the virtual module, which it never had a problem with.
+const runtimeModulePath = resolveRuntimeModulePath();
+
+function resolveRuntimeModulePath(): string | undefined {
+	try {
+		const candidate = fileURLToPath(new URL("./extension-runtime-module.js", import.meta.url));
+		return existsSync(candidate) ? candidate : undefined;
+	} catch {
+		return undefined;
+	}
+}
 
 // An id is `<generation>/<encodeURIComponent(filename)>`. The encoded half never contains a
 // literal "/" (Windows separators arrive as %5C), so the FIRST slash is always the generation
@@ -109,8 +122,15 @@ function installRegistry(virtualModules: Readonly<Record<string, Readonly<Record
 				// refused the 41st in the same worker (omo#8427, run 35329245740). A file on disk
 				// has no registration window to lose.
 				publishRuntimeMetadata(metadata);
+				builder.module(`${extensionNamespace}:${RUNTIME_SPECIFIER}`, () => ({
+					exports: { metadata },
+					loader: "object",
+				}));
 				builder.onResolve({ filter: /.*/, namespace: extensionNamespace }, ({ path }) => {
-					if (path === RUNTIME_SPECIFIER) return { path: runtimeModulePath, namespace: "file" };
+					if (path === RUNTIME_SPECIFIER)
+						return runtimeModulePath === undefined
+							? { path, namespace: extensionNamespace }
+							: { path: runtimeModulePath, namespace: "file" };
 					const parsed = splitModuleId(path);
 					if (parsed === undefined) throw new ExtensionModuleIdError(path);
 					graphFor(parsed.generation);
