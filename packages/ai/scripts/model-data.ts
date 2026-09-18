@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { FORK_OWNED_MODEL_SHARDS, MODEL_SHARD_SUFFIX } from "./model-shards.ts";
+import { FORK_OWNED_MODEL_SHARDS, importedModelShards, MODEL_SHARD_SUFFIX } from "./model-shards.ts";
 
 export const MODEL_DATA_SCHEMA_VERSION = 3;
 export const MODEL_DATA_MANIFEST_FILE = ".manifest.json";
@@ -99,8 +99,21 @@ export function readModelDataStructure(packageRoot: string): ModelDataStructure 
 	const dataDir = join(providersDir, "data");
 	const providerIds = readModelDataProviderIds(packageRoot);
 	const expectedShards = providerIds.map((providerId) => `${providerId}.models.ts`).sort();
+	// A shard a provider module imports is kept by the prune even when the run wrote none of them -
+	// models.dev can stop describing a provider the fork still ships. Such a shard is outside the
+	// aggregator's bookkeeping for the same reason a fork-owned one is: its module imports it directly.
+	const importedShards = importedModelShards(
+		readdirSync(providersDir)
+			.filter((entry) => entry.endsWith(".ts") && !entry.endsWith(MODEL_SHARD_SUFFIX))
+			.map((entry) => readFileSync(join(providersDir, entry), "utf8")),
+	);
 	const actualShards = readdirSync(providersDir)
-		.filter((entry) => entry.endsWith(MODEL_SHARD_SUFFIX) && !FORK_OWNED_MODEL_SHARDS.has(entry))
+		.filter(
+			(entry) =>
+				entry.endsWith(MODEL_SHARD_SUFFIX) &&
+				!FORK_OWNED_MODEL_SHARDS.has(entry) &&
+				!(importedShards.has(entry) && !expectedShards.includes(entry)),
+		)
 		.sort();
 	if (!sameStrings(expectedShards, actualShards)) {
 		throw new Error(

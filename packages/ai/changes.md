@@ -1,3 +1,26 @@
+## 2026-09-18 - The catalog check tolerates a shard the aggregator no longer lists
+
+### What changed
+
+- `packages/ai/scripts/model-data.ts` excludes a shard a provider module imports from the
+  aggregator/shard equality check, the way it already excludes a fork-owned shard.
+- `packages/ai/test/model-data-imported-shard.test.ts` stages the committed catalog, drops
+  `kimi-coding` from the aggregator and requires `readModelDataStructure` not to throw.
+
+### Why
+
+- With the prune guard in place the shard survives a run that wrote none of them, but the freshly
+  written aggregator no longer lists it, so `readModelDataStructure` called it an extra shard and the
+  release failed a third time - after the prune failure it was meant to replace.
+
+### Why an extension could not handle it
+
+- The equality check is the generator's own consistency gate; only it knows which shards the run wrote.
+
+### Expected merge conflict zones
+
+- `packages/ai/scripts/model-data.ts` around `readModelDataStructure`'s shard comparison.
+
 ## 2026-09-18 - Never prune a model shard a provider module imports
 
 ### What changed
