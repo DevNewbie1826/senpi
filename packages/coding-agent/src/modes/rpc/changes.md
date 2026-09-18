@@ -1,3 +1,14 @@
+## An ensure never ends a host whose socket still accepts connections
+
+A host serving many sessions can miss the 10 s `get_protocol_info` budget while its event loop is
+busy. `probeProtocolInfo` collapsed every failure - unreachable, refused, slow - into "no answer",
+and `ensureHostLocked` read that as a silent socket: if the pid was alive and this process had
+written the record, it SIGTERM'd the host and started a replacement, destroying every live session.
+
+The probe now reports whether the socket ACCEPTED the connection. A reachable-but-silent socket is
+refused as `host_busy` instead of signalled, so the caller retries or falls back; only a socket that
+cannot be connected to at all takes the stop-and-start path.
+
 ## 2026-09-18 - The RPC reference describes the daemon that shipped, cap-free and honestly priced (#1782)
 
 ### What changed
