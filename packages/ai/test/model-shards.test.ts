@@ -3,7 +3,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { readModelDataStructure } from "../scripts/model-data.ts";
-import { FORK_OWNED_MODEL_SHARDS, importedModelShards, isPrunableModelShard, MODEL_SHARD_SUFFIX } from "../scripts/model-shards.ts";
+import {
+	FORK_OWNED_MODEL_SHARDS,
+	importedModelShards,
+	isPrunableModelShard,
+	MODEL_SHARD_SUFFIX,
+} from "../scripts/model-shards.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const providersDir = join(packageRoot, "src/providers");

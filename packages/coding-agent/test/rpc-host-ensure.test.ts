@@ -213,16 +213,20 @@ describe("ensureHost", () => {
 	// win32 reaches a host through a named pipe derived from a secret file, so a stand-in listener
 	// there would test the fixture's own derivation rather than this decision. The rule is
 	// platform-independent; the POSIX shards prove it.
-	it.skipIf(process.platform === "win32")("never signals a host whose socket still accepts connections", async () => {
-		// A daemon serving many sessions can miss the probe budget while its event loop is busy.
-		// Ending it would destroy every live session to replace a host that was never broken.
-		const qa = await scratch("busy-socket");
-		const busy = await startBusySocketHost(qa, "self");
+	it.skipIf(process.platform === "win32")(
+		"never signals a host whose socket still accepts connections",
+		async () => {
+			// A daemon serving many sessions can miss the probe budget while its event loop is busy.
+			// Ending it would destroy every live session to replace a host that was never broken.
+			const qa = await scratch("busy-socket");
+			const busy = await startBusySocketHost(qa, "self");
 
-		await expect(ensureFixtureHost(qa, { stopTimeoutMs: 200 })).rejects.toThrow(/host_busy|accepts connections/);
+			await expect(ensureFixtureHost(qa, { stopTimeoutMs: 200 })).rejects.toThrow(/host_busy|accepts connections/);
 
-		expect(processIsLive(busy.pid)).toBe(true);
-	}, 30_000);
+			expect(processIsLive(busy.pid)).toBe(true);
+		},
+		30_000,
+	);
 
 	it("fails within the readiness budget and includes stderr diagnostics", async () => {
 		const qa = await scratch("readiness-failure");
@@ -749,8 +753,8 @@ async function startManagedProcess(qa: Qa, options: { writer: Writer; ignoreTerm
 async function startBusySocketHost(qa: Qa, writer: Writer): Promise<Managed> {
 	const script = [
 		'const net = require("node:net"), fs = require("node:fs");',
-		'try { fs.unlinkSync(process.env.BUSY_SOCKET) } catch {}',
-		'const server = net.createServer(() => {});',
+		"try { fs.unlinkSync(process.env.BUSY_SOCKET) } catch {}",
+		"const server = net.createServer(() => {});",
 		'server.on("error", (error) => { process.stderr.write(String(error)); process.exit(1) });',
 		'server.listen(process.env.BUSY_SOCKET, () => process.stdout.write("listening\\n"));',
 		"setInterval(() => {}, 1000);",
@@ -762,7 +766,9 @@ async function startBusySocketHost(qa: Qa, writer: Writer): Promise<Managed> {
 	});
 	await new Promise<void>((resolve, reject) => {
 		child.stdout?.once("data", () => resolve());
-		child.stderr?.once("data", (chunk: Buffer) => reject(new Error(`busy host failed to listen: ${chunk.toString("utf8")}`)));
+		child.stderr?.once("data", (chunk: Buffer) =>
+			reject(new Error(`busy host failed to listen: ${chunk.toString("utf8")}`)),
+		);
 		child.once("exit", (code) => reject(new Error(`busy host exited before listening (code ${code})`)));
 	});
 	return register(qa, child, writer);

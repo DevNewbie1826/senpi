@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,7 +51,10 @@ describe("readModelDataStructure with a shard the aggregator no longer lists", (
 		const aggregatorPath = join(root, "src", "models.generated.ts");
 		const aggregator = readFileSync(aggregatorPath, "utf8");
 		const shard = anImportedGeneratedShard(root, aggregator);
-		const constName = `${shard.slice(0, -".models.ts".length).toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_MODELS`;
+		const constName = `${shard
+			.slice(0, -".models.ts".length)
+			.toUpperCase()
+			.replace(/[^A-Z0-9]+/g, "_")}_MODELS`;
 		const dropped = aggregator
 			.split("\n")
 			.filter((line) => !line.includes(shard) && !line.includes(constName))
