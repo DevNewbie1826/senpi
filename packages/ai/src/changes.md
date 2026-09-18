@@ -1,3 +1,21 @@
+## 2026-09-18 — Drop the OpenRouter Mistral overflow case that the catalog no longer carries
+
+### What changed
+
+- `test/context-overflow.test.ts`: removed the `mistralai/mistral-large-2512` OpenRouter case.
+
+### Why
+
+- The generated catalog has no `mistralai/*` ids under `openrouter` any more, so the hardcoded id stopped satisfying `ModelId` and `npm run check` failed with TS2345. Push CI does not typecheck tests, so it only surfaced inside `scripts/release.mjs` and blocked the release of senpi run 35334224253. The other backends in that block each pin one live id; Mistral simply has no OpenRouter id left to pin.
+
+### Why an extension could not handle it
+
+- Test source against a generated catalog.
+
+### Expected merge conflict zones
+
+- LOW: the OpenRouter block in `test/context-overflow.test.ts`.
+
 ## Native B.AI provider with credential-scoped catalog and schema compatibility (2026-09-18)
 
 ### What changed
