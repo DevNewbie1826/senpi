@@ -117,8 +117,12 @@ it("delivers a worker session's session_closed only to the connections attached 
 		host
 			.inbox(connection)
 			.filter((record) => record.type === "session_closed" && record.sessionId === worker.sessionId);
-	expect(closedFor("conn-a")).toEqual([{ type: "session_closed", sessionId: worker.sessionId }]);
-	expect(closedFor("conn-b")).toEqual([{ type: "session_closed", sessionId: worker.sessionId }]);
+	expect(closedFor("conn-a")).toEqual([
+		{ type: "session_closed", sessionId: worker.sessionId, reason: "idle_evicted" },
+	]);
+	expect(closedFor("conn-b")).toEqual([
+		{ type: "session_closed", sessionId: worker.sessionId, reason: "idle_evicted" },
+	]);
 	expect(closedFor("conn-c")).toEqual([]);
 }, 120_000);
 
@@ -136,7 +140,7 @@ it("keeps an interactive session's session_closed broadcast to every connection"
 		host
 			.inbox("conn-c")
 			.filter((record) => record.type === "session_closed" && record.sessionId === interactive.sessionId),
-	).toEqual([{ type: "session_closed", sessionId: interactive.sessionId }]);
+	).toEqual([{ type: "session_closed", sessionId: interactive.sessionId, reason: "idle_evicted" }]);
 }, 120_000);
 
 it("refuses a context past the key, value or total byte caps", async () => {

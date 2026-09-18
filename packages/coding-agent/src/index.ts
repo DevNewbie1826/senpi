@@ -49,6 +49,16 @@ export {
 	serializeConversation,
 	shouldCompact,
 } from "./core/compaction/index.ts";
+// Engine build identity: the ordinal clients compare instead of version strings
+export {
+	compareEngineOrdinal,
+	type EngineBuildIdentity,
+	type EngineBuildInput,
+	type EngineOrdinal,
+	type EngineOrdinalScheme,
+	engineBuildIdentity,
+	engineBuildIdentityFrom,
+} from "./core/engine-build-identity.ts";
 export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.ts";
 // Extension system
 export type {
@@ -371,10 +381,26 @@ export { type MainOptions, main } from "./main.ts";
 // Run modes for programmatic SDK usage
 export {
 	createHostDaemonPaths,
+	decideHostAction,
 	type EnsuredHost,
 	type EnsureHostOptions,
 	ensureHost,
+	GENERATION_HANDOFF_CAPABILITY,
+	type HandoffHostOptions,
+	type HandoffRefusal,
+	type HandoffResult,
+	HOST_PROTOCOL_VERSION,
+	type HostAction,
 	type HostDaemonPaths,
+	type HostDecision,
+	type HostDecisionClient,
+	type HostDecisionPolicy,
+	type HostDecisionWarning,
+	HostEnsureRefusedError,
+	type HostProtocolInfo,
+	type HostRefusalReason,
+	type HostUpgradePolicy,
+	handoffHost,
 	InteractiveMode,
 	type InteractiveModeOptions,
 	isTransportGoneError,
@@ -382,6 +408,10 @@ export {
 	type ModelInfo,
 	PINNED_HOST_CLIENT_CAPABILITIES,
 	type PrintModeOptions,
+	type ProbeHostOptions,
+	parseHostProtocolInfo,
+	probeHost,
+	REQUIRED_HOST_CAPABILITIES,
 	RpcClient,
 	type RpcClientEvent,
 	RpcClientOpenInFlightError,
@@ -396,6 +426,9 @@ export {
 	RpcTransportGoneError,
 	runPrintMode,
 	runRpcMode,
+	type StopHostOptions,
+	type StopHostResult,
+	stopHost,
 } from "./modes/index.ts";
 // UI components for extensions
 export {

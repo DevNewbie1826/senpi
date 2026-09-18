@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { VERSION } from "../src/config.ts";
+import { engineBuildIdentityFrom } from "../src/core/engine-build-identity.ts";
 import {
 	RPC_ERROR_MISSING_SESSION_ID,
 	RPC_ERROR_MULTI_SESSION_DISABLED,
@@ -59,6 +60,16 @@ describe("multi-session RPC routing", () => {
 					"auto_title_per_session",
 				],
 				mode: "multi",
+				// Host identity (`protocol-identity.ts`): the instance is this process, the
+				// engine ordinal is built from this tree's VERSION by an independent builder,
+				// and the launch profile of a router built here is whatever argv the test
+				// runner has - `test/rpc-protocol-identity.test.ts` pins its contents against
+				// a host launched with known flags.
+				instanceId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+				generation: 0,
+				engineVersion: VERSION,
+				engineOrdinal: engineBuildIdentityFrom({ version: VERSION }).ordinal,
+				launch_profile: { profile_id: expect.stringMatching(/^[0-9a-f]{64}$/), core: expect.anything() },
 			},
 		});
 	});
@@ -319,7 +330,7 @@ describe("multi-session RPC routing", () => {
 		await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
 		await writer.flush();
 		expect(records.filter((record) => record.sessionId === "rpc-session")).toEqual([
-			{ type: "session_closed", sessionId: "rpc-session" },
+			{ type: "session_closed", sessionId: "rpc-session", reason: "client_close" },
 			expect.objectContaining({ id: "first", command: "close_session", success: true, sessionId: "rpc-session" }),
 			expect.objectContaining({ id: "second", command: "close_session", success: true, sessionId: "rpc-session" }),
 		]);
@@ -366,7 +377,7 @@ describe("multi-session RPC routing", () => {
 			await writer.flush();
 			expect(closeMarked).toHaveBeenCalledTimes(1);
 			expect(records.filter((record) => record.sessionId === "rpc-session")).toEqual([
-				{ type: "session_closed", sessionId: "rpc-session" },
+				{ type: "session_closed", sessionId: "rpc-session", reason: "client_close" },
 				expect.objectContaining({ id: "first", command: "close_session", success: true }),
 				expect.objectContaining({ id: "second", command: "close_session", success: true }),
 			]);

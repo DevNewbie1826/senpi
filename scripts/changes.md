@@ -1,5 +1,33 @@
 # changes
 
+## 2026-09-17 - Compiled binaries carry the build epoch and short sha (#1782)
+
+### What changed
+
+- `build-binaries.sh`: every `bun build --compile` invocation gets `--define SENPI_BUILD_EPOCH=<unix(commit date)>` and `--define SENPI_BUILD_SHA7=<sha[:7]>`, derived from the commit being built.
+
+### Why
+
+Two hosts that speak the same protocol still need a way to say which one is NEWER, and a CalVer string cannot separate two builds of the same day. The epoch is that ordinal: a successor hands off only when its epoch is strictly greater and the launch profile matches. A binary built without the defines reports no ordinal at all, which reads as "uncomparable" - it attaches, and it never initiates a handoff.
+
+### Why an extension could not handle it
+
+An extension runs inside a session; both of these are process-level surfaces that exist before any session does - the module barrel a client imports to decide what to do with a host it found, and the compile step that stamps the binary. Neither is reachable from extension code.
+
+### Expected merge conflict zones
+
+Upstream edits to the same export list, and upstream edits to the `bun build --compile` argument list in the release script.
+
+
+
+### What changed
+
+`scripts/build-binaries.sh` passes `--define SENPI_BUILD_EPOCH=<unix(commit date)>` and `--define SENPI_BUILD_SHA7=<sha[:7]>` to every `bun build --compile` invocation, derived from the commit being built.
+
+### Why
+
+Two hosts that speak the same protocol still need a way to say which is NEWER, and a CalVer version string cannot answer that for two builds of the same day. The epoch is that ordinal: a successor hands off only when its epoch is strictly greater and the launch profile matches. A binary built without the defines reports no ordinal at all, which reads as "uncomparable" - it attaches, and it never initiates a handoff.
+
 ## 2026-09-17 - Keep ws's native accelerators out of the bundle
 
 ### What changed

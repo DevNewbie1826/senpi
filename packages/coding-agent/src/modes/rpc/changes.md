@@ -1,3 +1,225 @@
+## 2026-09-17 - Name why a session closed or parked, and when the host stalls (#1782)
+
+### What changed
+
+- `rpc-types.ts`: `RpcSessionClosedReason` is the full vocabulary (`client_close` / `idle_evicted` / `host_shutdown` / `replaced` / `handoff_parked` / `error`). `RpcSessionClosedEvent` carries optional `reason` - absent on the wire unless the caller names one, never required in decoders.
+- `session-event-writer.ts`: `closeSession` still omits `reason` when the caller does not pass one. Explicit close admission reserves the `client_close` bytes; overflow seals with `error`. `broadcastHostRecord` reconstructs `host_stalled` and `host_memory_pressure` from a typed switch so desktop `scripts/refresh-senpi-events.ts` (which scans literal `type:` sites in this file) sees both, plus the existing `session_closed` / `session_parked` literals.
+- `session-command-router.ts`: callers pass the reason. `close_session` -> `client_close`; idle sweep of a non-retained session -> `idle_evicted`; idle sweep of a retained session with a path still emits `session_parked` instead of a close; drain still -> `handoff_parked`; `dispose()` (host exit) -> `host_shutdown`.
+- `session-worker-client.ts`: a worker failure seals with `error`.
+- `multi-session-host.ts`: socket shutdown disposes the router and flushes WHILE connections are still registered, then detaches. SIGTERM can therefore deliver `session_closed { reason: "host_shutdown" }` instead of dropping the socket first.
+- Docs: `docs/rpc.md` Event Types table and a `session_closed.reason` / `session_parked` / `host_stalled` / `host_memory_pressure` section; occupancy idle-eviction names `idle_evicted` vs `session_parked` vs `host_shutdown`.
+- Tests: `test/suite/rpc-inprocess-host.test.ts` asserts each path (explicit close, idle non-retained, idle retained -> `session_parked`, drain -> `handoff_parked`, host SIGTERM -> `host_shutdown`, and SIGTERM of a retained session still `host_shutdown` not a park).
+
+### Why
+
+- A parked session and a closed session used to be indistinguishable on the wire except for the new `session_parked` type, and a host going away looked like a dropped socket. Clients (desktop threads, senpi-task) need the reason to choose reopen-by-path vs forget vs reconnect-to-new-generation vs show an error.
+- `reason` stays optional so an older client, and any record emitted before this vocabulary, keep working. Making it required in a decoder would fail closed against every host still in the field.
+
+### Why an extension could not handle it
+
+- These are host lifecycle records on the RPC wire. Extensions never see `session_closed` or emit it; the desktop event scanner reads the engine's `type:` literals.
+
+### Expected merge conflict zones
+
+- MEDIUM: `SessionEventWriter.closeSession` / `reserveCloseResponse` / `broadcastHostRecord`, `SessionCommandRouter.close` / `evictIdleSession` / `dispose`, and the socket-host shutdown order in `multi-session-host.ts`. Anything upstream that also emits `session_closed` or tears connections down before dispose conflicts there.
+- LOW: the reason union in `rpc-types.ts`, the docs Event Types table, and the new cases in `rpc-inprocess-host.test.ts`.
+
+## 2026-09-17 - The created host modules go back under the file-size ceiling (#1782)
+
+### What changed
+
+- `src/modes/rpc/host-daemon-paths.ts` (restored): WHERE one socket's daemon keeps its state - `createHostDaemonPaths`, `generationPaths`, `daemonDirectoryName`, the `HostDaemonPaths`/`HostGenerationPaths` shapes, the layout marker, the 0700/0600 mode bits, `createDaemonDirectories`/`createGenerationDirectory` and `HostDaemonStateError`. This is the module the layout-2 change had folded INTO `host-daemon-state.ts`; folding it in is what pushed that file to 399 lines, so it is a file again.
+- `src/modes/rpc/host-daemon-state.ts` now holds only WHAT the settings say (`HostDaemonSettings`, `writeHostSettings`, `readHostSettings`) plus the three primitives every state file goes through (`writeStateFile`, `readFileOrUndefined`, `parseJson`, and the `isRecord` guard), shared with the registration module.
+- `src/modes/rpc/host-daemon-registration.ts` (from the previous entry) keeps the pointer and generation RECORDS and the ownership predicates.
+- `src/modes/rpc/host-protocol-info.ts` (new, out of `host-decision.ts`): the `HostProtocolInfo` shape and the tolerant boundary parse that produces it (`parseHostProtocolInfo`, `parseOrdinal`, `parseLaunchProfile`). The decision module now imports the type and re-exports both for its existing callers, so `host-decision.ts` is the truth table and nothing else.
+- `src/modes/rpc/host-successor.ts` (new, out of `host-handoff.ts`): bringing the successor generation up - the bind path and its length guard, the settings and environment it is launched with, the spawn, the readiness observation on the PUBLIC socket (`awaitSuccessor`), the registration, the drain signal to the predecessor, and `abortReason`. `host-handoff.ts` is now the DECISION half: probe, the `generation_handoff` capability guard, the win32 refusal, the owner proof, and the refusal/result vocabulary.
+- Importers follow the seams; no test assertion changed.
+- `scripts/qa-rpc-socket/ensure-host.mjs`: brought to the compatibility contract this plan introduced. It asserted that a host with a different `serverVersion` is REPLACED, which is exactly the behaviour the capability/ordinal decision removed - so the driver was asserting a defect. It now proves, live against the real `ensureHost`: a fresh start, a reuse of that same host, a host advertising protocol 1 plus every required capability under a DIFFERENT `serverVersion` being REUSED rather than replaced, and a host missing `session_context` being REFUSED (`capability`) while staying alive - the refusal holding even though the registration names this process as the writer, which would otherwise permit a stop.
+
+### Why
+
+- Measured with `awk '!/^[[:space:]]*$/ && !/^[[:space:]]*\/\//' <file> | wc -l`, the files this work created were over the 250 ceiling: `host-daemon-state.ts` 399, `host-handoff.ts` 258, `host-decision.ts` 251. After the split: paths 149, state 83, registration 204, decision 200, protocol-info 66, handoff 100, successor 173, stop 80 - every created module under the ceiling, with `host-probe.ts` 106, `host-launch.ts` 45 and `host-reservations.ts` 136 unchanged.
+- Each cut follows a seam the code already had: where files live vs what they contain; the wire parse vs the decision that consumes it; bringing a generation up vs deciding whether it may be brought up at all. No "utils" bucket was created.
+- Pure move: a scripted symbol-body comparison against the previous commit (66 symbols before and after, comments and whitespace normalized) reports zero lost symbols and exactly one changed body - `startSuccessor`, which gained `export`. `writeStateFile`, `readFileOrUndefined`, `parseJson` and `isRecord` had already been exported by the previous split.
+
+### Why an extension could not handle it
+
+- Module boundaries inside the engine's host-lifecycle code; nothing about it is reachable from an extension.
+
+### Expected merge conflict zones
+
+- LOW: mechanical import moves plus three new files. Anything upstream that also edits the import blocks of `host-ensure.ts`, `host-handoff.ts` or `host-lifecycle.ts` conflicts on those lines only.
+
+## 2026-09-17 - One daemon directory per socket, and no pidfile a legacy client can act on (#1782)
+
+### What changed
+
+- `src/modes/rpc/host-daemon-state.ts`: layout 2 lands IN the module that already owned the daemon state (where the files are and what they say is one responsibility; it measures 281 pure LOC against the 250 guideline - a deliberate call, recorded here rather than hidden, because a second paths helper beside this one is the thing worth avoiding). `createHostDaemonPaths({ socket, agentDir })` -> `<agentDir>/rpc-host-daemon/<sha256(canonical socket)[:16]>/` with `host.pid` (pointer), `settings.json`, `daemon.lock`, `stderr.log`, `generations/`, `reservations/`; `generationPaths(paths, instanceId)` -> `generations/<instanceId>/{host.pid,settings.json,scratch/}` plus the `generations/<instanceId>` string the pointer carries. `createDaemonDirectories` creates the chain at `0700` (mode set explicitly with `chmod`, because a directory that already exists keeps the mode it was created with) and writes the FLAT `layout.json { layout: 2, dir }` - the only file this build puts in the shared directory. Every failure becomes `HostDaemonStateError { path }`, so an unwritable directory names the path instead of surfacing a bare `EACCES`. `daemonDirectoryName` is deliberately total: it canonicalizes (POSIX path as-is, win32 `normalize().toLowerCase()`) without going through `resolveSocketTransportAddress`, which THROWS on a non-drive-qualified win32 path - naming a directory must never fail on a path shape the transport would reject.
+- The pointer/record split in the same module: `readHostRegistration` reads the pointer, resolves `generations/<instance_id>/host.pid` and returns `{ record, writer, socket, instanceId, generation }`; `writeHostRegistration` writes the generation record (`{ pid, processStartTime, instance_id, generation, engineVersion, engineOrdinal, launchProfileId, socket, writer }`) and then moves the pointer onto it by `rename`, so no reader ever sees half a pointer. `clearHostRegistration` drops the pointer, the generation it names and the boot settings; `releaseGeneration` drops ONE generation while the files still name it, which is what lets a predecessor drain and exit after a handoff without deleting the successor's pointer. `readLegacyHostRecord` reads the flat pidfile and nothing else writes or removes it. `writeHostSettings` publishes the settings in both places they are read (the daemon directory for the supervisor's boot, the generation directory as the record of what that generation was started with).
+- `host-ensure.ts`: `ensureHost` resolves the per-socket directory and `createDaemonDirectories` before taking the endpoint lock (unchanged: `<tmp>/senpi-rpc-host-locks/<sha256(socket)[:32]>.lock`). `startHost` mints the generation's `instanceId` BEFORE the spawn - the generation directory has to hold its settings before the host boots - and hands it to the host as `SENPI_RPC_HOST_INSTANCE_ID` along with `SENPI_RPC_HOST_DAEMON_DIR`; both are always SET, never inherited. A new guard sits in front of the start path: a flat pidfile whose process is still alive refuses with `HostEnsureRefusedError` reason `legacy_host` (added to `HostRefusalReason`), so a v2 ensure neither signals a legacy host nor binds a socket it may still be serving. An unreadable identity on a LIVE legacy pid counts as alive.
+- `protocol-identity.ts`: `HOST_INSTANCE_ID_ENV`. A host uses the id its ensure chose (so `generations/<instanceId>` is the same id `get_protocol_info` reports) and mints its own when nobody ensured it.
+- `host-stop.ts` also owns `signalGeneration(pid, signal)`: the ownership proof cannot close the window between proving an owner and signalling it, because a host is free to exit in between - a drained generation with an empty registry reaches its empty-exit about 660 ms after SIGUSR1 (measured on this branch). Delivery failure `ESRCH` therefore means "already gone", which is the outcome every caller here asked for, and is reported rather than thrown; any other signalling failure still throws. `stopHost` (drain and hard stop) and the handoff's SIGUSR1 to the predecessor go through it, so a stop against a host that just left answers `drained`/`stopped` instead of surfacing a raw `kill ESRCH`.
+- `host-handoff.ts` + `host-stop.ts` (new): the successor gets its own `instanceId` and generation directory, and the pointer moves onto it only after it answers on the PUBLIC socket. `stopHost` moved into its own module - ending a generation is a different act from replacing one, and the handoff module had grown past the 250-line ceiling with the registration work - and a hard stop now drops the stopped generation's registration (`releaseGeneration`); a draining host keeps its registration until it exits, because it is still serving. The owner proof both modules need (`provenOwner`, formerly `drainableOwner`, now also returning the instance id it proved) moved to `host-daemon-state.ts`, which is where "who may act on this record" already lives. The barrel exports `stopHost` from the new module.
+- `host-lifecycle.ts` (supervisor): resolves its paths from `launch.socket`, learns its generation from `SENPI_RPC_HOST_INSTANCE_ID` (a direct `--internal-rpc-host-supervisor` launch names itself so its child agrees), passes the daemon directory and instance id to the host child, lists the pointer AND its generation record in the child's crash-cleanup paths for an ordinary start (a successor still passes none), and releases only its own generation on shutdown.
+- `host-reservations.ts` + `multi-session-host.ts`: `createEndpointReservations({ agentDir, socket, instanceId })` decides WHERE claims go, in the module that already defines what they are. The directory comes from `SENPI_RPC_HOST_DAEMON_DIR` (a supervised host binds a private hop, so it cannot derive the public endpoint's directory from what it listens on), falling back to the endpoint it listens on; a stdio host has no daemon directory, no successor generation and therefore no cross-process claim to publish.
+- Docs: `docs/rpc.md` gains "Daemon state directory (layout 2)" with the tree, the modes, the canonical-socket rule and the fail-closed rationale; the ownership-state line, the reservations path, the handoff registration step, the `stopHost` paragraph and the win32 internal-hop path all name the per-socket directory.
+- Tests: `test/rpc-host-daemon-dir.test.ts` and `test/rpc-host-legacy-fail-closed.test.ts` (new, sharing `test/helpers/rpc-host-daemon-sandbox.ts`) derive the directory name from the socket ITSELF (`sha256`, the way a client does) and pin the pointer/record contents, the `0700`/`0600` modes, a flat directory holding only `layout.json`, `stopHost` clearing pointer + generation directory, an unwritable directory failing as `HostDaemonStateError` naming that path with nothing spawned, and a live legacy flat pidfile refusing as `legacy_host` with the file byte-identical afterwards. The two fail-closed proofs are copies of the DEPLOYED clients: `readManagedHost` from the `v2026.9.16-3` desktop returns undefined against this directory, and that release's `ensureHostLocked` (spies in place of its spawn and stop) throws "owned by an unmanaged host" without stopping anything - the case that used to live in `rpc-host-ensure.test.ts` against a hand-made layout, now against the real one. `rpc-host-ensure.test.ts`, `rpc-host-lifecycle.test.ts`, `rpc-host-handoff.test.ts` and `rpc-host-identity-regression.test.ts` register hosts in the v2 shape; the handoff suite additionally asserts the pointer names the NEW generation's instance id. QA drivers (`ensure-host.mjs`, `host-lifecycle.mjs`, `compiled-host.mjs`, `interactive-host.mjs`, `generation-handoff.mjs`) read the registration through `readHostRegistration` instead of a flat path.
+
+### Why
+
+- One flat pidfile per AGENT DIRECTORY was ambiguous the moment a second socket appeared, and it was the wrong ownership unit for a machine-wide daemon: the state that decides who may signal a host has to be keyed by the host's endpoint.
+- The absence of a legacy-parseable flat `host.pid` is the ONLY protection that holds regardless of the order clients update in. Measured against the published `v2026.9.16-3`: its ensure finds a flat pidfile it can parse, calls the new host incompatible (`serverVersion === VERSION`) and calls `stopManagedHost` - the RED captured in this change shows exactly that takeover firing, and the same file's absence turns it into a refusal. A dual-write "for compatibility" would therefore hand every deployed client a licence to kill the daemon.
+- A pointer plus per-generation records is what makes a handoff safe on disk: two generations are alive at once, so a single record file would have to be overwritten while the host it describes is still serving. Separating them also gives the predecessor a way to clean up after itself (`releaseGeneration`) that cannot touch the successor's registration.
+- The instance id is chosen by the ensure rather than the host because the generation's directory has to exist - with its settings - before the host boots. It is also the id the host reports, so a pointer naming a different id than the socket answers is visibly stale rather than silently wrong.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
+### Why an extension could not handle it
+
+- This is the on-disk ownership evidence of the host process: which directory names an endpoint, which file authorizes a signal, and which file a foreign client must NOT be able to parse. No extension is loaded when those decisions run, and the failure mode of getting them wrong is another client's daemon being killed.
+
+### Expected merge conflict zones
+
+- MEDIUM: `host-ensure.ts` (paths, the start path, the environment), `host-handoff.ts` (successor registration, `stopHost`) and `host-lifecycle.ts` (startup, cleanup paths, shutdown) all move in several places, and `HostDaemonPaths` changed shape (`pidFile` -> `pointerFile`, plus `flatDir`/`generationsDir`/`reservationsDir`). Anything upstream that reads `paths.pidFile` or calls `createHostDaemonPaths(agentDir)` positionally conflicts there.
+- LOW: the new paths module, the docs section, and the suites that register hosts by hand.
+
+## 2026-09-17 - Test hosts are reaped with their sandbox, and the protocol fixture will not outlive it (#1782)
+
+### What changed
+
+- `test/fixtures/rpc-host-fixture.mjs`: two self-terminating bindings. The fixture exits when the socket path it serves disappears (POSIX; on win32 the sandbox directory holding its secret is the equivalent evidence), and when it has been reparented because the process that started it is gone. Both are checked on one unref'd 500 ms interval, so the fixture is never the reason a test process stays alive. Measured: a SIGKILLed parent leaves the fixture dead in ~50 ms.
+- `test/helpers/spawned-host-reaper.ts` (new): `killAndWait(child)` (kill AND await the exit, so teardown cannot outrun it), `reapProcessesUnder(root)` (SIGKILL every process whose argv names a per-test `mkdtemp` sandbox AND every descendant of those processes, then wait for each pid to disappear), plus the shared `processAlive`/`waitForPidGone` the three host suites had copied between them. Descendants have to be included because a supervisor's host CHILD is named by its own private socket rather than by the sandbox, while it keeps writing into that sandbox until it notices its supervisor is gone - which lands after the removal and recreates the directory just deleted (observed: five leftover sandbox directories per handoff-suite run, with no process left in them). `processAlive` reads `ps -o stat=` and treats a ZOMBIE as gone: a host whose supervisor was SIGKILLed has no parent left to reap it, so its pid stays addressable for a moment after it exits.
+- `test/rpc-host-ensure.test.ts`, `test/suite/regressions/1290-rpc-host-ensure-startup-error.test.ts`, `test/rpc-host-lifecycle.test.ts`, `test/rpc-host-handoff.test.ts`: every sandbox is swept before it is removed, and children are awaited rather than merely signalled. The ensure suite also gains two cases for the fixture's own bindings ("exits when the socket it serves disappears", "exits when the process that started it is gone").
+
+### Why
+
+- Measured on a developer machine: 19 live `rpc-host-fixture.mjs` processes, the oldest 10 h 39 m old, while `<tmp>/senpi-host-ensure-*` held ZERO directories - hosts outliving the sandboxes they were started in. Every leaked process carried `-unreadable-identity-` in its argv, which names the cause exactly: that case registers a host with `processStartTime: null` on purpose (the probe was starved), and the teardown's pidfile-based stop requires a string start time, so it skipped the very host the case had just started. The child itself was spawned by `ensureHost` - detached, pid only - so the suite held no handle either.
+- The fix is two independent guards because each covers what the other cannot. The sandbox sweep reaps hosts no registration can name, including ones production code spawned; the fixture's own watch covers the case where no teardown runs at all, such as a SIGKILLed test runner or a crashed worker.
+- A suite that strands hosts for hours also makes this plan's zombie claim unverifiable, since the measurement it rests on counts processes of exactly this kind.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
+### Why an extension could not handle it
+
+- Test-only: a fixture process and the teardown of the suites that spawn it. No production code changed.
+
+### Expected merge conflict zones
+
+- LOW: one new test helper plus the `afterEach` blocks of four suites. Anything upstream that also rewrites those teardowns conflicts there.
+
+## 2026-09-17 - A newer generation takes the socket while the old one drains (#1782)
+
+### What changed
+
+- `src/modes/rpc/host-handoff.ts` (new): `handoffHost({ socket, agentDir, hostArgs, env, policy })` performs a GENERATION HANDOFF and `stopHost({ socket, agentDir, drain, force })` ends one. The handoff spawns the successor with `--socket <public> --bind <public>.next-<gen> --replace <dev>:<ino>`, waits for a `get_protocol_info` answer on the PUBLIC socket whose `instanceId` differs from the generation being replaced, registers it (pidfile + `settings.json { socket, generation }`, the running generation's `coldStart`/`idleExitMs` carried forward), and only then sends the predecessor SIGUSR1. Refusals are typed and leave everything running: `no_host`, `handoff_unsupported` (the host does not advertise `generation_handoff`, and SIGUSR1 would kill it), `upgrade_unsupported` (win32), `unknown_owner` (the pidfile cannot prove which process serves this socket - I1), `socket_replaced`, `socket_path_too_long`, `successor_unavailable`. `stopHost({ drain: true })` is the same SIGUSR1 under the same two guards; a hard stop requires a host that reports no sessions, or `force`.
+- `host-ensure.ts`: `EnsureHostOptions` gains PUBLIC `hostArgs`, `env` (a `null` value REMOVES an inherited variable) and `upgrade: "never" | "if-engine-differs"` (default `never`); `_test.hostArgs`/`_test.env` are gone and `_test.launch` (supervisor argv -> spawnable command) replaces the fixed `_test.spawn` for callers that need the real argv. Under `if-engine-differs` the ensure runs `decideHostAction` with policy `upgrade` and a launch profile derived from its own `hostArgs`, and a `handoff` decision calls `handoffHost`; a refused handoff ATTACHES (an upgrade that cannot happen never becomes a stop). The pidfile now records `socket`, and a record naming a DIFFERENT endpoint is neither signalled nor cleaned - today's daemon directory keeps one pidfile per agent directory, so an ensure for a second socket used to read the first socket's daemon as its own and stop it.
+- `host-daemon-state.ts`, `host-probe.ts`, `host-launch.ts` (new, extracted from `host-ensure.ts` so the handoff can share them without a cycle): the daemon paths + pidfile/settings reader-writer (including the `writer` stamp and the new `socket` field), the socket probe (`probeHost`, `probeProtocolInfo`, `probeSessionCount`), and the supervisor launch (`defaultHostLaunch(supervisorArgs, compiled)` now takes the whole supervisor argv, so a bind/replace launch goes through the same re-entry route; `PINNED_HOST_CLIENT_CAPABILITIES` moved with it). `host-ensure.ts` re-exports all three, and shrank from 558 to 473 pure LOC.
+- `host-lifecycle.ts` (supervisor): `--bind <path>` and `--replace <dev>:<ino>`; `prepareSocketPath`/`listen` target the BIND path and refuse any path over 103 bytes before binding; after the host answers, `adoptPublicSocket` re-stats the public path and renames its own entry over it ONLY while that path still holds the expected entry, then `publicSocketIdentity` is taken against the PUBLIC path and published as the ownership token. SIGUSR1 (POSIX only) = drain: stop accepting (the accept guard rejects new connections; the listening handle is deliberately NOT closed, because libuv unlinks a pipe's bound NAME on close and that name is the successor's entry), forward SIGUSR1 to the host child, and exit when the child does. Shutdown removes the pidfile and settings only while they still name THIS process, so a successor's registration survives the predecessor's exit; a generation launch also passes no state-file paths in the child's crash-cleanup list.
+- `multi-session-host.ts`: a socket host advertises `generation_handoff` and installs the SIGUSR1 drain (park everything, then exit through the empty-host path even with the supervisor's observer connection attached); the drain also empties this host's copy of the crash-cleanup paths, since after a handoff those files describe the successor. The in-process registry is now built with a file-backed `pathReservations`.
+- `host-reservations.ts` (new): `<agentDir>/rpc-host-daemon/reservations/<sha256(canonical path)[:16]>.json` = `{ instanceId, pid, processStartTime, sessionPath }`, written on open and removed on close/park. A claim whose owner is dead (or whose pid was recycled - the start time decides) is ignored, and a directory that cannot be written logs once instead of failing the open.
+- `session-registry.ts`: an open for a `sessionPath` takes the in-process reservation synchronously (unchanged) and then consults the cross-generation claim; a live FOREIGN claim throws `session_path_in_use` carrying `{ owner, retry_after_ms: 2000 }` through the new `RpcSessionRegistryError.detail`, which `session-command-router.ts` publishes as `errorCode`/`errorData`. `syncRuntimeMetadata` moves the claim when a replacement moves the session file.
+- `session-command-router.ts`: `beginDrain()` parks every session with zero attachments and no session-owned work (the same teardown the idle sweep uses) on a 50 ms unref'd sweep, and calls the host's empty-exit hook once the registry is empty; the terminal record for those is `session_closed { reason: "handoff_parked" }` (`session-event-writer.ts` gained the optional `reason`, typed as `RpcSessionClosedReason` in `rpc-types.ts` - the full vocabulary is a separate change).
+- `host-watchdog.ts`: the inherited supervisor pipe is watched with a `net.Socket` instead of a file stream. REQUIRED, not cosmetic: a file-stream read parks a libuv thread-pool worker in `read(2)` for the host's whole life, and `process.exit()` joins the thread pool - so every self-exit of a supervised host hung until something killed it (measured: the drained host reached its last shutdown line and then sat in `uv_thread_join`). An anonymous pipe reports EOF through the event loop; a named FIFO does not on macOS, so the three watchdog unit tests now drive a REAL inherited pipe through `test/fixtures/rpc-watchdog-pipe.ts` - the production binding - instead of a FIFO stand-in.
+- `socket-ownership.ts`: `MAX_SOCKET_PATH_BYTES` (103) and `generationBindPath(socket, generation)`.
+- Barrel: `handoffHost`, `probeHost`, `stopHost` and their option/result types, plus `HostUpgradePolicy`.
+- Docs: `docs/rpc.md` gains "Generation handoff" (the three steps, both fail-closed guards, win32, the `ensureHost` options) and "Session paths across generations"; the `session_path_in_use` row and the parking paragraph carry the new `errorData` and `handoff_parked` reason.
+- Tests: `test/rpc-host-handoff.test.ts` (new) runs two REAL supervisors on one socket - a connection opened before the handoff still answers `get_state` while a new one reaches a different `instanceId`, the inode changes exactly once, the predecessor exits without unlinking the public socket and the successor's pidfile survives both that orderly exit and a SIGKILL of the drained supervisor, a retained session mid-turn answers `session_path_in_use { owner, retry_after_ms }` until it parks (`session_closed { reason: "handoff_parked" }`) and then reopens in the new generation with an intact JSONL, `stopHost({ drain: true })` exits a generation after its sessions park, and a public socket stolen by an unmanaged server aborts the handoff with nothing renamed or unlinked. `test/rpc-host-ensure.test.ts` gains the default-`never` policy, the older-ordinal client, the legacy host that is never renamed or signalled, win32 `upgrade_unsupported`, and the second-socket case. `scripts/qa-rpc-socket/generation-handoff.mjs` (new) is the same story against a sandbox agent directory for live QA.
+
+### Why
+
+- One machine-wide daemon holds every client's sessions, so "upgrade" cannot mean "kill it and start the newer one" - that is a data-loss operation dressed as a version bump. The handoff replaces the process while its work continues, which is the only shape of upgrade this daemon can offer.
+- The successor binds `<public>.next-<gen>` rather than the public path because it has no right to unlink an endpoint another process is serving; `rename(2)` is what makes the switch atomic for every reader of the path, and `--replace <dev>:<ino>` is what keeps that rename from replacing a socket somebody else put there in the meantime.
+- SIGUSR1's default disposition is TERMINATE. A host that does not advertise `generation_handoff` therefore must never be signalled - the drain request would be the kill the whole change exists to avoid - and the capability advertisement is exactly the proof that a handler exists.
+- The predecessor keeps its listening handle open while draining because closing it would unlink the successor's socket entry by name. Nothing can reach that listener any more (the name moved), so the only thing the close would achieve is deleting the endpoint every client is now using.
+- Two generations overlap for as long as the old one has work, and the in-process reservation set cannot see across processes. Two writers on one session JSONL interleave partial records, so the cross-generation claim turns "reopen the file the old host is still writing" into a bounded retry instead of a corrupted transcript - and a claim whose owner is dead is ignored, so a killed host can never make a session file permanently unopenable.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
+### Why an extension could not handle it
+
+- This is the lifecycle of the host process itself - binding and renaming the socket, signalling another generation, deciding which process may be signalled at all. No extension is loaded when those decisions run, and the failure mode of getting them wrong is another client's sessions dying.
+
+### Expected merge conflict zones
+
+- MEDIUM: `host-ensure.ts` (options, the decision switch, the spawn/registration path) and `host-lifecycle.ts` (supervisor argv, startup, shutdown, signals) are both touched in several places, and three modules were extracted out of `host-ensure.ts`. Anything upstream that also moves the pidfile shape, `defaultHostLaunch`'s signature or the supervisor's startup sequence conflicts there.
+- LOW: the new modules, the router's drain, the registry's claim, and the docs sections.
+
+## 2026-09-17 - Host actions are decided by protocol, capabilities and ordinal (#1782)
+
+### What changed
+
+- `src/modes/rpc/host-decision.ts` (new): `decideHostAction(client, host, policy)` -> `{ action: "start" | "reuse" | "handoff" | "refuse" | "fallback", reason, upgradeable, warning? }`, the single place every client surface decides what to do with the process it found on the shared socket. `client = { protocolVersion, requiredCapabilities, identity: EngineBuildIdentity, launchProfile?, startedByUs, platform }` (the plan's `launchProfileId` is carried as the whole `RpcLaunchProfile`, because the superset rule needs `core.extensions`, and `profile_id` travels inside it); `host` is the parsed `get_protocol_info` answer or `undefined`; `policy` is `"never" | "fallback" | "upgrade"`. The result type is a discriminated union per action, so an impossible pair (`handoff` with `upgradeable: false`, `refuse` with reason `compatible`) cannot be constructed, and the `"never"` overload returns only `start | reuse | refuse`. Also exported: `HOST_PROTOCOL_VERSION`, `REQUIRED_HOST_CAPABILITIES` (`multi_session`, `extension_events`, `session_context`, `session_kind`), `GENERATION_HANDOFF_CAPABILITY`, and `parseHostProtocolInfo()` - the tolerant boundary parse of a reply, where every identity field an older host omits stays absent instead of being defaulted to zero.
+- `host-ensure.ts`: `isCompatible` no longer compares `serverVersion` to `VERSION`; it asks `decideHostAction(..., "never").action === "reuse"`, so the attach decision and the post-spawn readiness gate cannot drift apart. `ensureHostLocked` now switches on the decision - `reuse` attaches, `refuse` throws the new `HostEnsureRefusedError { socket, reason: "protocol" | "capability" | "foreign_writer" }`, `start` falls through to the spawn path. The pidfile gains `writer: { pid, startTime }` (this process's identity at write time), and a managed host is stopped ONLY when its pid still matches AND that writer is this process; a foreign writer refuses with `foreign_writer` and the host is never signalled. `probeProtocolInfo` returns the full parsed answer (identity fields included), and the readiness diagnostic names the protocol version and the required capabilities instead of a version string.
+- `src/modes/index.ts` / `src/index.ts`: the decision API, its types and `HostEnsureRefusedError` are exported from the barrel for the CLI, the omo runner and the desktop.
+- Docs: `docs/rpc.md` gains "Attach, start or refuse (`decideHostAction`)" - the full table, the two warnings, and I1/I2 stated in the terms the code enforces.
+- Tests: `test/suite/host-decision.test.ts` (new) is the truth table, one case per row, including the narrower-profile, spec-less-client, win32, uncomparable-ordinal and fallback rows; `test/rpc-host-ensure.test.ts` gains a compatible host with a DIFFERENT `serverVersion` being REUSED, a foreign-writer pidfile and a recycled-pid writer both refusing with the host still alive, a host missing `session_context` refused under policy `never`, and the D11 legacy proof: the published v2026.9.16-3 ensure decision, replayed with spies, fails closed against a daemon directory that carries no flat pidfile and never stops the host. `test/rpc-host-identity-regression.test.ts`'s fake host now answers with `protocolVersion` and the four required capabilities (its subject - not consulting the identity probe on a compatible endpoint - is unchanged).
+
+### Why
+
+- The old compatibility test was an exact equality between the host's `serverVersion` string and this build's `VERSION`, and it did not merely refuse a mismatch: it STOPPED the running host and started its own. With one machine-wide daemon serving the CLI, the task runner and the desktop, that turns "this client is a different build" into "every other client's sessions just died". Two builds with different version strings speak the same protocol; what a client actually needs to know is the protocol version and the capabilities, which is what the daemon advertises.
+- Refusing rather than starting a second host on a capability mismatch is the same rule from the other side: the host that answers OWNS the endpoint. Binding a second host over it would leave two processes fighting for one socket path - so a client either attaches, or fails with a reason its caller can act on (omo's per-child fallback consumes `fallback:capability` exactly this way).
+- The pidfile writer stamp is what makes I1 checkable at all. "Did I start this host?" was previously answered by "does the pid in the pidfile still exist?", which is true for every host on the machine, including one the desktop started thirty minutes ago. The recorded start time is the half that survives a pid the OS recycled after a reboot.
+- `handoff` is returned but not yet executable (the drain handoff is the next change); a client that asks for policy `"upgrade"` today can already see the decision, and `ensureHost` itself passes `"never"`.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
+### Why an extension could not handle it
+
+- This is the code that runs BEFORE a host exists - the probe, the compatibility decision and the spawn/stop lifecycle of the host process itself. No extension is loaded at that point, and an extension could not be trusted with a decision whose failure mode is killing another client's host.
+
+### Expected merge conflict zones
+
+- LOW: one new module, plus `ensureHostLocked`, the pidfile write and the probe/readiness helpers in `host-ensure.ts`, and two barrel export lists. Anything upstream that also touches `isCompatible` or the pidfile shape in `host-ensure.ts` conflicts there.
+
+## 2026-09-17 - `get_protocol_info` advertises engine build identity, ordinal and launch profile (#1782)
+
+### What changed
+
+- `src/core/engine-build-identity.ts` (new): `engineBuildIdentity()` -> `{ text, ordinal: [y, m, d, n, epoch], scheme: "epoch" | "nodef" }` and `compareEngineOrdinal(a, b)`. The version is parsed from `VERSION` (package.json CalVer, `2026.9.16` or `2026.9.16-3`, `n = 0` without the suffix); `epoch`/`sha7` come from the compile-time defines `SENPI_BUILD_EPOCH`/`SENPI_BUILD_SHA7`, read through `typeof` guards so a source run or a define-less build degrades to scheme `nodef` with epoch `0` instead of throwing. Comparison is lexicographic over `[y, m, d, n]`; the epoch breaks a tie ONLY when both sides are scheme `epoch`, otherwise EQUAL. Exported from the barrel (`src/index.ts`).
+- `src/modes/rpc/protocol-identity.ts` (new): `protocolIdentity()` = the identity fields of a `get_protocol_info` answer - `instanceId` (UUID minted once per host process), `generation` (`SENPI_RPC_HOST_GENERATION`, 0 when nobody ensured this host), `engineVersion`/`engineOrdinal` (the build identity above) and `launch_profile`. `hostLaunchProfile(argv, cwd)` derives the profile from the host's OWN argv through the production `parseArgs` + `resolveSessionRuntime`: `core = { extensions (absolute, deduplicated, sorted), multi_session, session_runtime }`, `profile_id = sha256` of the canonical JSON of `core` with keys in sorted order.
+- `rpc-types.ts`: new exported wire types `RpcLaunchProfileCore`, `RpcLaunchProfile`, `RpcProtocolIdentity`, `RpcProtocolInfo`; the `get_protocol_info` response member now names `RpcProtocolInfo` instead of an inline shape.
+- `connection-handler.ts` (classic) and `session-command-router.ts` (multi-session) spread `protocolIdentity()` into their `get_protocol_info` answer. Nothing else about the reply changed: `protocolVersion`, `serverVersion`, `capabilities` and `mode` are byte-identical.
+- `scripts/build-binaries.sh`: resolves the built commit's committer epoch and short sha once and passes `--define SENPI_BUILD_EPOCH=<epoch> --define SENPI_BUILD_SHA7="<sha7>"` to both platform compile lines. Without git metadata it prints one line and compiles with epoch `0` (scheme `nodef`) rather than failing; both compile lines stay a single shell-quotable argv, which `scripts/build-binaries-flags.test.mjs` and `scripts/read-summary-release-contract.test.mjs` require.
+- Docs: `docs/rpc.md` gains a "Host identity" section and an updated `get_protocol_info` row; the `rpc-mode.ts` D1 header table carries the same shape.
+- Tests: `test/suite/engine-build-identity.test.ts` (parse table, the ascending CalVer chain `2026.9.16 < 2026.9.16-2 < 2026.9.16-3 < 2026.9.16-10 < 2026.9.17`, an explicit assertion that `semver.compare` DISAGREES with it, `nodef` -> EQUAL, epoch decides only when both sides carry one) and `test/rpc-protocol-identity.test.ts` (the pure argv -> profile and env -> generation derivations, plus two spawned hosts - a socket host launched with `--session-runtime in-process --extension <path>` and a classic stdio host - whose replies carry every field, a stable `profile_id` across two connections, and the `engineVersion` of this tree). `test/rpc-multi-session.test.ts`'s exact protocol-info pin gained the new fields.
+
+### Why
+
+- Three clients share one machine-wide host, and today's only identity in the reply is a `serverVersion` STRING. Deployed clients compare it for equality and kill the host when it differs (invariant I2 exists because of exactly that), so the daemon has to publish what a compatibility decision actually needs: which process this is (`instanceId`), which generation, which build, and what that build loads.
+- The ordinal has to be a tuple rather than a string because this product's CalVer `-N` is a POST-release increment: `2026.9.16-3` ships after `2026.9.16`, while semver ranks the bare version higher. A client that reached for a semver comparison here would hand off backwards, which is why the module never imports semver and the suite pins the disagreement.
+- "Uncomparable is EQUAL" is the I2 rule in code: a binary built without git metadata has no age, and the handoff rule is "strictly greater", so such a build attaches instead of replacing a running host.
+- The launch profile is derived from the host's own argv rather than from a caller-supplied description because that is the only account of the host that cannot drift from what it actually loaded - and `profile_id` gives a client one value to compare instead of a path list.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
+### Why an extension could not handle it
+
+- `get_protocol_info` is answered by the host before any session (and therefore any extension) exists; it is the probe a client uses to decide whether to attach at all. The build defines are compile-time inputs to the binary, and the launch profile describes the host process's own argv - none of it is reachable from an extension.
+
+### Expected merge conflict zones
+
+- LOW: two new modules plus one line inside each of the two `get_protocol_info` arms (`connection-handler.ts`, `session-command-router.ts`), the `get_protocol_info` member of `RpcResponse` in `rpc-types.ts`, the two compile lines in `scripts/build-binaries.sh`, and the protocol-info pin in `test/rpc-multi-session.test.ts`.
+
 ## 2026-09-17 - Load and contention proof for one in-process host (#1782)
 
 ### What changed
@@ -15,6 +237,12 @@
 - That thread has a named owner, measured rather than assumed: the `config-reload` builtin builds one watch event source per session (`builtin/config-reload/index.ts:164`), and on macOS every watch it registers is offloaded to a `node:worker_threads` Worker (`builtin/config-reload/watch-event-source.ts:79,100-102,120-125`). The report therefore samples a cost CURVE (threads, fds, RSS at 10/100/1000 sessions) rather than one endpoint, because that is what separates a bounded pool from a per-session thread. Same live host, same driver, one settings key: at 1,000 sessions the host holds 1,023 threads / 2,014 fds with the builtin and 18 threads / 1,014 fds with `disabledBuiltinExtensions: ["config-reload"]` - linear at 1.00 thread/session, and zero without it. It is not the session runtime, the registry, the binding, the transcript writer (fds grow 1/session in BOTH columns) or Bun's blocking-I/O pool (`UV_THREADPOOL_SIZE=2` does not move it, and the pool stays at 6-7 named `Bun Pool` threads).
 - Latency under contention is not a contract this host controls, so the contention and neighbour contrast numbers are printed as ratios instead of asserted against a wall-clock threshold. The one latency budget that IS gated - a neighbour's `get_state` p95 while another session runs an ASYNC tool - is the invariant the audit in `test/suite/session-path-audit.ts` exists to protect, and the synchronous-tool contrast in the same cell is what makes that number mean something.
 - The contention cell asserts the faux provider's `callCount`, because a model whose api resolves to nothing inside the session's provider scope still emits `agent_start`: without that assertion the cell would silently time the host's error path and still print a ratio.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -39,6 +267,12 @@
 - This is a PRE-EXISTING defect, not a regression of any change on this branch. `test/rpc-socket-host.test.ts > reopens the path after explicit close and dropped surviving attachment` fails on the `origin/main` baseline c32a67a2d8 itself - three consecutive runs there, plus three more on each of befc3cbdac, b2464c3560 and 58ccadbd7f, all `1 failed | 17 passed (18)` - because the case waits a fixed 100 ms for a teardown the host does not promise to finish in 100 ms. It passes or fails with the machine rather than with the code; the branch's added host-loop work only makes the loss reliable. Nothing here reverts or weakens a session-runtime, kind/context, retention or park behavior.
 - The in-process runtime is where this is safe to fix: its teardown is bounded by the host's own grace window (`closeMarkedSession` force-releases the entry at the deadline), so the wait has a ceiling the host controls. It is also the runtime a `--listen` socket host - the shared daemon - selects.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - The path reservation, the teardown window and the open's admission decision are registry internals below the extension boundary; an extension cannot observe a disposal in flight, let alone hold an open until it completes.
@@ -61,6 +295,12 @@
 ### Why
 
 - `--auto-title-sessions` is a process-wide launch-profile bit. A machine-wide daemon serving the desktop (titles on) and omo task children (titles off) cannot express both with one flag. Per-session `auto_title` is the OpenCode-level equivalent and stops that collision without removing the flag this release.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -86,6 +326,12 @@
 - A retained session exists to outlive its clients, so the desktop and the omo task runner must be able to tell "the host put this session to disk, reopen it by path" from "this session ended". Before this, both arrived as `session_closed`: the only correct client reaction (reopen) was indistinguishable from the only correct reaction to a close (forget), and a parked desktop thread would have been dropped from the UI.
 - Parking deliberately keeps the eviction teardown. Retention that survived the idle window would make one abandoned session pin a daemon forever; the park record is what makes the eviction recoverable instead of silent.
 - The close guard closes a hole that only becomes reachable on a shared daemon: `list_sessions` publishes every routing handle, and `close_session` decrements the refcount of whoever asks. A client that never attached could therefore release another client's attachment - and close a single-attachment session it never opened. Ownership is already tracked per connection for the drop path; the close now uses the same map.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -113,6 +359,12 @@
 - `context` is withheld from a default listing because an opener may put routing detail in it (omo puts `role`, `task_id` and team ids); only a caller that asked for workers gets the blob.
 - Only `session_closed` becomes attached-only. `agent_start`/`agent_settled`/`agent_idle`/`session_opened` stay broadcast for every kind, because the host's own occupancy accounting reads them from an unattached observer.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - The wire contract, the session registry and the event fanout are host infrastructure below the extension boundary, and the point of the change is to give extensions a per-session identity they cannot construct themselves.
@@ -139,6 +391,12 @@
 - Pressure halves the idle-park window because parking is the only memory lever a daemon may pull that is invisible to clients: an evicted session reopens by path. Refusing or killing sessions is explicitly out of scope (capacity is memory, never a refusal).
 - The audit is a ban with a ledger rather than a bare ban because the clean tree is not empty: the credential lock (`auth-storage.ts`), the settings lock (`settings-manager.ts`), the `which`/`where` probe and win32 `taskkill` (`utils/shell.ts`) and the tool `--version`/extraction probes (`utils/tools-manager.ts`) are reachable today and are not part of the credential/footer work. Recording them with their bounds keeps the gate honest AND actionable: anything new fails immediately, and the two files that are being made async are the only RED.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Event-loop drift, RSS of the host process, the routed-command dispatch seam and the idle-park window are host infrastructure below the extension boundary; an extension runs inside the very loop that is being measured.
@@ -163,6 +421,12 @@
 - Measured on this branch (56 cells, darwin arm64, bun 1.4.2): every steady-state cell is 0 - 50 short spawns through one in-process session, and every {`child_process.spawn`, `Bun.spawn`, `Bun.$`} x {main thread, worker thread} x {bun source, compiled binary, Node} combination where the spawning thread stays alive. Every cell where a Worker is terminated with children that exited or exit later leaks 20/20, on all three APIs and all three runtimes, and the zombies survive for the life of the process. The product path that does exactly that is the session-worker quarantine (`session-worker-client.ts`): measured, it leaks 1 zombie per quarantined session with a live child, and 0 with the reaper armed.
 - A long-lived machine-wide daemon is the process where those zombies accumulate; a stdio host dies with its embedder, which is why only the socket host arms the reaper.
 - Why the window is 30 s and not the 5 s floor: a zombie carries no hint about which thread meant to wait on it, so only time separates "abandoned" from "its owner is blocked". Measured: stealing a child from a thread blocked in `execSync` makes `child_process` and `Bun.spawn` reject with `ECHILD` and `Bun.$` never settle at all. With a 5 s window the 12 s blocked-thread cell loses its child's exit code; with the shipped 30 s window every blocked cell still resolves with the real code 7.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -189,6 +453,12 @@
 - Accepted trade-off: an in-process session shares the host event loop, so one session blocking it blocks the host, and no per-session opening deadline (#1719) applies on that path. Measured on the socket host: 45 sessions opened on one host add ~2 threads per session (watchers), against ~3 per session on the worker runtime (isolate + watchers) - i.e. sessions are not free on either runtime, but the daemon path adds no isolate.
 - Zombie baseline for the daemon runtime (recorded before the change, on the unmodified engine): 50 `bash true` spawns through one in-process session leave 0 Z-state children of the host after 6 s (worker runtime: also 0).
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Host process topology and registry selection are CLI/host wiring below the extension boundary.
@@ -206,6 +476,12 @@
 ### Why
 
 - `host-lifecycle`, `rpc-mode` and `multi-session-host` were static imports of `main.ts`, adding 35 modules to every interactive boot that never runs an RPC host.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -230,6 +506,12 @@
 - Accepted trade-off: the producer is no longer paced by the reader, so a session that outruns a peer fills that peer's 64 MiB queue and the peer is cut on overflow. Producer-side bounding of multi-MB bursts is #1438.
 - Tests: `test/suite/rpc-socket-credit.test.ts` (10 s stalled peer, 50 records/~200 KiB, credit due with zero clock movement, no cut, all records delivered after resume), `test/suite/rpc-socket-cut-notice.test.ts` (real unix socket pair: stall and overflow notices readable before EOF inside the grace, destroy at the grace), `test/suite/rpc-socket-stall.test.ts` (budget pinned at 30 s and above `controlMs`; credit without drain; only the dead peer cut; the stdio lane survives).
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Transport flow control, worker credit and socket teardown are host infrastructure below the extension boundary.
@@ -253,6 +535,12 @@
 - Every session owned by a dropped connection went through the refcounted close, so a client that lost its socket for one second lost every idle session it owned and its reconnect raced the teardown (see #1774 for the stall cut that produces those disconnects). A reconnecting client needs the session to outlive the socket and to be re-attached by `sessionPath`.
 - Retention is deliberately not a new lifetime: an explicit `close_session`, host shutdown and the idle-eviction window still end a retained session, and an attach may only turn retention on, never off for clients already relying on it.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Attachment refcounting, teardown and capability advertisement are host lifecycle; no extension surface reaches them.
@@ -271,6 +559,12 @@
 ### Why
 
 - A long-lived shared RPC host spawned `ps` 4x/second against its live supervisor; on runtimes whose `execFile` does not reap, those children accumulated as zombies (9,386 measured, every spawn on the host then failed with EAGAIN). The probe also fired the watchdog (host shutdown) after three consecutive probe failures against a LIVE supervisor - an observability gap, not a death.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -295,6 +589,12 @@
 - An immediate `list_sessions` after close must never return the closed session, including when the worker fails instead of a clean `close_session`.
 - A second shutdown caller must not `process.exit` while watcher disposal is still outstanding.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Session registry ownership and process exit are host lifecycle, outside session extensions.
@@ -312,6 +612,12 @@
 ### Why
 
 - esbuild gives every inlined module the unsplit worker's URL. The supervisor's source-file equality check therefore mistook the session worker for the supervisor CLI and exited with usage before the worker could open a session (Refs #1656).
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -332,6 +638,12 @@
 
 - A short readiness connection could begin and end between ticks without resetting a previous idle window. The next tick could close the public listener immediately after readiness, producing a Windows named-pipe `ENOENT` before the lifecycle test could open a session. Occupancy transitions must invalidate the old window synchronously.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Connection occupancy and the shutdown clock belong to the shared supervisor, outside session extensions.
@@ -348,6 +660,12 @@
 ### Why
 
 - Provider overrides are isolate-local: registration in the launcher cannot satisfy lazy implementation loads in a shared-session worker. Relocated compiled probes and a worker-registration mutation distinguish both paths.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -367,6 +685,12 @@
 ### Why
 
 - Extensions that filter or rewrite input by source were bypassed for queued RPC messages while `prompt` already honored them.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -408,6 +732,12 @@
 - Grants were held for a worker's whole lifetime, so a long-lived session died at the 64-path cap
   with `session_path_in_use` and its earlier session files stayed unopenable for the host's life.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Path grants, worker snapshots and the shared host's reservation budget live in the RPC transport
@@ -439,6 +769,12 @@
   refused and killed with `started but its process identity stayed unreadable`. The comment above
   that throw already stated the intended behavior - keep the healthy host - while the code did the
   opposite; this is the CI failure observed on the `RPC named pipes (Windows)` job.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -472,6 +808,12 @@
   second ensure after idle exit could also race the pipe removal and fail before it could start
   a fresh host.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Endpoint ownership, compatibility probing, and host replacement are RPC supervisor operations
@@ -494,6 +836,12 @@
 - The TUI and desktop can intentionally submit a partial decision. RPC must preserve that action
   instead of leaving the question pending or requiring an unrelated comment.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - The RPC bridge owns response correlation and terminal resolution before the extension receives
@@ -513,6 +861,12 @@
 ### Why
 
 - `packages/coding-agent/src/modes/rpc/rpc-types.ts`: clients need human-readable labels without changing their pin/remove selectors or existing legacy payloads.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -535,6 +889,12 @@
 - `runHostSupervisor()` passes `paths.dir` (`<agentDir>/rpc-host-daemon`) as the base directory. `ensureHost()` creates that parent before spawning, but the hidden `--internal-rpc-host-supervisor` launch route does not, so on a fresh Windows profile the supervisor died during bootstrap with `ENOENT: no such file or directory, mkdir '<agentDir>\rpc-host-daemon\internal-<uuid>'` (#1370). The posix branch never hit this because it roots the directory in `tmpdir()`, which always exists.
 - The same fresh profile then died on the second failure reported in #1370: `readSocketSecret()` requires `<publicSocket>.secret`, which only `ensureHost()` wrote, so the direct route never reached `listen()`. Reuse (not rotation) is mandatory because `resolveSocketTransportAddress()` derives the win32 pipe name from the socket path AND the secret, so a fresh secret would move the endpoint away from the one the caller published.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - The failure happens inside the supervisor's own bootstrap, before any session, runtime, or extension surface exists.
@@ -554,6 +914,12 @@
 
 - `model_change_rejected` (#1526) is appended by the session itself on a refused switch. Without the validator branch the entry could not cross the `append_session_entry` seam `rpc-client.ts` exists for, and without the bookkeeping exclusion recording a refusal silently turned every `get_state` for that session into a full entry dump.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Both are RPC-mode internals: the command validator runs before any extension sees the command, and the state snapshot is assembled by the connection handler.
@@ -571,6 +937,12 @@
 ### Why
 
 - The ask-user builtin owns the authoritative idle timer and aborts the dialog controller when it fires. The bridge's own equal-length timer lost that race in RPC mode, so an idle timeout broadcast `question_resolved{outcome:"cancelled"}` while the framed notice and tool result carried the timeout text - and `docs/rpc.md` documents `timed_out` as the outcome desktop clients map onto the resolved row (probe scenario `async`).
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -590,6 +962,12 @@
 
 - `AgentSession` defaults to `reason: "startup"` when no event is supplied, so re-opening a session over RPC fired `session_start{startup}`. Extensions that rebuild per-session state only on a resume never ran: after a host crash the ask-user builtin's dangling-question hook (`resume.ts`, `reason` must be `resume`/`reload`) left the pending tool call hanging with nothing re-presented and no orphaned-after-restart message (probe scenario `resume`). Interactive `/resume` already emits the event through `AgentSessionRuntime.switchSession`; the RPC restart path now mirrors it.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - The start reason is decided by the runtime factory call inside the registry, before any extension is bound; an extension cannot observe why its session was created.
@@ -607,6 +985,12 @@
 ### Why
 
 - A question is session-owned: `docs/rpc.md` promises pending questions are broadcast to every attached connection and replayed to connections that attach later. Cancelling on any owner drop resolved the question `cancelled` for all peers, made `open_session` hydrate zero pending questions, and rejected the surviving connection's answer with `question_already_resolved` (probe scenario `owner-drop`).
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -628,6 +1012,12 @@
 
 - The TUI-only edit from `/tree` (#1532) was unreachable from RPC clients such as the desktop, and clients had no typed way to learn why an edit was refused.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - The RPC command surface and the error envelope are owned by this directory; an extension cannot add a wire command.
@@ -644,6 +1034,12 @@
 ### Why
 
 - A TUI attached to a shared RPC host debounces question-overlay drafts (todo 10) and needs a client-side writer to forward them so the host can reset the question's idle deadline.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -665,6 +1061,12 @@
 
 - Multi-client question prompts must survive completion of the assistant message and detachment of the asking client, accept drafts without resolving, and resolve exactly once for all peers.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - RPC routing, socket replay, client capabilities, and worker snapshots are runtime-owned. Extensions cannot implement these transport guarantees.
@@ -683,6 +1085,12 @@
 ### Why
 
 - The ask-user tool needs a typed RPC wire for broadcasting a multi-question prompt, receiving partial drafts and a final `{answers, comment}` reply, hydrating late-attaching clients from session state, and gating on an explicit client capability. Older clients that never advertise `question` keep today's select/input path.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -705,6 +1113,12 @@
 - Live on mengmotaHost 2026-09-09 17:17 and 2026-09-10 11:07 (two runtimes): a desktop client stalled on its own downstream ack pacing, the kernel socket buffer filled during a large `eval` tool result, `waitForSessionBackpressure` never resolved, and the session worker failed itself with `session_worker_credit_timeout` after 5 s — the user's running turn was truncated (`session_closed` with no final assistant message) although the session and every other peer were healthy. One slow consumer must not kill the producer; the writer already had fail-closed overflow semantics for slow peers, they were just byte-only.
 - `test/suite/rpc-socket-stall.test.ts`: stall budget < worker deadline; a stalled actor is cut with the notice while a sibling drains; the writer returns session credit and closes only the stalled connection; the writer and its stdio lane survive a stalled peer (this last case failed the whole writer before the fix).
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Transport credit, socket drain and worker liveness are host infrastructure below the extension boundary.
@@ -725,6 +1139,12 @@
 
 - Broadcasting one global socket notice incorrectly told healthy peers to resynchronize and suppressed notification for later affected requesters. Deterministic two-connection tests reproduce both failures and preserve independent peer progress. They also drain socket actors without a stdio lane, then saturate the same actors again: first-closer terminal records survive, reply debt is reclaimed, and later episodes receive fresh requester-only notices without reconnecting.
 - A native-FIFO-blocked quarantined worker can remain resident indefinitely. Previously, 4,196 duplicate closes queued 4,196 noncompactable replies beyond the 4,096-record bound; checking only at enqueue also leaves unbounded reply debt in joined finalization promises.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -750,6 +1170,12 @@
 
 - A session's synchronous filesystem operation or JavaScript loop must not freeze the shared transport or other sessions. Neither timeout nor routing closure proves worker termination, and a second writer must not be admitted while the old worker can resume.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Canonical admission, transport credit, routing ownership and worker lifetime are host infrastructure below the extension boundary. The classic handler still owns command semantics inside the worker.
@@ -769,6 +1195,12 @@
 ### Why
 
 The supervisor publishes the token right after its `listen()` and prints `ready` immediately after, while the host learns the token through a 25 ms poll. Under load (CI, or the earlier cases of the same test file) the supervisor could be SIGKILLed while the host was still polling. The watchdog then removed the scratch directory first, the host's shutdown ran `unlinkOwnedSocket(publicSocket, undefined)`, correctly refused (`ownership unknown; leaving it`), and the public socket outlived both processes. `test/suite/rpc-socket-ownership.test.ts` failed on `main` exactly this way (senpi #1442); standalone the same sequence passed, which is why it read as a flaky test rather than the startup race it is.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -790,6 +1222,12 @@ The watchdog fires inside the host's transport lifecycle below every extension h
 ### Why
 
 The startup path already refuses to touch a socket path owned by a live server (`prepareSocketPath` probes before unlinking), but every teardown path removed by path only. The OmO desktop replaces a socketless host by starting the new host on `<socket>.takeover-<pid>`, renaming it over `rpc.sock`, then SIGTERMing the old host; the old host's shutdown unlinked `rpc.sock` - now the NEW host's entry - leaving the supervisor alive, `rpc host ready on .../rpc.sock` logged, the socket absent, and every desktop session failing `connect ENOENT rpc.sock`. The same blind removal existed on the supervisor's own shutdown and on the child watchdog's crash-path cleanup (`HOST_CLEANUP_PATHS`). A probe-if-live check alone does not close this: after the rename and before the new host's listen completes, a probe would also fail, and crash/signal paths reintroduce the race. The dev+ino token captured at bind is what closes every teardown path deterministically.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -813,6 +1251,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - The cap refused `open_session` with `too_many_sessions` once 8 sessions were concurrently opening/open, which is a client-visible failure for an ordinary desktop workload that keeps more than eight logical sessions around. Admission control was the wrong lever: idle eviction and empty-host exit reclaim resident resources without failing a user's open.
 - A user session is never rejected because another session exists. Resident-resource reclamation remains lifecycle-driven and does not evict or borrow another user session as an admission workaround.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -839,6 +1283,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 - `RPC named pipes (Windows)` failed with `Command failed: powershell.exe -NoProfile` instead of `did not answer get_protocol_info` (senpi #1290; hit PR #1357 attempt 1, passed on attempt 2). `readProcessStartTime` throws when the CIM read fails, and `stopManagedHost` runs before the diagnostic is built, so the probe error replaced the real reason and skipped `cleanupState`, leaving the pidfile and socket behind.
 - The starved-probe fix in this same tracker covered the STARTUP path (`waitForStartTime`) and only the TIMEOUT shape; a probe process that exits non-zero (`Command failed: powershell.exe … Get-CimInstance …`) still threw from every other caller, and `serializes concurrent starts for one socket across agent directories` kept failing on main with that message after #1355.
 - A probe failure is an observability gap, not a verdict about the pid: treating it as a match would signal a pid this start cannot prove it owns, so "cannot prove ownership" is the only safe reading.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -963,6 +1413,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - The supervisor must observe active turns independently of client session attachments; otherwise attached-only delivery leaves it believing an active host is idle.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Socket fan-out and supervisor lifecycle accounting are transport behavior below the extension API.
@@ -977,6 +1433,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - The reaper's cost is unbounded in the size of the whole temp directory: it `readdir`s `tmpdir()` (measured: 132,035 entries, 394-467ms on a fast local SSD), then per `senpi-rpc-host-internal-*` candidate reads `.owner`, re-reads the directory, and calls `processMatchesPidFile()`. On win32 that last call spawns `powershell.exe Get-CimInstance` per candidate with a 1s default timeout. Running that opportunistic GC inside the exclusive endpoint lock made hold time scale with temp-directory size and PowerShell latency, so on the 4-vCPU `windows-latest` runner a concurrent `ensureHost` waiter could exhaust even the 42s lock budget and surface a raw `database is locked`. Raising the budget cannot fix a critical section whose cost is unbounded; the GC simply does not belong inside the lock.
 - The reaper's own guards already make it safe unlocked: it only removes directories older than 60s whose owner pid is provably dead, so it never contends with the caller's own ensure.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -994,6 +1456,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 ### Why
 
 - Two concurrent `ensureHost` callers for one socket serialize on the SQLite ensure lock; when the first holder's section outlived 10s the second surfaced a raw `database is locked` instead of reusing the host. This flaked the Windows RPC named-pipes CI job (`serializes concurrent starts for one socket across agent directories`) and is the same failure a second interactive session would hit on a slow machine.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -1025,6 +1493,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 - The lifecycle supervisor uses the same bounded finalizer: after its child-stop, internal-directory, pidfile, and settings cleanup, it explicitly exits for every shutdown trigger, with a Win32 hard-exit fallback if any named-pipe handle prevents that sequence from completing. On Win32 it also polls the child process's recorded creation-time identity, so a child idle exit cannot be lost when the ChildProcess exit event is not delivered.
 - The inherited supervisor pipe is the primary watchdog signal on Win32: its owned read stream uses automatic close and both `end` and `close` trigger teardown, while the slower identity fallback requires three consecutive missing probes so a timed-out PowerShell query cannot delay or spuriously trigger lifecycle cleanup.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Socket address resolution happens before extensions or sessions exist and must be identical in the lifecycle supervisor, host, ensure probe, and SDK client.
@@ -1047,6 +1521,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - A wedged abort previously retained the runtime and session-path reservation forever, while concurrent close requests incorrectly returned `unknown_session`.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Session teardown deadlines, reservation ownership, and response ordering are host transport lifecycle behavior below the extension API.
@@ -1065,6 +1545,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - Shared multi-session socket hosts must not leak one session's assistant output into another session's client during normal operation or reconnect.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Socket fan-out and client lease filtering are transport behavior below the extension API.
@@ -1076,6 +1562,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 ### Why
 
 - Multi-session hosts launched with `extension_events` advertised the capability but did not forward extension events to clients that never declared capabilities, breaking omo-desktop-app subagent/monitor liveness since 2026-08-28.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -1095,6 +1587,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 ### Why
 
 - Under host load, desktop stop clicks could appear delayed until the previous quiesce completed; the desktop adapter bounds abort acknowledgement at 10 seconds, so waiting for quiescence could surface `abort timed out` even after the abort signal had been delivered.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -1126,6 +1624,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - The shared host reclaimed nothing without client cooperation: an abandoned session kept its full runtime, watchers, and transcript resident forever; `open_session` was unbounded (each open owns hundreds of MB; a measured desktop host reached 1.28 GB in 54 minutes); and an empty host lived until its pipe died. The supervisor only covers supervised socket hosts with zero connections, and it read the host's own clean idle exit as a crash - reachable whenever a client stayed connected without a session - so the intentional shutdown had to become part of the supervised contract rather than an exit-1 path.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Idle accounting, admission, and host lifetime live in the routing and supervisor layers beneath every extension surface; extensions cannot observe routed-command timing, registry occupancy, or process exit classification.
@@ -1143,6 +1647,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 ### Why
 
 - Shared socket clients can join or leave independently, so factory-rendered UI provenance, capability state, and live renderer resources must follow connection lifecycle without affecting surviving sessions or leaking footer watchers.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -1167,6 +1677,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - A replacement swaps the live session and rebinds extensions afterwards, and that bind is deferred by design: awaiting it would deadlock a client whose `session_start` handler blocks on an `extension_ui_request` it cannot answer while still awaiting the replacement response. But the bind still mutates the session it owns - the pi-rules builtin appends a durable `pi-rules.scan` entry from `session_start` - and those entries were never forwarded, because the subscription was torn down at rebind start and reinstalled only once the bind finished. Nothing else can carry them: the session file is not written until an assistant message exists, so a client that misses the notification can never reconstruct the session it is bound to. Observed as the shared-host mirror ending one entry short after `new_session`, roughly one run in six under load.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - The event subscription belongs to the connection handler, beneath every extension surface; no extension hook can observe or reinstate it.
@@ -1185,6 +1701,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 ### Why
 
 - The shared interactive host surfaced raw transport internals in the TUI whenever the host socket dropped; recovery orchestration needs a typed, once-only disconnect signal at the client boundary.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -1205,6 +1727,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - The command response for a replacement carries only `{ cancelled }`, and a replacement can be driven by another attached client or by an extension, so this event is the only channel delivering the new identity. A client that cannot narrow to it cannot resync.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - The client event union is protocol surface beneath every extension hook.
@@ -1224,6 +1752,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 ### Why
 
 - Top-level `sessionId` is the per-connection routing handle, and `tagSessionRecord()` applies it last (`{ ...value, sessionId: routingSessionId }`). A multi-session host therefore overwrote the durable identity in the payload, leaving the event with no identity at all - the exact information it exists to deliver. In classic mode the untagged payload key also broke the pin that no classic line carries a top-level `sessionId`. Renaming to the vocabulary the D6 table already uses for `list_sessions` fixes both modes and keeps `sessionId` meaning exactly one thing on the wire.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -1275,6 +1809,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - A host that exits before binding can never become ready, but previously consumed the full 10-second readiness budget. An incompatible answer was also incorrectly reported as a host that never answered, obscuring version and capability mismatches.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Spawn lifecycle observation and readiness diagnostics happen inside the core shared-host startup path before any extension can run.
@@ -1296,6 +1836,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 ### Why
 
 - No compiled distribution (release binaries, bundled/rebranded runtimes) could ever start the shared interactive host: the script-path re-entry only works when `process.execPath` is a JS runtime. Both spawn levels (ensure -> supervisor, supervisor -> host) had the same defect.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -1345,6 +1891,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - Callback failures must terminate the child promptly, normal completion must not hang forever on a broken observer, and detached/reconnected clients must not strand host-owned spill files or in-flight executions.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Process cancellation, RPC transport ownership, and reattach correlation are runtime lifecycle concerns below extension callbacks.
@@ -1363,6 +1915,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 ### Why
 
 - Attached interactive clients share session event broadcasts; local IDs could collide and route output callbacks across clients, while a client-side callback failure could leave a host-owned spill after successful host completion.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -1421,6 +1979,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 - Ordinary `pi.events` channels stay extension-local. Monitor liveness was
   therefore invisible to RPC clients even though the snapshot existed in-process.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - The emit lives in the terminal builtin; the RPC host already forwards every
@@ -1444,6 +2008,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - Interactive sessions run through the shared host by default; the proxy's dropped disposition callbacks left optimistic user echoes permanently ineligible, so every canonical user message rendered twice. The attach semantics make resume of a host-held session possible at all — previously any live attachment (desktop app, second terminal) made `open_session` throw by construction.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Wire framing, response dispatch order, and the process-local session registry are core RPC contracts established before extensions load.
@@ -1463,6 +2033,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 
 - Generic credential pools make account management meaningful for any provider; the hard rejection existed only to confine the surface to one lane.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - The RPC command dispatch table is core connection handling; extensions cannot re-route it.
@@ -1481,6 +2057,12 @@ Socket bind, unlink, and process-teardown ordering are transport lifecycle inter
 ### Why
 
 - Socket-host clients need one typed transport and a stable protocol handshake while existing stdio RPC integrations remain compatible.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -1512,6 +2094,12 @@ Expected merge conflict zones: MEDIUM in `main.ts` and `host-lifecycle.ts`; LOW 
 
 - `stopChild()` only runs on catchable-signal paths. A `SIGKILL`, OOM kill, or supervisor crash left the internal host as a permanent orphan (PPID 1, ~240 MB resident) still serving RPC on a leaked private socket with no idle-exit logic to ever reap it, since all of that logic lived in the dead supervisor. A lifetime binding has to be enforced by the OS, not by handlers that a dying process never gets to run.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Inherited file descriptors, process-lifetime binding and private socket-directory ownership are transport lifecycle responsibilities below extension hooks.
@@ -1535,6 +2123,12 @@ Expected merge conflict zones: MEDIUM in `main.ts` and `host-lifecycle.ts`; LOW 
 
 - The shared socket host previously lived until the machine rebooted: desktop/terminal clients needed a documented way to bound a `transient` host's lifetime without a resident supervisor process, while `persistent` installs must survive idle periods.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Host process lifetime, socket ownership, pidfile/state cleanup, and detached process supervision are transport lifecycle responsibilities below extension hooks; the RPC host itself must stay unaware of its supervisor.
@@ -1556,6 +2150,12 @@ Expected merge conflict zones: MEDIUM in `main.ts` and `host-lifecycle.ts`; LOW 
 
 - Desktop and terminal clients need one reusable Unix-socket host without a resident supervisor, while preventing incompatible or capability-poor processes from silently owning the shared endpoint.
 
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
+
 ### Why an extension could not handle it
 
 - Process ownership, Unix-socket probing, PID-reuse safety, file locking, detached launch, and protocol handshake are transport lifecycle responsibilities below extension hooks.
@@ -1576,6 +2176,12 @@ Expected merge conflict zones: MEDIUM in `main.ts` and `host-lifecycle.ts`; LOW 
 ### Why
 
 - Desktop and automation clients need multiple independent socket connections to share sessions, route commands across connection ownership, and observe foreign session activity without running one RPC process per client.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 
@@ -2067,6 +2673,12 @@ wire shape, multi-session tagging, and payload validation responsibilities.
 ### Why
 
 - The wrapper exits immediately after re-exec, so resolving `stop()` on the wrapper's exit event left the real host holding the session dir open; the merged bun re-exec made that wrapper indistinguishable from the host.
+
+### Why (flake audit, requested after a 2-in-28 failure under load)
+
+- Two waits in this area were satisfied by ELAPSED TIME rather than by an observed signal, and both fail as a bare `Error: kill ESRCH` - a failure with no assertion text, which is exactly what a count-only loop reports. (1) `test/rpc-host-handoff.test.ts:37-38` read `processAlive(pid)` and then signalled: TOCTOU in the SHARED teardown, so it can fail any case in the file. (2) `test/rpc-host-handoff.test.ts:101` SIGKILLed the predecessor after a handoff in a case that opened no session, so the predecessor's registry was empty and its drain sweep called the empty-exit hook on the first pass; the test then ran a `stat` and a full `probeHost` round trip before signalling. Measured budget for that window: the predecessor is gone ~660 ms after the handoff is requested, and a probe on a loaded runner can outlast it.
+- The fixes are state-based, not wider timeouts: the teardown signals through `signalGeneration` (already-gone is a `false`, not a throw), and the kill9 case now holds an ATTACHED session on the predecessor, which the drain sweep refuses to park (`session-command-router.ts` skips entries with `attachments > 0` and exits only at `registry.size === 0`), so the process is alive by invariant when the case signals it.
+- `test/rpc-host-signal.test.ts` (new) locks the helper: a live pid reports delivery and the process exits with that signal; a pid that has already exited reports `false`. Reverting the helper to a bare `process.kill` fails the second case with `Error: kill ESRCH`.
 
 ### Why an extension could not handle it
 

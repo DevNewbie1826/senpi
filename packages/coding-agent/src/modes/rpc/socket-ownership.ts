@@ -30,6 +30,22 @@ export const PUBLIC_SOCKET_IDENTITY_FILE = "public-socket.owner";
 /** Default bound on waiting for a supervisor to publish its ownership token. */
 export const SOCKET_IDENTITY_WAIT_MS = 30_000;
 
+/**
+ * `sun_path` is 104 bytes INCLUDING its terminator on macOS, so a bindable path fits in 103.
+ * A generation's bind path is the longest name this daemon ever produces, which makes it the
+ * one that must be checked before a bind turns the overflow into a truncated, silently wrong
+ * endpoint.
+ */
+export const MAX_SOCKET_PATH_BYTES = 103;
+
+/**
+ * Where a successor generation binds before it owns the public name. It never binds the live
+ * public path: that path belongs to the running host until the successor is proven to work.
+ */
+export function generationBindPath(publicSocket: string, generation: number): string {
+	return `${publicSocket}.next-${generation}`;
+}
+
 function sameSocketIdentity(a: SocketFileIdentity, b: SocketFileIdentity): boolean {
 	return a.dev === b.dev && a.ino === b.ino;
 }

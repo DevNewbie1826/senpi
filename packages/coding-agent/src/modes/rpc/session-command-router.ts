@@ -8,8 +8,9 @@ import {
 	SESSION_CONTEXT_CAPABILITY,
 	SESSION_KIND_CAPABILITY,
 } from "./custom-capability.ts";
+import { protocolIdentity } from "./protocol-identity.ts";
 import { sessionAutoTitleError, sessionContextError, sessionKindError } from "./rpc-input-validation.ts";
-import type { RpcCommand, RpcResponse } from "./rpc-types.ts";
+import type { RpcCommand, RpcResponse, RpcSessionClosedReason } from "./rpc-types.ts";
 import {
 	RPC_ERROR_INVALID_LAUNCH_PROFILE,
 	RPC_ERROR_INVALID_SESSION_CONTEXT,
@@ -26,6 +27,9 @@ import type { OpenRpcSession, RpcSessionLaunchProfile, RpcSessionRegistry } from
 import { RpcSessionRegistryError } from "./session-registry.ts";
 
 const controls = new Set(["get_protocol_info", "open_session", "close_session", "list_sessions"]);
+
+/** How often a draining host re-checks whether the work it is waiting for has settled. */
+const DRAIN_SWEEP_MS = 50;
 
 /** Binding factory seam, injectable so host wiring is testable without a full runtime stack. */
 export type RpcBindingFactory = typeof createRpcSessionBinding;
@@ -59,8 +63,22 @@ export interface RpcSessionIdlePolicy {
  */
 type CloseClaimOptions = { drainAttachments: true; detach?: never } | { drainAttachments: false; detach?: boolean };
 
-function error(id: string | undefined, command: string, code: string): RpcResponse {
-	return { id, type: "response", command, success: false, error: code };
+function error(
+	id: string | undefined,
+	command: string,
+	code: string,
+	data?: Readonly<Record<string, unknown>>,
+): RpcResponse {
+	// `errorData` carries what a client has to ACT on (who holds a path, when to retry); the
+	// stable code stays the string every existing client already switches on.
+	return {
+		id,
+		type: "response",
+		command,
+		success: false,
+		error: code,
+		...(data && { errorCode: code, errorData: data }),
+	};
 }
 
 /** Routes control messages and enforces a routing handle for every session command. */
@@ -92,6 +110,8 @@ export class SessionCommandRouter {
 	private readonly onEmptyExit?: () => void;
 	private readonly canExitWhenEmpty?: () => boolean;
 	private sweepTimer: ReturnType<typeof setInterval> | undefined;
+	private drainTimer: ReturnType<typeof setInterval> | undefined;
+	private draining = false;
 	private emptySince: number | undefined;
 	/** Halves the idle window while the host reports memory pressure; never refuses work. */
 	private memoryPressure = false;
@@ -128,6 +148,42 @@ export class SessionCommandRouter {
 	/** Live sessions the host holds, including ones opening or closing. */
 	get sessionCount(): number {
 		return this.registry.size;
+	}
+
+	/**
+	 * Hand this host's work to the next generation: park every session the moment it has no client
+	 * attached and nothing running, and leave as soon as none is left. A drain ENDS no work - a
+	 * session mid-turn keeps running, and a session a client is still attached to keeps serving it -
+	 * which is what separates an upgrade from a kill.
+	 */
+	beginDrain(): void {
+		if (this.draining) return;
+		this.draining = true;
+		this.sweepDrain();
+		if (this.drainTimer !== undefined) return;
+		// Unref'd: a draining host must never be the reason the event loop stays open.
+		this.drainTimer = setInterval(() => this.sweepDrain(), DRAIN_SWEEP_MS);
+		this.drainTimer.unref?.();
+	}
+
+	/** One drain pass: park what has settled, and exit once the host holds nothing. */
+	private sweepDrain(): void {
+		for (const { sessionId, status } of this.registry.list()) {
+			if (status !== "open") continue;
+			const entry = this.registry.peek(sessionId);
+			if (!entry || entry.attachments > 0) continue;
+			// Session-owned work outlives its client; the park waits for it exactly as the idle
+			// sweep does, and the next pass picks the session up once it settles.
+			if (entry.worker?.busy || entry.runtime?.session.isSessionBusy) continue;
+			void this.evictIdleSession(sessionId, "handoff_parked");
+		}
+		if (this.registry.size > 0) return;
+		if (this.drainTimer !== undefined) {
+			clearInterval(this.drainTimer);
+			this.drainTimer = undefined;
+		}
+		this.stopSweep();
+		this.onEmptyExit?.();
 	}
 
 	/**
@@ -175,6 +231,7 @@ export class SessionCommandRouter {
 					serverVersion: VERSION,
 					capabilities: [...capabilities],
 					mode: "multi",
+					...protocolIdentity(),
 				},
 			};
 		}
@@ -223,8 +280,16 @@ export class SessionCommandRouter {
 			[...this.bindings.entries()].map(async ([sessionId, binding]) => {
 				const claim = this.tryClaimClose(sessionId, { drainAttachments: true });
 				if (!claim) return;
-				if (claim.finalizer) await this.finalizeClose(sessionId, binding);
-				else await this.finalizations.get(sessionId)?.promise;
+				if (claim.finalizer) {
+					await this.finalizeClose(sessionId, binding, () =>
+						this.writer.closeSession(
+							sessionId,
+							{ type: "response", command: "close_session", success: true, data: {} },
+							"host_shutdown",
+						),
+					);
+				} else await this.finalizations.get(sessionId)?.promise;
+				this.writer.forgetSession(sessionId);
 			}),
 		);
 		this.bindings.clear();
@@ -282,7 +347,7 @@ export class SessionCommandRouter {
 	 * (`session_parked`) instead of reporting a close nobody requested. The teardown
 	 * itself is identical - retention never outlives the idle window.
 	 */
-	private async evictIdleSession(sessionId: string): Promise<void> {
+	private async evictIdleSession(sessionId: string, reason?: RpcSessionClosedReason): Promise<void> {
 		// Read before the claim: the entry is gone once the teardown completes, and a park
 		// record without the session's path would not be actionable (so a retained session
 		// with no file to reopen by ends as an ordinary close).
@@ -296,14 +361,15 @@ export class SessionCommandRouter {
 		this.forgetSessionOwnership(sessionId);
 		if (claim.finalizer) {
 			await this.finalizeClose(sessionId, binding, () =>
-				parkedPath === undefined
-					? this.writer.closeSession(sessionId, {
-							type: "response",
-							command: "close_session",
-							success: true,
-							data: {},
-						})
-					: this.writer.parkSession(sessionId, parkedPath),
+				// A drain names ITS reason on the close record. An idle sweep of a RETAINED
+				// session parks instead: the file reopens by path. Anything else is a close.
+				parkedPath !== undefined && reason === undefined
+					? this.writer.parkSession(sessionId, parkedPath)
+					: this.writer.closeSession(
+							sessionId,
+							{ type: "response", command: "close_session", success: true, data: {} },
+							reason ?? "idle_evicted",
+						),
 			);
 		} else {
 			await this.finalizations.get(sessionId)?.promise;
@@ -482,7 +548,7 @@ export class SessionCommandRouter {
 					/* The open rollback has already removed the entry. */
 				}
 			}
-			return error(command.id, "open_session", this.code(cause));
+			return error(command.id, "open_session", this.code(cause), this.detail(cause));
 		}
 	}
 
@@ -646,7 +712,7 @@ export class SessionCommandRouter {
 			if (owner !== undefined) this.releaseOwnerAttachment(owner, command.sessionId);
 			if (claim.finalizer) {
 				await this.finalizeClose(command.sessionId, this.bindings.get(command.sessionId), () =>
-					reply.complete(true),
+					reply.complete(true, "client_close"),
 				);
 			} else {
 				await this.finalizations.get(command.sessionId)?.promise;
@@ -719,6 +785,11 @@ export class SessionCommandRouter {
 			resolveFinalization = resolve;
 		});
 		return { promise, resolve: () => resolveFinalization?.() };
+	}
+
+	/** The machine-readable half of a refusal, when the registry attached one. */
+	private detail(cause: unknown): Readonly<Record<string, unknown>> | undefined {
+		return cause instanceof RpcSessionRegistryError ? cause.detail : undefined;
 	}
 
 	private code(cause: unknown): string {

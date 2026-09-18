@@ -266,7 +266,7 @@ it.each(["quarantined", "finalizing-records", "finalizing-bytes"])(
 			const replies = records.filter((record) => record.sessionId === entry.sessionId);
 			if (finalizing)
 				expect(replies.splice(0, 2)).toEqual([
-					{ type: "session_closed", sessionId: entry.sessionId },
+					{ type: "session_closed", sessionId: entry.sessionId, reason: "client_close" },
 					expect.objectContaining({ id: "first", success: true }),
 				]);
 			expect(replies.length).toBeGreaterThan(0);

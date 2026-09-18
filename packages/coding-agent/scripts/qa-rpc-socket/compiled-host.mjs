@@ -24,6 +24,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
+import { readHostRegistration } from "../../src/modes/rpc/host-daemon-registration.ts";
 import { createHostDaemonPaths } from "../../src/modes/rpc/host-ensure.ts";
 import {
 	cleanupAllAndWait,
@@ -56,7 +57,7 @@ async function main() {
 		fake = await startFakeModelServer([{ text: "compiled-host-qa" }]);
 		writeMockModelsJson(scratch.agentDir, fake);
 		const socketPath = join(scratch.dir, "rpc.sock");
-		const paths = createHostDaemonPaths(scratch.agentDir);
+		const paths = createHostDaemonPaths({ socket: socketPath, agentDir: scratch.agentDir });
 
 		// `expect` allocates a real pty so the compiled binary resolves the
 		// interactive app mode exactly as a terminal launch does (stdin and
@@ -99,7 +100,7 @@ async function main() {
 		transcript.push("PASS compiled-host");
 	} catch (error) {
 		if (scratch) {
-			const paths = createHostDaemonPaths(scratch.agentDir);
+			const paths = createHostDaemonPaths({ socket: join(scratch.dir, "rpc.sock"), agentDir: scratch.agentDir });
 			transcript.push(`observed fallback-warning=${plainText(output).includes(FALLBACK_NEEDLE) ? "present" : "absent"}`);
 			transcript.push(`supervisor-stderr: ${supervisorStderr(paths)}`);
 		}
@@ -112,7 +113,9 @@ async function main() {
 		// including a failed run - must reap it or the QA leaks a live host and a
 		// bound socket into the developer's machine.
 		if (!supervisorStopped && scratch) {
-			const reaped = await reapSupervisor(createHostDaemonPaths(scratch.agentDir));
+			const reaped = await reapSupervisor(
+				createHostDaemonPaths({ socket: join(scratch.dir, "rpc.sock"), agentDir: scratch.agentDir }),
+			);
 			transcript.push(`cleanup-supervisor=${reaped}`);
 		}
 		await fake?.stop().catch(() => undefined);
@@ -207,7 +210,7 @@ function stopTui(child) {
 async function stopSupervisor(paths, socketPath) {
 	let pid;
 	try {
-		pid = JSON.parse(readFileSync(paths.pidFile, "utf8")).pid;
+		pid = (await readHostRegistration(paths)).record.pid;
 	} catch {
 		throw new Error("supervisor pidfile missing after successful attach");
 	}
@@ -216,10 +219,12 @@ async function stopSupervisor(paths, socketPath) {
 	} catch {}
 	const deadline = Date.now() + 10_000;
 	while (Date.now() <= deadline) {
-		if (!alive(pid) && !existsSync(socketPath) && !existsSync(paths.pidFile)) return;
+		if (!alive(pid) && !existsSync(socketPath) && !existsSync(paths.pointerFile)) return;
 		await delay(100);
 	}
-	throw new Error(`supervisor ${pid} did not clean up within 10s (socket=${existsSync(socketPath)} pidfile=${existsSync(paths.pidFile)})`);
+	throw new Error(
+		`supervisor ${pid} did not clean up within 10s (socket=${existsSync(socketPath)} pointer=${existsSync(paths.pointerFile)})`,
+	);
 }
 
 /**
@@ -229,7 +234,7 @@ async function stopSupervisor(paths, socketPath) {
 async function reapSupervisor(paths) {
 	let pid;
 	try {
-		pid = JSON.parse(readFileSync(paths.pidFile, "utf8")).pid;
+		pid = (await readHostRegistration(paths)).record.pid;
 	} catch {
 		return "none";
 	}

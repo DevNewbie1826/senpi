@@ -1,17 +1,6 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { on, once } from "node:events";
-import {
-	closeSync,
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	openSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { readFile } from "node:fs/promises";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type Server as HttpServer, type ServerResponse } from "node:http";
 import { type AddressInfo, createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -19,6 +8,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { VERSION } from "../src/config.ts";
 import { processIsLive, processMatchesPidFile, readProcessStartTime } from "../src/modes/app-server/daemon/process.ts";
+import { readHostRegistration } from "../src/modes/rpc/host-daemon-registration.ts";
 import { createHostDaemonPaths, ensureHost, type HostLifecyclePolicyInput } from "../src/modes/rpc/host-ensure.ts";
 import {
 	DEFAULT_HOST_IDLE_EXIT_MS,
@@ -47,6 +37,7 @@ import {
 	socketSecretPath,
 } from "../src/modes/rpc/socket-transport.ts";
 import { hermeticProviderEnv, MOCK_MODEL, MOCK_PROVIDER, writeRpcModelsJson } from "./helpers/rpc-hermetic.ts";
+import { processAlive, reapProcessesUnder } from "./helpers/spawned-host-reaper.ts";
 
 const roots: string[] = [];
 const peers: JsonlPeer[] = [];
@@ -61,7 +52,12 @@ afterEach(async () => {
 	for (const peer of peers.splice(0)) peer.destroy();
 	for (const model of models.splice(0)) await model.close();
 	for (const entry of managed.splice(0)) await stopHostProcess(entry.pidFile, entry.pidFilePath);
-	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+	for (const root of roots.splice(0)) {
+		// Supervisors are detached and a failed ensure leaves no registration to stop them by; the
+		// sandbox path names every process this file started, so nothing outlives its directory.
+		await reapProcessesUnder(root);
+		rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
 	// Budget: teardown liveness probe (~1s) + SIGTERM exit wait (30s) + SIGKILL
 	// escalation (2s) per host, with headroom; the old 30s cap already sat below
 	// the pre-existing 33s worst case.
@@ -206,15 +202,16 @@ describe("ensureHost-spawned host lifecycle", () => {
 
 	it("exits cleanly after the idle window with no connections and no active turns", async () => {
 		const qa = scratch("idle");
-		const internalBefore = listInternalSocketDirs();
 		const ensured = await ensureLifecycleHost(qa, { policy: { idleExitMs: 600 } });
 		expect(ensured.reused).toBe(false);
 		const entry = currentManaged();
 		await waitForHostExit(entry);
 		expect(existsSync(entry.pidFilePath)).toBe(false);
-		expect(existsSync(createHostDaemonPaths(qa.agentDir).settingsFile)).toBe(false);
+		expect(existsSync(daemonPaths(qa).settingsFile)).toBe(false);
 		expect(await endpointLive(qa.socket)).toBe(false);
-		expect(listInternalSocketDirs().filter((dir) => !internalBefore.includes(dir))).toEqual([]);
+		// Scoped to THIS supervisor: the internal directories live in one shared tmpdir, so any
+		// other host running concurrently (another suite, another checkout) owns its own.
+		expect(listInternalSocketDirs(ensured.pid)).toEqual([]);
 	}, 45_000);
 
 	it("does not exit while a client is attached, then exits after it detaches", async () => {
@@ -311,14 +308,19 @@ describe("ensureHost-spawned host lifecycle", () => {
 
 	it("reaps the internal host when the supervisor is SIGKILLed (no catchable-signal path)", async () => {
 		const qa = scratch("kill9");
-		const internalBefore = listInternalSocketDirs();
 		// A long idle window leaves the supervisor-lifetime binding as the only thing
 		// that can reap the internal host during this test.
 		const ensured = await ensureLifecycleHost(qa, { policy: { idleExitMs: 600_000 } });
 		const entry = currentManaged();
 		const internalHosts = await waitForChildPids(ensured.pid);
 		expect(internalHosts.length).toBeGreaterThan(0);
-		const leakedDirs = listInternalSocketDirs().filter((dir) => !internalBefore.includes(dir));
+		const leakedDirs = listInternalSocketDirs(ensured.pid);
+		// The internal host serves a filesystem socket from its own tmp directory on POSIX, so a running
+		// supervisor must own at least one. win32 serves a NAMED PIPE instead: there is no directory to
+		// create, so the only honest expectation there is that none exists - and the reap assertions
+		// below (every internal host gone, nothing left under tmp) still carry the real invariant.
+		if (process.platform === "win32") expect(leakedDirs).toEqual([]);
+		else expect(leakedDirs.length).toBeGreaterThan(0);
 
 		terminateSupervisor(ensured.pid, "SIGKILL");
 		await waitForPidsGone(internalHosts, 10_000);
@@ -328,7 +330,7 @@ describe("ensureHost-spawned host lifecycle", () => {
 		// Win32 endpoint close and metadata unlink are separate operations; poll the
 		// identity-aware lifecycle helper instead of asserting the pidfile atomically.
 		await waitForHostExit(entry, WINDOWS_SUPERVISOR_EXIT_TIMEOUT_MS);
-		expect(existsSync(createHostDaemonPaths(qa.agentDir).settingsFile)).toBe(false);
+		expect(existsSync(daemonPaths(qa).settingsFile)).toBe(false);
 	}, 60_000);
 });
 
@@ -366,64 +368,40 @@ describe("host watchdog configuration", () => {
 		expect(fired).toBe(false);
 	});
 
-	it.skipIf(process.platform === "win32")("removes supervisor public state on inherited-pipe EOF", async () => {
-		if (process.platform === "win32") {
-			// This fixture models POSIX FIFO EOF and synchronous filesystem cleanup;
-			// Windows named-pipe handle close and fs.rm completion are asynchronous,
-			// so the real Win32 lifecycle test covers those semantics instead.
-			return;
-		}
-		const dir = mkdtempSync(join(tmpdir(), "senpi-hlc-wd-state-"));
-		roots.push(dir);
-		const fifo = join(dir, "pipe");
-		const socket = join(dir, "rpc.sock");
-		const pidFile = join(dir, "host.pid");
-		const settings = join(dir, "settings.json");
-		execFileSync("mkfifo", [fifo]);
-		writeFileSync(socket, "socket");
-		writeFileSync(pidFile, "pid");
-		writeFileSync(settings, "settings");
-		const writeEnd = openSync(fifo, "w+");
-		const readEnd = openSync(fifo, "r");
-		const reason = new Promise<string>((resolve) => {
-			armHostWatchdog({ fd: readEnd, cleanupPaths: [socket, pidFile, settings] }, resolve);
-		});
-		closeSync(writeEnd);
-		await reason;
-		expect(existsSync(socket)).toBe(false);
-		expect(existsSync(pidFile)).toBe(false);
-		expect(existsSync(settings)).toBe(false);
-	});
+	it.skipIf(process.platform === "win32")(
+		"removes supervisor public state on inherited-pipe EOF",
+		async () => {
+			const dir = mkdtempSync(join(tmpdir(), "senpi-hlc-wd-state-"));
+			roots.push(dir);
+			const socket = join(dir, "rpc.sock");
+			const pidFile = join(dir, "host.pid");
+			const settings = join(dir, "settings.json");
+			for (const path of [socket, pidFile, settings]) writeFileSync(path, "state");
+
+			const fired = await fireWatchdogOnPipeEof({ cleanupPaths: [socket, pidFile, settings] });
+
+			expect(fired.cleanupExists).toEqual([false, false, false]);
+			expect(existsSync(socket)).toBe(false);
+			expect(existsSync(pidFile)).toBe(false);
+			expect(existsSync(settings)).toBe(false);
+		},
+		20_000,
+	);
 
 	it.skipIf(process.platform === "win32")(
 		"fires on inherited-pipe EOF and removes the supervisor's private directory",
 		async () => {
-			if (process.platform === "win32") {
-				// This fixture models POSIX FIFO EOF and synchronous filesystem cleanup;
-				// Windows named-pipe handle close and fs.rm completion are asynchronous,
-				// so the real Win32 lifecycle test covers those semantics instead.
-				return;
-			}
 			const dir = mkdtempSync(join(tmpdir(), "senpi-hlc-wd-"));
 			roots.push(dir);
 			const scratchDir = join(dir, "internal");
 			mkdirSync(scratchDir, { recursive: true });
-			const fifo = join(dir, "pipe");
-			execFileSync("mkfifo", [fifo]);
-			// Opening both ends keeps the fifo alive until the write end is closed, which
-			// is exactly the EOF the supervisor's death produces on the inherited pipe.
-			const writeEnd = openSync(fifo, "w+");
-			const readEnd = openSync(fifo, "r");
-			// armHostWatchdog takes ownership of the read end, so the test only closes
-			// the write end - that close is what the supervisor's death looks like.
-			const reason = new Promise<string>((resolve) => {
-				armHostWatchdog({ fd: readEnd, scratchDir }, resolve);
-			});
-			closeSync(writeEnd);
-			expect(await reason).toContain("closed");
+
+			const fired = await fireWatchdogOnPipeEof({ scratchDir });
+
+			expect(fired.reason).toContain("closed");
 			expect(existsSync(scratchDir)).toBe(false);
 		},
-		15_000,
+		20_000,
 	);
 
 	it.skipIf(process.platform === "win32")(
@@ -435,33 +413,14 @@ describe("host watchdog configuration", () => {
 			mkdirSync(scratchDir, { recursive: true });
 			const sidecar = join(scratchDir, "public-socket.owner");
 			writeFileSync(sidecar, JSON.stringify({ dev: 1, ino: 2 }));
-			const fifo = join(dir, "pipe");
-			execFileSync("mkfifo", [fifo]);
-			const writeEnd = openSync(fifo, "w+");
-			const readEnd = openSync(fifo, "r");
-			const order: string[] = [];
-			const reason = new Promise<string>((resolve) => {
-				armHostWatchdog(
-					{
-						fd: readEnd,
-						scratchDir,
-						beforeCleanup: async () => {
-							order.push(`beforeCleanup sidecar=${existsSync(sidecar)}`);
-						},
-					},
-					(fired) => {
-						order.push(`gone scratch=${existsSync(scratchDir)}`);
-						resolve(fired);
-					},
-				);
-			});
-			closeSync(writeEnd);
-			expect(await reason).toContain("closed");
+
+			const fired = await fireWatchdogOnPipeEof({ scratchDir, sidecar });
+
 			// The host reads its ownership token in beforeCleanup; cleanup must not have
 			// destroyed the directory yet, and the shutdown report comes last.
-			expect(order).toEqual(["beforeCleanup sidecar=true", "gone scratch=false"]);
+			expect(fired.order).toEqual(["beforeCleanup sidecar=true", "fired scratch=false"]);
 		},
-		15_000,
+		20_000,
 	);
 });
 
@@ -586,21 +545,27 @@ function scratch(label: string): Scratch {
 		sessionDir,
 		cwd,
 		socket: join(root, "rpc.sock"),
-		pidFilePath: createHostDaemonPaths(agentDir).pidFile,
+		pidFilePath: daemonPaths({ agentDir, socket: join(root, "rpc.sock") }).pointerFile,
 	};
 }
 
-function listInternalSocketDirs(): string[] {
-	return readdirSync(tmpdir()).filter((name) => name.startsWith("senpi-rpc-host-internal-"));
-}
-
-function processAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
+/**
+ * The private internal-socket directories owned by ONE supervisor. The directories all live in the
+ * shared tmpdir, so "everything that appeared during this test" would also count the hosts other
+ * suites (or another checkout) started meanwhile; each directory's `.owner` names its supervisor.
+ */
+function listInternalSocketDirs(ownerPid: number): string[] {
+	return readdirSync(tmpdir())
+		.filter((name) => name.startsWith("senpi-rpc-host-internal-"))
+		.filter((name) => {
+			try {
+				const owner = JSON.parse(readFileSync(join(tmpdir(), name, ".owner"), "utf8")) as { pid?: unknown };
+				return owner.pid === ownerPid;
+			} catch {
+				// A directory whose owner cannot be read is not this supervisor's to claim.
+				return false;
+			}
+		});
 }
 
 /** Direct children of `pid`. `pgrep` is POSIX-only, so Windows queries CIM. */
@@ -671,6 +636,67 @@ function hostLifecycleEntry(): string {
 	return join(import.meta.dirname, "..", "src", "modes", "rpc", "host-lifecycle.ts");
 }
 
+interface WatchdogFiring {
+	readonly reason: string;
+	readonly scratchExists: boolean;
+	readonly cleanupExists: readonly boolean[];
+	readonly order: readonly string[];
+}
+
+/**
+ * Arms the watchdog in a child process over a REAL inherited pipe on fd 3 - the binding the
+ * supervisor creates - and closes the write end, which is exactly what the supervisor's death
+ * looks like to the host. Resolves with what the child observed when it fired.
+ */
+async function fireWatchdogOnPipeEof(options: {
+	scratchDir?: string;
+	cleanupPaths?: readonly string[];
+	sidecar?: string;
+}): Promise<WatchdogFiring> {
+	const child = spawn(
+		process.execPath,
+		[
+			join(import.meta.dirname, "fixtures", "rpc-watchdog-pipe.ts"),
+			options.scratchDir ?? "",
+			...(options.cleanupPaths ?? []),
+		],
+		{
+			env: { ...process.env, ...(options.sidecar ? { WATCHDOG_SIDECAR: options.sidecar } : {}) },
+			stdio: ["ignore", "ignore", "inherit", "pipe", "ipc"],
+		},
+	);
+	const order: string[] = [];
+	try {
+		const fired = new Promise<WatchdogFiring>((resolve, reject) => {
+			child.on("message", (message: RecordValue) => {
+				if (message.type === "armed") {
+					// Closing our end of the pipe is the supervisor's death, seen from the host.
+					child.stdio[3]?.destroy();
+					return;
+				}
+				if (message.type === "beforeCleanup") {
+					order.push(`beforeCleanup sidecar=${String(message.sidecarExists)}`);
+					return;
+				}
+				if (message.type !== "fired") return;
+				order.push(`fired scratch=${String(message.scratchExists)}`);
+				resolve({
+					reason: String(message.reason),
+					scratchExists: message.scratchExists === true,
+					cleanupExists: Array.isArray(message.cleanupExists) ? (message.cleanupExists as boolean[]) : [],
+					order,
+				});
+			});
+			child.once("exit", (code) => reject(new Error(`watchdog fixture exited (${code}) before firing`)));
+			child.once("error", reject);
+		});
+		return await fired;
+	} finally {
+		child.removeAllListeners("exit");
+		child.kill("SIGKILL");
+	}
+}
+
 async function ensureLifecycleHost(
 	qa: Scratch,
 	options: {
@@ -686,17 +712,17 @@ async function ensureLifecycleHost(
 			socket: qa.socket,
 			agentDir: qa.agentDir,
 			policy: options.policy,
+			hostArgs,
+			env: {
+				...hermeticProviderEnv(),
+				PI_OFFLINE: "1",
+				PI_TELEMETRY: "0",
+				SENPI_RUNTIME: "node",
+				SENPI_CODING_AGENT_SESSION_DIR: qa.sessionDir,
+				...(options.env ?? {}),
+			},
 			_test: {
 				readinessTimeoutMs: 30_000,
-				env: {
-					...hermeticProviderEnv(),
-					PI_OFFLINE: "1",
-					PI_TELEMETRY: "0",
-					SENPI_RUNTIME: "node",
-					SENPI_CODING_AGENT_SESSION_DIR: qa.sessionDir,
-					...(options.env ?? {}),
-				},
-				hostArgs,
 				spawn: options.spawn
 					? {
 							command: process.execPath,
@@ -713,7 +739,7 @@ async function ensureLifecycleHost(
 					: { command: process.execPath, args: [hostLifecycleEntry(), "--socket", qa.socket, ...hostArgs] },
 			},
 		});
-		managed.push({ pidFile: await recordedPidFile(qa.pidFilePath, ensured.pid), pidFilePath: qa.pidFilePath });
+		managed.push({ pidFile: await recordedPidFile(qa, ensured.pid), pidFilePath: qa.pidFilePath });
 		return ensured;
 	} catch (error) {
 		throw new Error(
@@ -727,18 +753,21 @@ async function ensureLifecycleHost(
  * ensureHost returning, so the pidfile may already be gone; the returned pid is
  * still the identity every later liveness/exit probe needs.
  */
-async function recordedPidFile(pidFilePath: string, pid: number): Promise<{ pid: number; processStartTime: string }> {
-	try {
-		return JSON.parse(await readFile(pidFilePath, "utf8")) as { pid: number; processStartTime: string };
-	} catch (error: unknown) {
-		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-		return { pid, processStartTime: (await readProcessStartTime(pid)) ?? "" };
-	}
+async function recordedPidFile(qa: Scratch, pid: number): Promise<{ pid: number; processStartTime: string }> {
+	const record = (await readHostRegistration(daemonPaths(qa)).catch(() => undefined))?.record;
+	return record?.processStartTime !== undefined && record.processStartTime !== null
+		? { pid: record.pid, processStartTime: record.processStartTime }
+		: { pid, processStartTime: (await readProcessStartTime(pid)) ?? "" };
+}
+
+/** This endpoint's daemon directory: one per socket, so the agent directory alone no longer names it. */
+function daemonPaths(qa: { readonly agentDir: string; readonly socket: string }) {
+	return createHostDaemonPaths({ socket: qa.socket, agentDir: qa.agentDir });
 }
 
 function readSupervisorStderr(qa: Scratch): string {
 	try {
-		return readFileSync(createHostDaemonPaths(qa.agentDir).stderrLog, "utf8");
+		return readFileSync(daemonPaths(qa).stderrLog, "utf8");
 	} catch {
 		return "<no supervisor stderr log>";
 	}

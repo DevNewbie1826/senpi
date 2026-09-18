@@ -2,7 +2,7 @@
 
 Shared-host clients may advertise the `rendered_components` capability to receive factory-rendered widget, header, and footer records. In a shared session, component rendering uses the minimum width reported by currently attached connections, defaulting to 80 when none report a width; disconnected connections no longer contribute.
 
-The shared Unix socket host uses `<agentDir>/rpc-host-daemon/host.pid` and `settings.json` as its ownership state. Clients attach to a compatible existing host regardless of which client surface started it; only incompatible unmanaged owners are refused.
+The shared Unix socket host keeps its ownership state in a PER-SOCKET daemon directory, `<agentDir>/rpc-host-daemon/<sha256(canonical socket)[:16]>/` (see [Daemon state directory](#daemon-state-directory-layout-2)). Clients attach to a compatible existing host regardless of which client surface started it; only incompatible unmanaged owners are refused.
 
 RPC mode enables headless operation of the coding agent via a JSON protocol over stdin/stdout. This is useful for embedding the agent in other applications, IDEs, or custom UIs.
 
@@ -108,6 +108,186 @@ An explicit flag wins over both defaults; any other value is a startup error. Th
 run - the wire protocol, attachment semantics and lifecycle windows are identical on both runtimes. An in-process
 session is not isolated from the host: a session that blocks the event loop blocks every other session, and there is
 no per-session opening deadline like the worker runtime's 30-second budget.
+
+### Host identity (`get_protocol_info`)
+
+Every `get_protocol_info` answer - classic and multi-session alike - carries the identity of the host that
+answered it, so a client sharing one machine-wide host can tell hosts, builds and launches apart without
+parsing a version string:
+
+```json
+{
+  "protocolVersion": 1,
+  "serverVersion": "2026.9.17",
+  "capabilities": ["multi_session", "..."],
+  "mode": "multi",
+  "instanceId": "b46e6734-881f-493a-9bf5-705f9e15327a",
+  "generation": 0,
+  "engineVersion": "2026.9.17+1789656604.7b59713",
+  "engineOrdinal": [2026, 9, 17, 0, 1789656604],
+  "launch_profile": {
+    "profile_id": "ca7a4943…",
+    "core": { "extensions": [], "multi_session": true, "session_runtime": "in-process" }
+  }
+}
+```
+
+- `instanceId` - UUID minted when the host process booted. It is the only reliable "is this still the same
+  host?" signal: it changes whenever the process does, including after a replacement.
+- `generation` - which generation of its daemon directory this host is, handed to it at spawn time
+  (`SENPI_RPC_HOST_GENERATION`). A host nobody ensured reports `0`.
+- `engineVersion` - the build string: the CalVer package version plus `+<buildEpoch>.<sha7>` when the binary
+  was compiled with build metadata. Informational, like `serverVersion`.
+- `engineOrdinal` - `[year, month, day, postRelease, buildEpoch]`, the ONLY ordering a client may use.
+  `[y, m, d, n]` compares lexicographically, where `n` is the CalVer post-release increment (`2026.9.16-3`
+  ships AFTER `2026.9.16`, the opposite of the semver reading of those strings). The build epoch breaks a tie
+  only when BOTH sides carry one; otherwise the two builds are EQUAL, so a build whose age cannot be established
+  never outranks one that can. Binaries built without git metadata report an epoch of `0`, which is exactly how a
+  client reads "this build has no age": a non-zero epoch is comparable, `0` is not.
+- `launch_profile` - what the host was launched with: `core.session_runtime`, `core.multi_session` and
+  `core.extensions` (absolute roots, deduplicated and sorted). `profile_id` is the sha256 of the canonical JSON
+  of `core` with its keys in that sorted order (`extensions`, `multi_session`, `session_runtime`), so any client
+  can recompute it and compare two hosts without comparing paths.
+
+Compatibility is decided from `protocolVersion` + `capabilities`, and "is my build newer?" from `engineOrdinal`.
+A `serverVersion` string comparison is never a compatibility test: two hosts with different version strings can
+speak the same protocol, and a host whose ordinal is uncomparable is attached to, never replaced.
+
+### Attach, start or refuse (`decideHostAction`)
+
+A client that finds a host on the shared socket decides what to do with it through one exported function,
+`decideHostAction(client, host, policy)`, so every client surface answers the question the same way. `host` is
+the `get_protocol_info` answer (or `undefined` when nothing answered), and `policy` is `"never"` (attach only),
+`"fallback"` (prefer no host over a mismatched one) or `"upgrade"` (a generation handoff is allowed). The result
+is `{ action, reason, upgradeable, warning? }`.
+
+A host is COMPATIBLE when it answers `protocolVersion: 1` and advertises every required capability -
+`multi_session`, `extension_events`, `session_context`, `session_kind`. That is the whole test; the version
+string takes no part in it.
+
+| Situation | Action | Reason |
+| --- | --- | --- |
+| nothing answered on the socket | `start` | `no_host`, or `restart_own_host` when the pidfile is this process's |
+| the host answers another protocol version | `refuse` | `protocol` |
+| a required capability is missing | `refuse` (`fallback` under policy `fallback`) | `capability` |
+| policy `fallback` and the host runs a different engine build | `fallback` | `engine_mismatch` |
+| compatible, on win32 | `reuse`, `upgradeable: false` | `win32_attach_only` |
+| compatible, host does not advertise `generation_handoff` | `reuse`, `upgradeable: false` | `handoff_unsupported` |
+| compatible, policy `upgrade`, this build's ordinal is STRICTLY greater and its extensions cover the host's | `handoff` | `newer_engine` (`profile` when both are the same release and only the extensions grew) |
+| compatible, anything else | `reuse` | `compatible` |
+
+A `reuse` can carry a warning the caller should surface: `profile_narrower_attached` (this client would have
+upgraded, but its extension set does NOT cover what the running host loaded, so upgrading would drop those
+extensions) or `profile_mismatch_attached` (the launch profiles differ, or one of them is unknown - a client
+without a launch spec can prove nothing about extensions and therefore never initiates a handoff).
+
+Two invariants are encoded here, and every client is expected to keep them:
+
+- **I1 - never terminate, signal or replace a host this process did not start.** A missing capability or a
+  foreign protocol version ends in `refuse`, never in a second host bound over an endpoint somebody else owns.
+  `ensureHost` records a `writer: { pid, startTime }` stamp in its pidfile and stops the host it names only when
+  that stamp is this process (the start time is what keeps a recycled pid from inheriting the right). A pidfile
+  written by anyone else fails the ensure with `HostEnsureRefusedError { reason: "foreign_writer" }` and the host
+  keeps running.
+- **I2 - compatibility is protocol version + capabilities, never semver equality.** An ordinal that cannot be
+  compared (a build without git metadata, a host that reports none) is EQUAL, and since a handoff requires
+  STRICTLY greater, such a pair attaches instead of upgrading.
+
+### Generation handoff (`handoffHost`, `probeHost`, `stopHost`)
+
+An engine upgrade must not end the work the running daemon is doing: one machine-wide host holds every
+client's sessions. A GENERATION HANDOFF replaces the process while its sessions keep running.
+
+1. The successor is spawned with `--socket <public> --bind <public>.next-<generation>` and binds the BIND
+   path. It never binds the live public path, and the bind path is refused before the bind when it would
+   exceed the platform's 103-byte socket-path limit.
+2. Once its host answers, the successor renames its own entry over the public path - but only while that
+   path still refers to the exact socket the handoff was decided against (`--replace <dev>:<ino>`). A path
+   taken over by anything else aborts the handoff: nothing is renamed, nothing is unlinked, and the
+   running host keeps serving.
+3. `handoffHost` then registers the successor (its own `generations/<instanceId>/host.pid`, the pointer
+   moved onto it, and `settings.json { socket, generation }`) and sends
+   the predecessor SIGUSR1 = DRAIN: stop accepting, keep every connection already proxied, park each
+   retained session as soon as its turn settles, and exit through the ordinary idle path. Attached clients
+   see `session_closed { reason: "handoff_parked" }` for a parked session and reopen it with
+   `open_session { sessionPath }`.
+
+Two guards decide whether a handoff is attempted at all, and both fail closed:
+
+- The running host must advertise `generation_handoff`. SIGUSR1 TERMINATES a process that installed no
+  handler for it, so a host from before the drain existed is never signalled - `handoffHost` answers
+  `{ action: "refuse", reason: "handoff_unsupported" }` and `decideHostAction` reports `upgradeable: false`.
+- The registration must prove which process serves the socket (pid + start time, and the record's `socket`
+  must be this endpoint). An unprovable owner refuses with `unknown_owner` rather than signalling a
+  stranger (I1).
+
+On win32 a named pipe can be neither renamed nor drained: `handoffHost` refuses with `upgrade_unsupported`
+and `decideHostAction` never yields `handoff` there. Upgrades apply after `stopHost({ drain: true })` or an
+idle exit.
+
+`ensureHost` performs a handoff only when asked: `upgrade: "if-engine-differs"` (default `"never"`) makes it
+run `decideHostAction` under policy `upgrade` with the launch profile its own `hostArgs` describe. A refused
+handoff ATTACHES to the running host - an upgrade that cannot happen never becomes a stop.
+
+`ensureHost` also takes `hostArgs` (CLI arguments forwarded through the supervisor to the host process) and
+`env` (a `null` value removes an inherited variable) as public options.
+
+`stopHost({ socket, agentDir, drain?, force? })` ends a generation: `drain: true` is always permitted (it
+ends no work, it only stops the host from taking new work), while a hard stop requires a host that reports
+no open sessions, or `force: true`. A hard stop also drops that generation's registration (the pointer and
+its `generations/<instanceId>/` directory); a draining host keeps its registration until it exits, because
+it is still serving. `probeHost({ socket })` returns the running host's `get_protocol_info`
+answer, or `undefined` when nothing is serving the endpoint.
+
+#### Daemon state directory (layout 2)
+
+Every endpoint gets its own directory, named by the socket it serves, so two sockets in one agent
+directory can never read each other's state:
+
+```
+<agentDir>/rpc-host-daemon/                    flat directory (shared; also a legacy host's own state)
+  layout.json                                  { "layout": 2, "dir": "<sha256(canonical socket)[:16]>" }
+  <sha256(canonical socket)[:16]>/             0700
+    host.pid                                   POINTER: { layout, instance_id, generation_dir, writer }
+    settings.json                              what the supervisor reads at boot
+    daemon.lock  stderr.log
+    generations/<instanceId>/                  one directory per generation
+      host.pid                                 { pid, processStartTime, instance_id, generation,
+                                                 engineVersion, engineOrdinal, launchProfileId,
+                                                 socket, writer }
+      settings.json  scratch/
+    reservations/                              cross-generation session-path claims
+```
+
+Directories are `0700` and every state file is `0600`. The canonical socket is the socket path on POSIX
+and the normalized lower-cased path on win32, so a client recomputes the directory name from the socket
+alone. `generation_dir` is relative to the directory holding the pointer (`generations/<instanceId>`), and
+`instance_id` is the same id the host reports as `instanceId` in `get_protocol_info` - so a pointer that
+names a different id than the socket answers describes a generation that is no longer serving.
+
+The flat directory is deliberately missing a flat `host.pid`: layout 2 writes `layout.json` there and
+NOTHING else. A flat pidfile holding `{ pid, processStartTime }` is what arms every DEPLOYED client's kill
+path (a desktop reader that finds one takes the host over; a `senpi` from before layout 2 stops it through
+`stopManagedHost`), so writing one would let an un-updated client replace this daemon and end every other
+client's sessions. Without it those clients fail CLOSED - they find no host of their own, refuse, and leave
+the daemon alone. Nothing here ever writes a legacy-shaped file, and nothing here ever REMOVES one: a flat
+`host.pid` that does exist belongs to a legacy host, is read-only to this build, and while the process it
+names is alive an ensure refuses (`legacy_host`) rather than starting a second host beside it.
+
+`ensureHost` fails with a typed `HostDaemonStateError` naming the directory it could not create or write,
+and starts no host in that case.
+
+#### Session paths across generations (`reservations/`)
+
+During a handoff two hosts are alive at once, so the in-process path reservation cannot keep them off one
+JSONL file. Every generation records each open session path in
+`<daemonDir>/reservations/<sha256(canonical path)[:16]>.json` as
+`{ instanceId, pid, processStartTime, sessionPath }`, and removes it when the session closes or parks. An
+`open_session { sessionPath }` that finds a LIVE foreign claim answers
+`session_path_in_use` with `errorData { owner, retry_after_ms: 2000 }`; a claim whose owner is gone (a killed
+host, a reboot, a recycled pid with a different start time) is ignored. So a reopen during a handoff waits
+for the previous writer to finish rather than corrupting its transcript, and a session file is never
+permanently unopenable.
 
 ### Child reaping on a socket host (`SENPI_RPC_HOST_REAPER`)
 
@@ -219,10 +399,11 @@ The command response reports only `{ cancelled }`, so this event is the only pus
 
 The lifecycle supervisor is also available to bundled/rebranded runtimes through the hidden internal launch route `--internal-rpc-host-supervisor`. This route is wire-invisible and intended only for desktop launchers: it receives the public socket, ownership directory, and the runtime command/arguments to wrap, then runs the same `host-lifecycle.ts` implementation used by `ensureHost()`. Normal CLI modes do not use or advertise this route. Compiled standalone binaries also re-enter themselves through this route automatically: a bun executable always boots its embedded entrypoint, so the script-path re-entry used under a JS runtime would be parsed as CLI arguments (`Unknown option: --socket`) and the host could never start.
 
-On win32 the supervisor's internal hop lives under `<agentDir>/rpc-host-daemon/internal-<uuid>`, and that directory is created recursively. Before allocating the internal hop or spawning a child, the supervisor ensures `<publicSocket>.secret` exists, creating its parent directories and a 32-byte secret with mode `0600` when needed. An existing valid secret, including one written by `ensureHost()`, is reused unchanged. Direct launch therefore works on a fresh profile without caller-side secret provisioning. Provisioning failures identify the bootstrap step and secret path; the public endpoint still requires the secret handshake before forwarding RPC traffic.
+On win32 the supervisor's internal hop lives under `<daemonDir>/internal-<uuid>`, and that directory is created recursively. Before allocating the internal hop or spawning a child, the supervisor ensures `<publicSocket>.secret` exists, creating its parent directories and a 32-byte secret with mode `0600` when needed. An existing valid secret, including one written by `ensureHost()`, is reused unchanged. Direct launch therefore works on a fresh profile without caller-side secret provisioning. Provisioning failures identify the bootstrap step and secret path; the public endpoint still requires the secret handshake before forwarding RPC traffic.
 
 Hosts started through `ensureHost()` are wrapped by a lifecycle supervisor that owns the public socket and spawns the
-real RPC host on a private internal hop. The policy lives in `<agentDir>/rpc-host-daemon/settings.json`:
+real RPC host on a private internal hop. The policy lives in `<daemonDir>/settings.json` (and is copied into
+the generation's own directory):
 
 ```json
 { "socket": "…/rpc.sock", "capabilities": ["extension_events", "custom_unsupported"], "coldStart": "transient", "idleExitMs": 900000 }
@@ -258,12 +439,18 @@ session contents; neither runtime provides process-fatal OOM containment. The ho
 - **Idle eviction**: a session with no routed command and no session-owned work for
   `SENPI_RPC_SESSION_IDLE_EVICTION_MS` (default 30 minutes) is closed through the exact `close_session` sequence
   (abort → waitForIdle → dispose, all attachments drained, path reservation released) and every attached connection
-  receives that handle's `session_closed` broadcast plus a final `close_session` response record. A session opened with
+  receives that handle's `session_closed { reason: "idle_evicted" }` broadcast plus a final `close_session` response
+  record. A session opened with
   `retain_on_disconnect` is PARKED by that same sweep instead: identical teardown, but the terminal record is
   `session_parked { sessionId, sessionPath }` and there is no `close_session` response, because nothing closed the session -
   the routing handle was released while the session itself stays on disk and reopens with `open_session { sessionPath }`
   (as a NEW handle). A client that does not know `session_parked` ignores it and learns the handle is gone from its next
-  command's `unknown_session`. "Session-owned
+  command's `unknown_session`. A GENERATION HANDOFF parks the same sessions for the same reason, but names itself in
+  the record it emits: `session_closed { sessionId, reason: "handoff_parked" }`, so a client can tell "the host handed
+  over, reopen by path" from "this session ended". An explicit `close_session` is `reason: "client_close"`; the host
+  process exiting is `reason: "host_shutdown"` (even for a retained session - the process is going away, so this is not
+  a park). `reason` is optional on the wire; a client that does not know a
+  value, or receives a record with no `reason` field, treats the record exactly as a reason-less one. "Session-owned
   work" is the complete activity contract, not just a streaming turn: an agent run, a running bash command,
   background terminal jobs and any other published wake source (terminal monitors, loop-guard holds), compaction,
   and barrier-held session work all defer eviction, and the idle clock restarts when that work settles. An evicted
@@ -411,7 +598,7 @@ containment, or containment of arbitrary native code. They are not an extension 
 
 | Command | Params | Success data | Notes |
 | --- | --- | --- | --- |
-| `get_protocol_info` | - | `{ protocolVersion: 1, serverVersion: string, capabilities: string[], mode: "classic"\|"multi" }` | Answered in BOTH modes; side-effect-free; the capability probe. Multi-session hosts include `multi_session`, `retain_on_disconnect`, `session_kind`, `session_context` and `auto_title_per_session` plus the negotiated launch capabilities. Those are HOST capabilities (a client never sends them) and are advertised only in multi-session mode, where the host owns the attachment refcount and the per-session launch profile. |
+| `get_protocol_info` | - | `{ protocolVersion: 1, serverVersion: string, capabilities: string[], mode: "classic"\|"multi", instanceId: string, generation: number, engineVersion: string, engineOrdinal: [y, m, d, n, epoch], launch_profile: { profile_id, core } }` | Answered in BOTH modes; side-effect-free; the capability probe. Multi-session hosts include `multi_session`, `retain_on_disconnect`, `session_kind`, `session_context` and `auto_title_per_session` plus the negotiated launch capabilities. Those are HOST capabilities (a client never sends them) and are advertised only in multi-session mode, where the host owns the attachment refcount and the per-session launch profile. The identity fields are described under "Host identity" above; compatibility is decided from `protocolVersion`, `capabilities` and `engineOrdinal`, NEVER from `serverVersion`. |
 | `open_session` | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?`, `kind?`, `context?`, `auto_title?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: true }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there, `session-manager.ts:926-940`); `provider`/`modelId` applied only on create (resume restores the session's model — mirrors `SenpiSessionRuntime.ts:198-200`); params form the immutable launch profile (D8). When the path is already held by a fully-open session, the open ATTACHES to it: same routing handle, `attached: true`, one more attachment counted; the runtime is torn down only when the last attachment closes. Idle sessions past the eviction window are closed by the host itself. `retain_on_disconnect: true` (default false) makes a dropped connection DETACH from this session instead of closing it — see "Retained sessions" below. `kind` (default `interactive`) and the opaque `context` map are described under "Session kind and context" above; both are stored frozen for the session's life and never influence auth, model or resource resolution. |
 | `close_session` | `sessionId` | `{}` | Refused with `unknown_session` when the requesting connection never attached to that handle (a close releases the CALLER's attachment, and `list_sessions` publishes every handle). Otherwise aborts active work, awaits agent idle + settled persistence for up to the host grace window (default 10s), then quarantines any worker that has not exited without releasing its path reservation; its response is the LAST record tagged with that handle for the first closer — no events after (test-pinned). An admitted concurrent close joins the same teardown and receives its own successful response; output saturation rejects admission with the bounded close-overflow/resync notice described above. |
 | `list_sessions` | `include_workers?` (default false) | `{ sessions: [{ sessionId, durableSessionId, sessionPath, cwd, name, status, attachments, kind, context? }] }` | Includes `opening`/`closing` entries. Internally quarantined workers remain externally `closing` until exit. `attachments` is the session's live client attachment count; `0` on an `open` row is a retained session with no client attached. Every row carries `kind`. Rows with `kind: "worker"` are omitted unless `include_workers: true`, and `context` is published ONLY on that listing — a default listing carries no `context` at all. |
@@ -427,7 +614,7 @@ In the response `error` field, machine-matchable:
 
 - `unknown_session`
 - `session_closing`
-- `session_path_in_use` (path held by an opening or quarantined owner; a fully-open current owner is attached instead, an owner whose teardown is already in flight is waited out on the in-process runtime, and a path a live owner has superseded is released rather than held)
+- `session_path_in_use` (path held by an opening or quarantined owner; a fully-open current owner is attached instead, an owner whose teardown is already in flight is waited out on the in-process runtime, and a path a live owner has superseded is released rather than held). A path held by ANOTHER GENERATION of the daemon carries `errorData { owner: { instanceId, pid, processStartTime, sessionPath }, retry_after_ms: 2000 }`: the previous generation is still writing that file and is parking it, so the open is a retry, not a failure
 - `session_reservation_limit` (this worker already holds 64 live session paths; the open or session replacement was refused without disturbing the existing session)
 - `missing_session_id` (session-scoped command without `sessionId` in multi mode)
 - `multi_session_disabled` (`open_session` in classic mode)
@@ -1577,11 +1764,60 @@ Events are streamed to stdout as JSON lines during agent operation. Events do no
 | `loaded_surfaces_changed` | Loaded skills, extensions, or MCP inventory changed; re-read `get_commands` and `get_loaded_surfaces` |
 | `model_changed` | Active model changed (any source), with the thinking level in force afterwards |
 | `service_tier_changed` | Effective service tier or fast-mode state changed |
+| `session_closed` | Multi-session host: a routing handle ended. Optional `reason`: `client_close`, `idle_evicted`, `host_shutdown`, `replaced`, `handoff_parked`, `error` |
+| `session_parked` | Multi-session host: a retained session was released to disk at the idle window (`sessionId`, `sessionPath`). Replaces `session_closed` for that handle |
 | `host_stalled` | Multi-session host: the event loop was blocked past `SENPI_RPC_LOOP_LAG_ERROR_MS`, with the drift and the session/tool blamed for it |
 | `host_memory_pressure` | Multi-session host: RSS is above `SENPI_RPC_HOST_RSS_WARN_MB`, with the live session count |
 
 Event types are additive: a client that does not recognise a type must ignore that record rather than fail. `model_changed`
-and `service_tier_changed` were added after the initial protocol and are safe to ignore.
+and `service_tier_changed` were added after the initial protocol and are safe to ignore. `session_parked`, `host_stalled`,
+and `host_memory_pressure` are the same: ignore them if unknown. `session_closed.reason` is optional; ignore an unknown
+value the same way.
+
+### session_closed.reason
+
+When a multi-session host ends a routing handle it may name why:
+
+```json
+{ "type": "session_closed", "sessionId": "rpc-1", "reason": "client_close" }
+```
+
+| `reason` | When |
+| --- | --- |
+| `client_close` | An attached client sent `close_session` |
+| `idle_evicted` | The idle sweep ended a session that was not retained |
+| `host_shutdown` | The host process is exiting (SIGTERM, idle-exit, empty-host). A retained session is closed, not parked |
+| `replaced` | The routing handle ended because the live session behind it was replaced |
+| `handoff_parked` | A generation handoff drained this host; reopen with `open_session { sessionPath }` |
+| `error` | The session failed (worker death, output overflow) and the host sealed it |
+
+The field is absent on older hosts and on older records. Decoders must not require it. A retained session that hits the
+idle window emits `session_parked` instead of `session_closed`.
+
+### session_parked
+
+```json
+{ "type": "session_parked", "sessionId": "rpc-1", "sessionPath": "/path/to/session.jsonl" }
+```
+
+The routing handle is gone; the session file is not. `open_session { sessionPath }` opens it as a new handle.
+
+### host_stalled
+
+```json
+{ "type": "host_stalled", "driftMs": 6120, "sessionId": "rpc-1", "tool": "bash" }
+```
+
+Informational. The host does not abort or refuse anything because of a stall. `sessionId` and `tool` are omitted when
+the stall cannot be attributed to a session.
+
+### host_memory_pressure
+
+```json
+{ "type": "host_memory_pressure", "rssMb": 4608, "sessions": 12 }
+```
+
+Informational. Capacity is memory, never a refusal: the host reports the pressure and parks idle sessions sooner.
 
 ### model_changed
 

@@ -8,18 +8,23 @@ import { createAgentSessionRuntime, createAgentSessionServices, createAgentSessi
 import { createInteractiveHostRuntime } from "../../src/modes/interactive/interactive-host-runtime.ts";
 import { RpcClient } from "../../src/modes/rpc/rpc-client.ts";
 import { ensureHost } from "../../src/modes/rpc/host-ensure.ts";
+import { createHostDaemonPaths, generationPaths } from "../../src/modes/rpc/host-daemon-paths.ts";
+import { readHostRegistration } from "../../src/modes/rpc/host-daemon-registration.ts";
 import { cleanupAllAndWait, installCleanupHooks, makeScratch, startFakeModelServer, writeMockModelsJson } from "../qa-app-server/lib/env.mjs";
 
 const lines = [];
 const outPath = flag("--out");
 let scratch;
+// Named out here because the cleanup below has to find the daemon directory of THIS endpoint:
+// layout 2 keys the daemon state by socket, so the agent directory alone no longer locates it.
+let socket;
 installCleanupHooks();
 
 try {
 	scratch = makeScratch("interactive-host");
 	const fake = await startFakeModelServer([{ text: "interactive-host-qa" }]);
 	writeMockModelsJson(scratch.agentDir, fake);
-	const socket = join(scratch.dir, "rpc.sock");
+	socket = join(scratch.dir, "rpc.sock");
 	await ensureHost({ socket, agentDir: scratch.agentDir });
 	const publicSocketMode = (statSync(socket).mode & 0o777).toString(8).padStart(3, "0");
 	if (publicSocketMode !== "600") throw new Error(`public socket mode is ${publicSocketMode}, expected 600`);
@@ -79,9 +84,11 @@ try {
 	process.exitCode = 1;
 } finally {
 	try {
-		if (scratch) {
-			const pidPath = join(scratch.agentDir, "rpc-host-daemon", "host.pid");
-			if (existsSync(pidPath)) {
+		if (scratch && socket) {
+			const paths = createHostDaemonPaths({ socket, agentDir: scratch.agentDir });
+			const registered = await readHostRegistration(paths).catch(() => undefined);
+			const pidPath = registered ? generationPaths(paths, registered.instanceId).pidFile : undefined;
+			if (pidPath && existsSync(pidPath)) {
 				const { pid } = JSON.parse(readFileSync(pidPath, "utf8"));
 				if (Number.isInteger(pid)) {
 					process.kill(pid, "SIGTERM");

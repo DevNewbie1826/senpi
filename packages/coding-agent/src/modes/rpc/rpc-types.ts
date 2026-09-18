@@ -7,10 +7,12 @@
 
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model, ThinkingSelection } from "@earendil-works/pi-ai";
+import type { SessionRuntimeKind } from "../../cli/args.ts";
 import type { AgentAbortSource } from "../../core/agent-abort-provenance.ts";
 import type { PromptDisposition, SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
+import type { EngineOrdinal } from "../../core/engine-build-identity.ts";
 import type { ServiceTier } from "../../core/extensions/builtin/service-tier.ts";
 import type { ContextUsage, SessionKind } from "../../core/extensions/types.ts";
 import type { SessionEntry, SessionMessageEntry, SessionTreeNode, UsageTotals } from "../../core/session-manager.ts";
@@ -405,6 +407,48 @@ export interface RpcSessionState {
 // RPC Responses (stdout)
 // ============================================================================
 
+/**
+ * What a host was launched with. `extensions` are absolute roots, deduplicated and
+ * sorted, so two hosts that loaded the same set produce the same bytes regardless of
+ * the order their launchers passed them.
+ */
+export interface RpcLaunchProfileCore {
+	readonly extensions: readonly string[];
+	readonly multi_session: boolean;
+	readonly session_runtime: SessionRuntimeKind;
+}
+
+/** `profile_id` = sha256 of the canonical JSON of `core` (keys sorted); any client can recompute it. */
+export interface RpcLaunchProfile {
+	readonly profile_id: string;
+	readonly core: RpcLaunchProfileCore;
+}
+
+/**
+ * Host identity. Compatibility and upgrade decisions are made from these fields -
+ * `protocolVersion`, `capabilities` and `engineOrdinal` - NEVER from `serverVersion`,
+ * which is informational only.
+ */
+export interface RpcProtocolIdentity {
+	/** UUID minted at host boot; it changes when the host process does, including on a handoff. */
+	readonly instanceId: string;
+	/** Generation of this host within its daemon directory; 0 when nobody ensured it. */
+	readonly generation: number;
+	/** Engine build text: the package version plus `+<buildEpoch>.<sha7>` when the build defined them. */
+	readonly engineVersion: string;
+	/** `[year, month, day, postRelease, buildEpoch]`, compared with `compareEngineOrdinal`. */
+	readonly engineOrdinal: EngineOrdinal;
+	readonly launch_profile: RpcLaunchProfile;
+}
+
+export interface RpcProtocolInfo extends RpcProtocolIdentity {
+	readonly protocolVersion: 1;
+	/** Informational engine version. Never compare it for compatibility - use the fields above. */
+	readonly serverVersion: string;
+	readonly capabilities: string[];
+	readonly mode: "classic" | "multi";
+}
+
 // Success responses with data
 export type RpcResponse =
 	| {
@@ -412,12 +456,7 @@ export type RpcResponse =
 			type: "response";
 			command: "get_protocol_info";
 			success: true;
-			data: {
-				protocolVersion: 1;
-				serverVersion: string;
-				capabilities: string[];
-				mode: "classic" | "multi";
-			};
+			data: RpcProtocolInfo;
 	  }
 	| {
 			id?: string;
@@ -922,6 +961,37 @@ export type RpcSessionParkedEvent = {
 	sessionId: string;
 	/** Session file to reopen this session by. */
 	sessionPath: string;
+};
+
+/**
+ * Why a `session_closed` record was emitted, when the host names a reason.
+ *
+ * Optional on the wire and open to new members: a client that does not recognise a reason, or
+ * receives a record with no `reason` field, treats it exactly as it treated a reason-less one.
+ * Never required in decoders.
+ *
+ * - `client_close`: an attached client sent `close_session`.
+ * - `idle_evicted`: the idle sweep ended a session that was not retained.
+ * - `host_shutdown`: the host process is exiting (SIGTERM / idle-exit / empty-host).
+ * - `replaced`: the live session behind this handle was swapped (`session_replaced` is the
+ *   in-place identity event; this reason is for a handle that ended because of a replacement).
+ * - `handoff_parked`: a generation handoff drained this host and put the session back on disk.
+ *   The session was not ended - `open_session { sessionPath }` reopens it in the new generation.
+ * - `error`: the session failed (worker death, output overflow) and the host sealed it.
+ */
+export type RpcSessionClosedReason =
+	| "client_close"
+	| "idle_evicted"
+	| "host_shutdown"
+	| "replaced"
+	| "handoff_parked"
+	| "error";
+
+/** Terminal record of a closed routing handle. `reason` is absent on older hosts and older records. */
+export type RpcSessionClosedEvent = {
+	type: "session_closed";
+	sessionId: string;
+	reason?: RpcSessionClosedReason;
 };
 
 /** Emitted after the loaded skill, extension, or MCP inventory changes. */
