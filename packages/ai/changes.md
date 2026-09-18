@@ -1,3 +1,23 @@
+## 2026-09-18 - Never prune a model shard a provider module imports
+
+### What changed
+
+- `packages/ai/scripts/model-shards.ts` gains `importedModelShards` and a third argument to
+  `isPrunableModelShard`: a shard a committed provider module imports is never prunable, whoever was
+  supposed to write it. `FORK_OWNED_MODEL_SHARDS` stays for shards no module imports.
+- `packages/ai/scripts/generate-models.ts` reads the provider modules beside the shards and passes the
+  imported set to the prune, so a provider models.dev has stopped describing keeps its catalog.
+- `packages/ai/test/model-shards.test.ts` adds the fresh-generation case: every imported shard survives a
+  run that wrote none of them. It fails without the guard.
+
+### Why
+
+- The release job regenerates catalogs before type-checking. models.dev no longer describes `kimi-coding`,
+  so the prune deleted `kimi-coding.models.ts` while `kimi-coding.ts` still imported it, and two
+  consecutive releases died on `TS2307` with fifteen cascades. Ordinary CI type-checks the committed
+  catalog instead of regenerating it, and the existing ownership test compares against that same committed
+  aggregator, so only the release job could see it.
+
 ## 2026-09-18 - Generate the official B.AI chat catalog
 
 ### What changed
