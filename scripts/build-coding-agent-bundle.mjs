@@ -216,6 +216,10 @@ const lazyResult = await build({
 	entryPoints: {
 		anthropic: join(aiDistDir, "auth", "oauth", "anthropic.js"),
 		"bedrock-converse-stream": join(aiDistDir, "api", "bedrock-converse-stream.js"),
+		cursor: join(aiDistDir, "auth", "oauth", "cursor.js"),
+		"cursor-agent": join(aiDistDir, "api", "cursor-agent.js"),
+		devin: join(aiDistDir, "auth", "oauth", "devin.js"),
+		"devin-agent": join(aiDistDir, "api", "devin-agent.js"),
 		"github-copilot": join(aiDistDir, "auth", "oauth", "github-copilot.js"),
 		"image-resize-worker": join(codingAgentDistDir, "utils", "image-resize-worker.js"),
 		"session-worker": join(codingAgentDistDir, "modes", "rpc", "session-worker.js"),

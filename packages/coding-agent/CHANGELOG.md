@@ -27,6 +27,8 @@
 
 ### Fixed
 
+- **Devin and Cursor login work again on the bundled CLI.** Since 2026.9.17-3 both failed with `Cannot find module .../dist/bundle/chunks/devin.js`. The bundle resolves each provider's login flow through a relative import the bundler cannot see, so it ships those flows as sibling files next to the chunk that loads them; the Devin and Cursor flows, and their two provider streams, were missing from that list. They are emitted now, and the bundle smoke test starts a login for six providers under Node and Bun to keep it that way. ([#1810](https://github.com/code-yeongyu/senpi/issues/1810))
+
 - **senpi boots again on Bun 1.3.x.** Every release since 2026.9.17-3 crashed at startup there with `webidl.util.markAsUncloneable is not a function`, TUI and headless alike. The bundled `undici` instantiates a `CacheStorage` at module init, and that constructor reaches for `worker_threads.markAsUncloneable`, an API Node added in 23 and Bun 1.3 does not have. The bundle prologue now installs a no-op when the runtime lacks it; nothing in senpi ever used `caches`. ([#1806](https://github.com/code-yeongyu/senpi/issues/1806))
 - **Extensions can import named bindings from CommonJS packages.** `import { Readability } from "@mozilla/readability"` (and `jsdom`, and anything that reached `tldts` through `tough-cookie`) failed to load with `Export named 'X' not found in module 'senpi-extension:...'`, though the same line works in plain Bun and Node. The loader wrapped CommonJS as `default`-only; it now rewrites named, aliased, and namespace imports of a CommonJS target to bind off `module.exports`, which is the semantics CommonJS has anyway. ([#1807](https://github.com/code-yeongyu/senpi/issues/1807))
 
