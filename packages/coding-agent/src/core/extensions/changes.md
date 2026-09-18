@@ -1,5 +1,26 @@
 # Core Extensions Changes
 
+## 2026-09-18 - The extension reference publishes the session identity and what the config-reload watcher costs (senpi#1782)
+
+### What changed
+
+- `packages/coding-agent/docs/extensions.md` gains "pi.sessionKind / pi.sessionContext / pi.sharedHostEnabled" at the head of the ExtensionAPI section: the property table, a factory-time gating example, the fact that the engine never interprets `sessionContext` (no auth, model or resource decision reads it), the boundary caps an extension therefore receives pre-validated, and a link to the wire side in `docs/rpc.md`.
+- `packages/coding-agent/docs/extensions.md` "Config reload" gains a measured cost callout: the watcher is per session and lazily spawns one `node:worker_threads` Worker each, so a shared host carries about one extra OS thread and ~5 MB per session (senpi#1794), and a host with the builtin disabled adds no thread per session.
+
+### Why
+
+- `sessionKind`/`sessionContext` shipped on `ExtensionAPI` and are the mechanism the shared daemon offers instead of per-session extension paths, but an extension author had no documentation for them at all - the only description lived in the RPC protocol reference, which extension authors do not read.
+- The config-reload watcher is the dominant per-session cost of a shared daemon and is invisible from the extension docs, where the builtin is described purely as a convenience. An operator sizing a host, and any author writing a similar watcher, needs the number and the cause in the same place as the feature.
+
+### Why an extension could not handle it
+
+- Documentation of the `ExtensionAPI` contract and of a default-on builtin; both are engine surfaces an extension consumes rather than defines.
+
+### Expected merge conflict zones
+
+- LOW: the head of the "ExtensionAPI Methods" section and the first paragraphs of "Config reload" in `docs/extensions.md`.
+
+
 ## 2026-09-18 - Named imports from CommonJS packages link through the extension graph (senpi#1807)
 
 ### What changed

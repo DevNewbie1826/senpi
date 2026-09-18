@@ -340,6 +340,8 @@ ${chalk.bold("Commands:")}
                                  Serve agent sessions over the Codex app-server protocol
   ${APP_NAME} app-server daemon <start|stop|status|restart> [--listen <url>]
                                  Manage the app-server daemon
+  ${APP_NAME} host <ensure|status|stop|handoff> [--launch-spec <file>]
+                                 Get, inspect or end the shared RPC daemon (one JSON line per call)
   ${APP_NAME} auth <command>            Print credentials or check provider readiness
   ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list/config/auth
 

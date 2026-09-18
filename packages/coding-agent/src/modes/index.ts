@@ -38,7 +38,37 @@ export {
 	type HandoffResult,
 	handoffHost,
 } from "./rpc/host-handoff.ts";
+// What a client hands `senpi host` to describe the daemon it wants, and the trust boundary it crosses.
+export {
+	DEFAULT_HOST_LAUNCH_SPEC,
+	type HostLaunchSpec,
+	type HostLaunchSpecCore,
+	HostLaunchSpecError,
+	type HostLaunchSpecRefusal,
+	loadHostLaunchSpec,
+	parseHostLaunchSpec,
+	type ResolvedHostLaunchSpec,
+} from "./rpc/host-launch-spec.ts";
 export { type ProbeHostOptions, probeHost } from "./rpc/host-probe.ts";
+// One host request - ensure, status, stop, handoff - and the exit codes its outcomes mean.
+export {
+	HOST_EXIT_ERROR,
+	HOST_EXIT_FALLBACK,
+	HOST_EXIT_OK,
+	HOST_EXIT_REFUSED,
+	HOST_EXIT_USAGE,
+	type HostOutcome,
+	type HostRequest,
+	type HostTarget,
+	runHostRequest,
+} from "./rpc/host-runner.ts";
+export {
+	type HostGenerationRow,
+	type HostSessionCounts,
+	type HostStatusOptions,
+	type HostStatusReport,
+	readHostStatus,
+} from "./rpc/host-status.ts";
 export { type StopHostOptions, type StopHostResult, stopHost } from "./rpc/host-stop.ts";
 export {
 	isTransportGoneError,

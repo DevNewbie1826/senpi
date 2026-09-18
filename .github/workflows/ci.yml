@@ -231,6 +231,12 @@ jobs:
         run: bunx vitest run test/rpc-socket-transport.test.ts
         working-directory: packages/coding-agent
 
+      # The `senpi host` contract over the named-pipe transport: a second ensure reuses the daemon
+      # on the pipe, and a generation handoff refuses (a pipe can be neither renamed nor drained).
+      - name: Run senpi host CLI tests (named pipes)
+        run: bunx vitest run test/suite/host-cli-win32.test.ts
+        working-directory: packages/coding-agent
+
       - name: Run app-server daemon tests
         run: bunx vitest run test/suite/app-server-daemon.test.ts
         working-directory: packages/coding-agent
