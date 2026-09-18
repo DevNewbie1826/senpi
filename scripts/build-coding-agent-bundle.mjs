@@ -221,6 +221,12 @@ const lazyResult = await build({
 		devin: join(aiDistDir, "auth", "oauth", "devin.js"),
 		"devin-agent": join(aiDistDir, "api", "devin-agent.js"),
 		"github-copilot": join(aiDistDir, "auth", "oauth", "github-copilot.js"),
+		// `supervisor-route.js` defers this with a dynamic `import("./host-lifecycle.js")`
+		// so the RPC host graph stays out of every launch. `session-worker` is bundled
+		// here with splitting off, which leaves that specifier unresolved beside the
+		// emitted file - so the implementation has to exist there under that exact name,
+		// or `host ensure` dies with "Module not found .../chunks/host-lifecycle.js".
+		"host-lifecycle": join(codingAgentDistDir, "modes", "rpc", "host-lifecycle.js"),
 		"image-resize-worker": join(codingAgentDistDir, "utils", "image-resize-worker.js"),
 		"session-worker": join(codingAgentDistDir, "modes", "rpc", "session-worker.js"),
 		"kimi-coding": join(aiDistDir, "auth", "oauth", "kimi-coding.js"),

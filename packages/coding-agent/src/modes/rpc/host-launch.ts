@@ -35,6 +35,15 @@ export function defaultHostLaunch(
 	compiled: boolean = isBunBinary,
 ): { command: string; args: string[] } {
 	if (compiled) return { command: process.execPath, args: [INTERNAL_SUPERVISOR_FLAG, ...supervisorArgs] };
+	// Re-enter the running CLI entry through the same hidden route compiled binaries use,
+	// rather than pointing at this module's sibling on disk. That sibling exists only in the
+	// unbundled tree: bundled, this module IS dist/bundle/cli.js, so the sibling path names
+	// dist/bundle/host-lifecycle.js while the bundler emitted dist/bundle/chunks/host-lifecycle.js
+	// - and ensure spawned a script that does not exist, so the host died before answering
+	// get_protocol_info with nothing written to its stderr log.
+	const entry = process.argv[1];
+	if (entry !== undefined && entry !== "")
+		return { command: process.execPath, args: [...process.execArgv, entry, INTERNAL_SUPERVISOR_FLAG, ...supervisorArgs] };
 	return {
 		command: process.execPath,
 		args: [...process.execArgv, resolveHostLifecycleEntryPath(), ...supervisorArgs],

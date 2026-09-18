@@ -337,7 +337,15 @@ function parseSocketIdentity(value: string): SocketFileIdentity | undefined {
 }
 
 /** Resolves the committed CLI entry this supervisor wraps (source tree or built dist). */
-export function resolveCliMainPath(): string {
+export function resolveCliMainPath(entry: string | undefined = process.argv[1]): string {
+	// Re-enter the SAME entry this process was started from. Counting levels up from
+	// this module's own path is right in exactly one layout: from dist/modes/rpc it
+	// reaches dist/cli-main.js, but the bundled supervisor runs as dist/bundle/cli.js,
+	// where "../.." leaves dist/ altogether and lands on the package root - so the
+	// child was spawned against a script that does not exist and died instantly.
+	// The entry that is already running is by construction a valid CLI entry in both
+	// trees; compiled binaries never reach here (see resolveHostChildLaunch).
+	if (entry !== undefined && entry !== "") return entry;
 	const modulePath = fileURLToPath(import.meta.url);
 	const extension = modulePath.endsWith(".ts") ? ".ts" : ".js";
 	return resolve(dirname(modulePath), "..", "..", `cli-main${extension}`);
