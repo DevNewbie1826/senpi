@@ -464,7 +464,14 @@ describe("generation handoff", () => {
 			_test: { launch: refuseToSpawn },
 		});
 
-		expect(decision).toMatchObject({ action: "refuse", reason: "handoff_unsupported", upgradeable: false });
+		// Both platforms refuse and neither touches the running host; they differ in WHY. On win32 the
+		// refusal is decided before the host is even probed - a named pipe can be neither renamed nor
+		// drained - so the reason is the platform's, not the legacy host's.
+		expect(decision).toMatchObject({
+			action: "refuse",
+			reason: process.platform === "win32" ? "upgrade_unsupported" : "handoff_unsupported",
+			upgradeable: false,
+		});
 		if (before) expect(await socketIdentity(qa.socket)).toMatchObject({ ino: before.ino });
 		expect(await processMatchesPidFile(running.pidFile, readProcessStartTime)).toBe(true);
 	}, 20_000);
