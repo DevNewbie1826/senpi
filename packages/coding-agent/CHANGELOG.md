@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- RPC host: a bundled build can start its host again. Three path computations were correct in the source tree and wrong in the bundle, so `host ensure` could not start a daemon on a published install.
+- RPC host: a bundled build can start its host again. On a published install `host ensure` could not start a daemon at all: the bundler emitted no `host-lifecycle` entry, and once it did, the launcher spawned that emitted chunk instead of a program that listens, so the child exited 0 without answering `get_protocol_info`. Bundled builds now re-enter the CLI through its internal supervisor route, and the CLI entry is taken from the package's declared `bin` rather than from `..` arithmetic that lands on the package root when bundled.
 
 ### Breaking Changes
 
