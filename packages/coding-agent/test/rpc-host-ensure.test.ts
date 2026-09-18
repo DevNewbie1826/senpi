@@ -5,12 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { VERSION } from "../src/config.ts";
-import {
-	ProcessIdentityUnreadableError,
-	processMatchesPidFile,
-	readProcessStartTime,
-	waitForStartTime,
-} from "../src/modes/app-server/daemon/process.ts";
+import { ProcessIdentityUnreadableError, processIsLive, processMatchesPidFile, readProcessStartTime, waitForStartTime } from "../src/modes/app-server/daemon/process.ts";
 import { type HostPidFileWriter, readHostRegistration } from "../src/modes/rpc/host-daemon-registration.ts";
 import { GENERATION_HANDOFF_CAPABILITY, HostEnsureRefusedError } from "../src/modes/rpc/host-decision.ts";
 import { createHostDaemonPaths, defaultHostLaunch, ensureHost } from "../src/modes/rpc/host-ensure.ts";
@@ -728,10 +723,15 @@ async function startManagedProcess(qa: Qa, options: { writer: Writer; ignoreTerm
 async function register(qa: Qa, child: ChildProcess, writer: Writer): Promise<Managed> {
 	children.push(child);
 	if (child.pid === undefined) throw new Error("managed host did not spawn");
-	// The child is live, so its identity must resolve; waitForStartTime returns undefined only when
-	// the probe is starved on a loaded host, which these fixtures do not exercise.
-	const processStartTime = await waitForStartTime(child.pid, 2_000);
-	if (processStartTime === undefined) throw new Error("managed host had no process identity");
+	// waitForStartTime returns undefined when every identity probe inside the budget is starved
+	// (a loaded windows-latest runner makes each Get-CimInstance call outlive its 1 s default) while
+	// the child is still alive. Production gives that wait 10 s; the fixture must not be stricter,
+	// and a live child with no identity yet is an observability gap, not a spawn failure (#1817).
+	const processStartTime = await waitForStartTime(child.pid, 10_000);
+	if (processStartTime === undefined) {
+		if (!processIsLive(child.pid)) throw new Error("managed host died before publishing its identity");
+		throw new Error(`managed host ${child.pid} is live but its identity probe was starved for 10 s`);
+	}
 	await writeRegistration(qa, { pid: child.pid, processStartTime }, await writerRecord(writer, child.pid));
 	await writeFile(daemonPaths(qa).settingsFile, `${JSON.stringify({ socket: qa.socket })}\n`, { mode: 0o600 });
 	return { pid: child.pid, pidFile: { pid: child.pid, processStartTime } };
