@@ -1,5 +1,31 @@
 # changes
 
+## 2026-09-19 - A bundled build can start its host again
+
+### What changed
+
+- `scripts/build-coding-agent-bundle.mjs` adds `host-lifecycle` to the lazy entry list, so the
+  bundle emits `chunks/host-lifecycle.js` - the name `supervisor-route`'s deferred import
+  actually resolves.
+
+### Why
+
+- `session-worker` is bundled there with splitting off, and it transitively pulls
+  `supervisor-route`, whose `import("./host-lifecycle.js")` therefore stays a relative
+  specifier resolved beside the emitted file. Only the content-hashed copy existed, so a
+  published install answered `Module not found .../chunks/host-lifecycle.js` and could not
+  start a daemon at all.
+
+### Why an extension could not handle it
+
+- The bundle layout is produced by this script; nothing outside the build can decide which
+  modules are emitted as their own entries.
+
+### Expected merge conflict zones
+
+- The `entryPoints` map of the second (`lazyResult`) build, whenever another
+  variable-specifier module is added to it.
+
 ## 2026-09-18 - Seed B.AI credentials in development setup
 
 ### What changed

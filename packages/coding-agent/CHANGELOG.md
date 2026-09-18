@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- RPC host: a bundled build can start its host again. Three path computations were correct in the source tree and wrong in the bundle, so `host ensure` could not start a daemon on a published install.
+
 ### Breaking Changes
 
 ### Added
