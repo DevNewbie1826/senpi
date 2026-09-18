@@ -8,6 +8,8 @@
 
 ### Added
 
+- Kimi K2.8 Preview now runs on the Kimi prompt preset instead of the untuned fallback. Moonshot upgraded Kimi Code's `kimi-for-coding` model id to K2.8 in place on 2026-09-11, so the new `kimi-k2-8` preset resolves that rolling id together with the version-tagged shapes (`kimi-k2.8`, `kimi-k2p8`, `moonshotai/kimi-k2.8:thinking`, `@cf/...`, and the `Kimi K2.8 Preview` display name). It renders the Kimi K2.7 prompt verbatim - same coding family, same posture - and only the announced model name differs. `kimi-for-coding-highspeed` is still K2.7 Code HighSpeed and now resolves to `kimi-k2-7` for the same reason. `"kimi-k2-8"` joins the `promptPreset` setting ([#1826](https://github.com/code-yeongyu/senpi/issues/1826)).
+
 ### Changed
 
 ### Fixed
@@ -236,8 +238,6 @@
 ### Breaking Changes
 
 ### Added
-
-- Kimi K2.8 Preview now runs on the Kimi prompt preset instead of the untuned fallback. Moonshot upgraded Kimi Code's `kimi-for-coding` model id to K2.8 in place on 2026-09-11, so the new `kimi-k2-8` preset resolves that rolling id together with the version-tagged shapes (`kimi-k2.8`, `kimi-k2p8`, `moonshotai/kimi-k2.8:thinking`, `@cf/...`, and the `Kimi K2.8 Preview` display name). It renders the Kimi K2.7 prompt verbatim - same coding family, same posture - and only the announced model name differs. `kimi-for-coding-highspeed` is still K2.7 Code HighSpeed and now resolves to `kimi-k2-7` for the same reason. `"kimi-k2-8"` joins the `promptPreset` setting ([#1826](https://github.com/code-yeongyu/senpi/issues/1826)).
 
 - Added `/rename [name]` to rename the current session from the TUI: with an argument it sets the name immediately, without one it opens an inline editor prefilled with the current name (Enter commits, Esc cancels, empty names are rejected). `/name` remains as an alias, and the new unbound `app.session.renameCurrent` keybinding action opens the same editor. ([#1738](https://github.com/code-yeongyu/senpi/issues/1738))
 
