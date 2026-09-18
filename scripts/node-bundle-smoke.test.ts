@@ -159,4 +159,45 @@ describe.each(runtimes)("the Node bundle under %s", (runtime) => {
 			rmSync(state, { recursive: true, force: true });
 		}
 	}, 100_000);
+
+	test("loads every lazily imported provider login flow from the bundle (#1810)", async () => {
+		// Given: the bundle resolves each OAuth flow through a computed relative import, so the file
+		// must exist beside the chunk that imports it; a missing one surfaces as "Cannot find module".
+		const state = createState();
+		const child = spawn(runtime, [cli, "--mode", "rpc"], {
+			cwd: state, stdio: ["pipe", "pipe", "pipe"], env: hermeticEnv(state),
+		});
+		const exit = once(child, "exit", { signal: AbortSignal.timeout(90_000) });
+		let stderr = "";
+		child.stderr.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-16000); });
+		const lines = createInterface({ input: child.stdout });
+		const loginEnd = z.object({ type: z.literal("auth_login_end"), provider: z.string(), error: z.string().optional() });
+		const startThenCancel = async (provider: string): Promise<string | undefined> => {
+			const events = on(lines, "line", { close: ["close"], signal: AbortSignal.timeout(30_000) });
+			child.stdin.write(`${JSON.stringify({ id: `start-${provider}`, type: "login_start", provider })}\n`);
+			child.stdin.write(`${JSON.stringify({ id: `cancel-${provider}`, type: "login_cancel", provider })}\n`);
+			try {
+				for await (const args of events) {
+					const parsed = loginEnd.safeParse(JSON.parse(z.string().parse(args[0])));
+					if (parsed.success && parsed.data.provider === provider) return parsed.data.error;
+				}
+				throw new Error(`RPC closed before auth_login_end for ${provider}: ${stderr}`);
+			} finally {
+				await events.return();
+			}
+		};
+		try {
+			// When: start and immediately cancel a login for every provider whose flow is a sibling file.
+			for (const provider of ["devin", "cursor", "anthropic", "github-copilot", "openrouter", "xai"]) {
+				const error = await startThenCancel(provider);
+				// Then: the flow module loaded; the only acceptable failure is our own cancel.
+				expect(error ?? "", `${provider}: ${error}\n${stderr}`).not.toMatch(/Cannot find module|ERR_MODULE_NOT_FOUND/);
+			}
+		} finally {
+			child.kill("SIGKILL");
+			await exit;
+			lines.close();
+			rmSync(state, { recursive: true, force: true });
+		}
+	}, 120_000);
 });

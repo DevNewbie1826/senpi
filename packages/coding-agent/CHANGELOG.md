@@ -6,6 +6,18 @@
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+## [2026.9.18-2] - 2026-09-18
+
+### Breaking Changes
+
+### Added
+
 - One command now gets you the shared RPC daemon: `senpi host ensure|status|stop|handoff`. Every invocation prints EXACTLY ONE JSON line on stdout and says what happened in its exit code, so a terminal, a desktop and a task runner all get a daemon the same way instead of each re-implementing the decision: `0` it happened, `1` it failed, `2` the command line or the launch spec is unusable, `3` refused (`{ action: "refuse", reason, host }` — including a socket nobody serves), `4` fallback (`--policy fallback` decided no host is better than the one running). `ensure` reports `{ action, socket, pid, instanceId, generation, engineVersion, engineOrdinal, capabilities, launchProfileId, reused, upgradeable }`, where `action` is `handoff` exactly when the socket was already served and the process behind it changed; `status --json [--include-workers]` reports the running host's identity, its `sessions` counts, `zombies`/`rss_mb`/`open_fds` for the daemon's whole process tree, the environment NAMES it was granted (`env_keys`, never a value) and every generation in its daemon directory; `stop` refuses with exit 3 and PRINTS the counts it refused on while another client is attached or retaining a session (`--force` overrides after printing the same counts, `--drain` is always permitted because it ends no work); `handoff` forces a generation handoff from this binary and answers exit 3 `upgrade_unsupported` against a host that cannot drain or on Windows. The endpoint is `--socket`, else `SENPI_RPC_SOCKET`, else `<agentDir>/rpc/rpc.sock`. ([#1782](https://github.com/code-yeongyu/senpi/issues/1782))
 
 - `senpi host ensure|handoff --launch-spec <file>` states what a daemon should be started with — `{ spec_version: 1, core: { session_runtime, multi_session, extensions }, tunables: { idleExitMs, coldStart }, env }` — with extension paths resolved against the SPEC FILE's own directory. The spec decides which code a long-lived machine-wide daemon loads, so it is a file rather than stdin or an argv blob (neither has an owner to check) and four properties are proven before anything is started, each with exit 2 and a typed reason: `launch_spec_insecure` (not owned by this user, or group/world writable), `launch_spec_path_escape` (an extension path leaves the spec directory, lexically or through a symlink), `launch_spec_env_denied` (an `env` key outside `^(SENPI|OMO|PI)_[A-Z0-9_]+$`) and `launch_spec_missing_extension` (a listed extension does not exist — a daemon never boots with half a profile). The daemon itself no longer inherits the ensuring process's environment: it receives an allowlist of NAMES (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `TERM`, `LANG`, `LC_*`, `XDG_*`, `SENPI_*`/`OMO_*`/`PI_*`, the proxy variables, `*_API_KEY` and the provider prefixes) plus whatever the spec's `env` states, with the win32 system wiring allowed there as well — so a token exported in one terminal is no longer held for hours by a process serving every other client. ([#1782](https://github.com/code-yeongyu/senpi/issues/1782))
@@ -26,6 +38,8 @@
 ### Changed
 
 ### Fixed
+
+- **Devin and Cursor login work again on the bundled CLI.** Since 2026.9.17-3 both failed with `Cannot find module .../dist/bundle/chunks/devin.js`. The bundle resolves each provider's login flow through a relative import the bundler cannot see, so it ships those flows as sibling files next to the chunk that loads them; the Devin and Cursor flows, and their two provider streams, were missing from that list. They are emitted now, and the bundle smoke test starts a login for six providers under Node and Bun to keep it that way. ([#1810](https://github.com/code-yeongyu/senpi/issues/1810))
 
 - **senpi boots again on Bun 1.3.x.** Every release since 2026.9.17-3 crashed at startup there with `webidl.util.markAsUncloneable is not a function`, TUI and headless alike. The bundled `undici` instantiates a `CacheStorage` at module init, and that constructor reaches for `worker_threads.markAsUncloneable`, an API Node added in 23 and Bun 1.3 does not have. The bundle prologue now installs a no-op when the runtime lacks it; nothing in senpi ever used `caches`. ([#1806](https://github.com/code-yeongyu/senpi/issues/1806))
 - **Extensions can import named bindings from CommonJS packages.** `import { Readability } from "@mozilla/readability"` (and `jsdom`, and anything that reached `tldts` through `tough-cookie`) failed to load with `Export named 'X' not found in module 'senpi-extension:...'`, though the same line works in plain Bun and Node. The loader wrapped CommonJS as `default`-only; it now rewrites named, aliased, and namespace imports of a CommonJS target to bind off `module.exports`, which is the semantics CommonJS has anyway. ([#1807](https://github.com/code-yeongyu/senpi/issues/1807))

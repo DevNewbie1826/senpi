@@ -19,6 +19,24 @@
 
 - LOW: one entry in the provider-key array.
 
+## 2026-09-18 - Emit the Devin and Cursor lazy modules beside the bundle (senpi#1810)
+
+### What changed
+
+- `build-coding-agent-bundle.mjs`: the second esbuild pass that writes one self-contained file per variable-specifier import now also emits `devin.js`, `cursor.js` (OAuth flows) and `devin-agent.js`, `cursor-agent.js` (provider streams).
+
+### Why
+
+- `packages/ai` reaches its Node-only modules through computed relative imports (`importOAuthModule("./devin.ts")`, `importNodeOnlyApi("./devin-agent.ts")`) so bundlers cannot follow them into browser-reachable code. The bundle compensates by emitting each target as a sibling file next to the chunk that imports it. Four targets were added to the loaders after that list was written, so `dist/bundle/chunks/devin.js` never existed and every Devin or Cursor login died with `Cannot find module`. The other seven OAuth flows and Bedrock were on the list and worked.
+
+### Why an extension could not handle it
+
+- The failure is inside the release bundler's own output layout; nothing at runtime can create a missing chunk.
+
+### Expected merge conflict zones
+
+- LOW: the `entryPoints` map of the `lazyResult` build in `build-coding-agent-bundle.mjs`.
+
 ## 2026-09-18 - Guard worker_threads.markAsUncloneable in the bundle prologue (senpi#1806)
 
 ### What changed
