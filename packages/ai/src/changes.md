@@ -4,9 +4,11 @@
 
 - `packages/ai/src/providers/bai.ts`: adds the built-in `bai` provider, API-key auth, credential-scoped
   `/v1/models` discovery, generated-metadata filtering, cached catalog remapping, and mixed Responses /
-  Messages / Chat Completions dispatch.
-- `packages/ai/src/providers/bai-stream.ts`: composes each B.AI payload transform and restores a missing
-  root `type: "object"` on function schemas without mutating caller-owned payloads.
+  Messages / Chat Completions dispatch. Discovery indexes the catalog under both the dot-version and
+  hyphenated spelling of every model ID, and a `success: false` model list fails the refresh instead of
+  publishing an empty catalog.
+- `packages/ai/src/providers/bai-stream.ts`: merges a union-root function schema into a single object schema
+  on the B.AI Responses payload, without mutating caller-owned payloads.
 - `packages/ai/src/providers/all.ts`: registers B.AI among built-in providers.
 - `packages/ai/src/env-api-keys.ts`: maps `bai` to `BAI_API_KEY`.
 - `packages/ai/src/types.ts`: adds `bai` to `KnownProvider`.
@@ -17,7 +19,12 @@
   IDs alone do not contain the capabilities, limits, reasoning levels, or pricing Senpi needs for selection
   and accounting.
 - B.AI rejects union-root function schemas such as `workpool` unless the root explicitly declares
-  `type: "object"`, while the same schemas are accepted by less strict Responses backends.
+  `type: "object"`, while the same schemas are accepted by less strict Responses backends. Only the OpenAI
+  Responses path needs the repair: `api/openai-completions.ts` re-normalizes `tool.function.parameters` after
+  `onPayload`, and `api/anthropic-messages.ts` resolves the root before building `input_schema`, so both
+  already send an object root. Restoring only the `type` keyword would satisfy B.AI's validator and still
+  leave the root without `properties`/`required`, which advertises the tool to the model as taking no
+  arguments, so the union is merged through `utils/tool-schema-compat.ts` instead.
 
 ### Why an extension could not handle it
 

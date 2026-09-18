@@ -5,7 +5,7 @@ import { envApiKeyAuth } from "../auth/helpers.ts";
 import { createProvider, type Provider, type RefreshModelsContext } from "../models.ts";
 import type { Api, Model } from "../types.ts";
 import { BAI_MODELS } from "./bai.models.ts";
-import { baiStreams } from "./bai-stream.ts";
+import { baiResponsesStreams } from "./bai-stream.ts";
 
 export const BAI_BASE_URL = "https://api.b.ai/v1";
 
@@ -18,11 +18,36 @@ export interface BaiProviderOptions {
 }
 
 type BaiModelsResponse = {
+	success?: boolean;
+	message?: string;
 	data?: Array<{ id?: string }>;
 };
 
 function normalizeBaseUrl(baseUrl: string): string {
 	return baseUrl.replace(/\/+$/u, "");
+}
+
+/**
+ * B.AI documents dot-version model IDs on most model pages (`gpt-5.6-sol`,
+ * `gemini-3.5-flash-lite`) but hyphenated ones for Claude (`claude-fable-5-1`),
+ * and its Claude Code guide states that "both hyphenated aliases and
+ * dot-version aliases are accepted". Which spelling `GET /v1/models` returns is
+ * therefore not fixed, so the catalog is indexed under both to keep discovery
+ * from silently dropping an entitled model.
+ */
+function modelIdAliases(id: string): string[] {
+	const dashed = id.replaceAll(".", "-");
+	return dashed === id ? [id] : [id, dashed];
+}
+
+function indexCatalog(catalog: readonly Model<BaiApi>[]): Map<string, Model<BaiApi>> {
+	const index = new Map<string, Model<BaiApi>>();
+	for (const model of catalog) {
+		for (const alias of modelIdAliases(model.id)) {
+			if (!index.has(alias)) index.set(alias, model);
+		}
+	}
+	return index;
 }
 
 function remapBaiModels(
@@ -56,6 +81,9 @@ async function fetchBaiModels(
 	}
 
 	const payload = (await response.json()) as BaiModelsResponse;
+	if (payload.success === false) {
+		throw new Error(`Could not load B.AI model catalog: ${payload.message?.trim() || "request rejected"}`);
+	}
 	if (!Array.isArray(payload.data)) {
 		throw new Error("Invalid B.AI model catalog response");
 	}
@@ -75,7 +103,7 @@ export function baiProvider(options: BaiProviderOptions = {}): Provider<BaiApi> 
 		...model,
 		baseUrl: model.api === "anthropic-messages" ? anthropicBaseUrl : baseUrl,
 	}));
-	const catalogById = new Map(catalog.map((model) => [model.id, model]));
+	const catalogById = indexCatalog(catalog);
 	const fetchImpl = options.fetch ?? fetch;
 
 	return createProvider<BaiApi>({
@@ -87,9 +115,11 @@ export function baiProvider(options: BaiProviderOptions = {}): Provider<BaiApi> 
 		restoreModels: (models) => remapBaiModels(models, catalogById),
 		fetchModels: (context) => fetchBaiModels(baseUrl, catalogById, fetchImpl, context),
 		api: {
-			"openai-responses": baiStreams(openAIResponsesApi()),
-			"openai-completions": baiStreams(openAICompletionsApi()),
-			"anthropic-messages": baiStreams(anthropicMessagesApi()),
+			// Only the Responses tool builder forwards a union-root schema unrepaired;
+			// see the contract note in ./bai-stream.ts.
+			"openai-responses": baiResponsesStreams(openAIResponsesApi()),
+			"openai-completions": openAICompletionsApi(),
+			"anthropic-messages": anthropicMessagesApi(),
 		},
 	});
 }

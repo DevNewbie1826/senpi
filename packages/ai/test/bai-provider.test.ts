@@ -170,4 +170,46 @@ describe("B.AI provider", () => {
 			"https://staging.b.ai",
 		]);
 	});
+
+	it("resolves a discovered hyphenated Claude alias to its catalog entry", async () => {
+		const provider = baiProvider({
+			fetch: async () => Response.json({ data: [{ id: "claude-fable-5-1" }, { id: "gpt-5-6-sol" }] }),
+		});
+
+		await provider.refreshModels?.({
+			credential: { type: "api_key", key: "bai-test-key" },
+			allowNetwork: true,
+			signal: neverAbortedSignal,
+			publish: async (publication) => {
+				publication.update?.();
+				return true;
+			},
+		});
+
+		expect(
+			provider
+				.getModels()
+				.map((model) => model.id)
+				.sort(),
+		).toEqual(["claude-fable-5.1", "gpt-5.6-sol"]);
+	});
+
+	it("fails the refresh when B.AI reports the model list as unsuccessful", async () => {
+		const provider = baiProvider({
+			fetch: async () => Response.json({ object: "list", success: false, message: "key disabled", data: [] }),
+		});
+
+		await expect(
+			provider.refreshModels?.({
+				credential: { type: "api_key", key: "bai-test-key" },
+				allowNetwork: true,
+				signal: neverAbortedSignal,
+				publish: async (publication) => {
+					publication.update?.();
+					return true;
+				},
+			}),
+		).rejects.toThrow("key disabled");
+		expect(provider.getModels()).toEqual([]);
+	});
 });
