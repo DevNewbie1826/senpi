@@ -28,6 +28,7 @@ import { startFakeModelServer, writeMockModelsJson } from "../qa-app-server/lib/
 import { resolveGenerations } from "./lib/compiled-generations.mjs";
 import { createDaemonSandbox } from "./lib/daemon-sandbox.mjs";
 import { sessionDriver } from "./lib/daemon-sessions.mjs";
+import { alive, awaitPidGone, reap } from "./lib/host-processes.mjs";
 
 const SESSIONS = 50;
 const BASH_CALLS = 200;
@@ -255,34 +256,3 @@ function stopEveryHost() {
 		return `stop_failed: ${cause instanceof Error ? cause.message : String(cause)}`;
 	}
 }
-
-/** Last resort for a host the stop could not end: this run does not leave a daemon on the machine. */
-async function reap(pid) {
-	for (const signal of ["SIGTERM", "SIGKILL"]) {
-		if (!alive(pid)) break;
-		try {
-			process.kill(pid, signal);
-		} catch {}
-		await awaitPidGone(pid, 10_000);
-	}
-	return { pid, alive: alive(pid) };
-}
-
-async function awaitPidGone(pid, budgetMs = 60_000) {
-	const deadline = Date.now() + budgetMs;
-	while (Date.now() <= deadline) {
-		if (!alive(pid)) return true;
-		await delay(100);
-	}
-	return false;
-}
-
-function alive(pid) {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
