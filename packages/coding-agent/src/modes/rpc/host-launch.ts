@@ -38,8 +38,7 @@ export function defaultHostLaunch(
 	sibling: string | null = resolveHostLifecycleEntryPath() ?? null,
 ): { command: string; args: string[] } {
 	if (compiled) return { command: process.execPath, args: [INTERNAL_SUPERVISOR_FLAG, ...supervisorArgs] };
-	if (sibling !== null)
-		return { command: process.execPath, args: [...process.execArgv, sibling, ...supervisorArgs] };
+	if (sibling !== null) return { command: process.execPath, args: [...process.execArgv, sibling, ...supervisorArgs] };
 	// Bundled, the host-lifecycle entry beside us is a bundler chunk, not the standalone
 	// program the unbundled tree ships: run directly it returns immediately without ever
 	// listening, so ensure saw "exited with code 0 before answering get_protocol_info".
