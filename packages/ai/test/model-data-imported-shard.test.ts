@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,13 +25,36 @@ describe("readModelDataStructure with a shard the aggregator no longer lists", (
 		return root;
 	}
 
+	/**
+	 * Picked from the staged catalog rather than named, so a provider changing hands - as
+	 * `kimi-coding` did when it became fork-owned - retargets this test instead of breaking it.
+	 */
+	function anImportedGeneratedShard(root: string, aggregator: string): string {
+		const providersDir = join(root, "src", "providers");
+		for (const entry of readdirSync(providersDir)) {
+			if (!entry.endsWith(".models.ts")) continue;
+			if (!aggregator.includes(entry)) continue;
+			const modulePath = join(providersDir, `${entry.slice(0, -".models.ts".length)}.ts`);
+			let module: string;
+			try {
+				module = readFileSync(modulePath, "utf8");
+			} catch {
+				continue;
+			}
+			if (module.includes(`./${entry}`)) return entry;
+		}
+		throw new Error("no generated shard is imported by its provider module");
+	}
+
 	it("accepts a shard whose provider module imports it", () => {
 		const root = stageCatalog();
 		const aggregatorPath = join(root, "src", "models.generated.ts");
 		const aggregator = readFileSync(aggregatorPath, "utf8");
+		const shard = anImportedGeneratedShard(root, aggregator);
+		const constName = `${shard.slice(0, -".models.ts".length).toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_MODELS`;
 		const dropped = aggregator
 			.split("\n")
-			.filter((line) => !line.includes("kimi-coding.models.ts") && !line.includes("KIMI_CODING_MODELS"))
+			.filter((line) => !line.includes(shard) && !line.includes(constName))
 			.join("\n");
 		expect(dropped).not.toBe(aggregator);
 		writeFileSync(aggregatorPath, dropped);
