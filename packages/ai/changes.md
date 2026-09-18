@@ -3,7 +3,9 @@
 ### What changed
 
 - `packages/ai/scripts/bai-models.json` records B.AI's published standard context, output, modality,
-  reasoning-level, and pricing metadata for classified chat models.
+  reasoning-level, and pricing metadata for the 56 chat models B.AI documents as active, sourced from each
+  `docs.b.ai/llmservice/models/<slug>/` page and the standard pricing table. Promotional, DeepSeek idle, and
+  long-cache rates are deliberately excluded.
 - `packages/ai/scripts/generate-models-bai.ts` converts that source into provider models with family-specific
   API selection and B.AI endpoint shapes.
 - `packages/ai/scripts/generate-models.ts` adds the curated B.AI rows before the shared normalization and
@@ -12,6 +14,9 @@
   data manifest. Image-only `gpt-image-2` is intentionally absent from the chat catalog.
 - `packages/ai/test/gpt-6-astra-context-window.test.ts` includes the B.AI shard in the cross-provider Astra
   context-window invariant.
+- `packages/ai/scripts/generate-models.ts` re-derives `reasoning` for B.AI models after the shared
+  thinking-level passes, so a model that gains a selectable level cannot keep `reasoning: false` and silently
+  lose its reasoning payload at request time.
 
 ### Why
 

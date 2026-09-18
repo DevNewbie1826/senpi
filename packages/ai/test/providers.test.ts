@@ -83,7 +83,7 @@ describe("builtin providers", () => {
 			api: "openai-completions",
 			input: ["text", "image", "video"],
 		});
-		expect(getBuiltinModels("bai")).toHaveLength(47);
+		expect(getBuiltinModels("bai")).toHaveLength(56);
 		expect(getBuiltinModels("bai").some((entry) => entry.id === "gpt-image-2")).toBe(false);
 	});
 

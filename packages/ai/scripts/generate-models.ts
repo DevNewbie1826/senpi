@@ -676,6 +676,20 @@ function supportsOpenAiXhigh(modelId: string): boolean {
 	);
 }
 
+/**
+ * `getBaiModels()` derives `reasoning` from B.AI's own published metadata, but
+ * the shared thinking-level passes merge levels by model id afterwards. Without
+ * this re-derivation a B.AI model that gained a selectable level keeps
+ * `reasoning: false`, and the Responses and Messages adapters then skip the
+ * reasoning payload entirely, making that level unreachable.
+ */
+function applyBaiReasoningConsistency(model: Model<Api>): void {
+	if (model.provider !== "bai" || model.thinkingLevelMap === undefined) return;
+	if (Object.values(model.thinkingLevelMap).some((level) => level !== null && level !== undefined)) {
+		model.reasoning = true;
+	}
+}
+
 function supportsOpenAiMax(model: Model<Api>): boolean {
 	return (
 		(model.id.includes("gpt-5.6") || model.id.includes("gpt-6-astra")) &&
@@ -3464,6 +3478,7 @@ async function generateModels() {
 				max: "max",
 			});
 		}
+		applyBaiReasoningConsistency(model);
 	}
 	applyAnthropicAllowedFallbackModelMetadata(allModels.filter(isAnthropicFallbackMetadataModel));
 
