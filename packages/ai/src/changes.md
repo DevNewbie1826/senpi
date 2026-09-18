@@ -19,6 +19,18 @@
   release job ever saw. Keeping the shard (the prune guard) and tolerating it (the aggregator gate)
   were the first two layers; a provider the fork ships also has to stay readable.
 
+### Why an extension could not handle it
+
+- The generated aggregate and the catalog API are fork source; an extension cannot add a provider to
+  a union the generator writes, nor change what `getBuiltinModel` reads.
+
+### Expected merge conflict zones
+
+- `packages/ai/src/providers/all.ts` around the catalog imports and `BuiltinProvider`, whenever
+  upstream reshapes the generated catalog read.
+- `packages/ai/src/providers/kimi-coding.models.ts`, if upstream ever describes the provider again
+  and the generator wants to own the shard back.
+
 ## 2026-09-18 — Drop the OpenRouter Mistral overflow case that the catalog no longer carries
 
 ### What changed
