@@ -315,7 +315,12 @@ describe("ensureHost-spawned host lifecycle", () => {
 		const internalHosts = await waitForChildPids(ensured.pid);
 		expect(internalHosts.length).toBeGreaterThan(0);
 		const leakedDirs = listInternalSocketDirs(ensured.pid);
-		expect(leakedDirs.length).toBeGreaterThan(0);
+		// The internal host serves a filesystem socket from its own tmp directory on POSIX, so a running
+		// supervisor must own at least one. win32 serves a NAMED PIPE instead: there is no directory to
+		// create, so the only honest expectation there is that none exists - and the reap assertions
+		// below (every internal host gone, nothing left under tmp) still carry the real invariant.
+		if (process.platform === "win32") expect(leakedDirs).toEqual([]);
+		else expect(leakedDirs.length).toBeGreaterThan(0);
 
 		terminateSupervisor(ensured.pid, "SIGKILL");
 		await waitForPidsGone(internalHosts, 10_000);

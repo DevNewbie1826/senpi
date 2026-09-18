@@ -178,6 +178,13 @@ function writeLocalReleaseFixture(repoRoot) {
 		});
 		mkdirSync(join(repoRoot, directory, "dist"), { recursive: true });
 		writeFileSync(join(repoRoot, directory, "dist", "index.js"), "");
+		if (directory === "packages/agent") {
+			// pi-agent-core's dist reaches these grammars through compile-time `type: "file"`
+			// imports, so staging requires them the way it requires chord's context entry.
+			mkdirSync(join(repoRoot, directory, "assets", "tree-sitter"), { recursive: true });
+			writeFileSync(join(repoRoot, directory, "assets", "tree-sitter", "javascript.wasm"), "");
+			writeFileSync(join(repoRoot, directory, "assets", "tree-sitter", "web-tree-sitter.wasm"), "");
+		}
 		if (directory === "packages/chord") {
 			mkdirSync(join(repoRoot, directory, "dist", "context"), { recursive: true });
 			writeFileSync(join(repoRoot, directory, "dist", "context", "index.js"), "");

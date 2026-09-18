@@ -330,7 +330,7 @@ describe("multi-session RPC routing", () => {
 		await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
 		await writer.flush();
 		expect(records.filter((record) => record.sessionId === "rpc-session")).toEqual([
-			{ type: "session_closed", sessionId: "rpc-session" },
+			{ type: "session_closed", sessionId: "rpc-session", reason: "client_close" },
 			expect.objectContaining({ id: "first", command: "close_session", success: true, sessionId: "rpc-session" }),
 			expect.objectContaining({ id: "second", command: "close_session", success: true, sessionId: "rpc-session" }),
 		]);
@@ -377,7 +377,7 @@ describe("multi-session RPC routing", () => {
 			await writer.flush();
 			expect(closeMarked).toHaveBeenCalledTimes(1);
 			expect(records.filter((record) => record.sessionId === "rpc-session")).toEqual([
-				{ type: "session_closed", sessionId: "rpc-session" },
+				{ type: "session_closed", sessionId: "rpc-session", reason: "client_close" },
 				expect.objectContaining({ id: "first", command: "close_session", success: true }),
 				expect.objectContaining({ id: "second", command: "close_session", success: true }),
 			]);

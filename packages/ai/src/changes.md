@@ -1,3 +1,15 @@
+## 2026-09-17 - Follow the z.ai catalog to the glm-5.3 family
+
+### What changed
+
+- Regenerated `src/providers/data/` (`zai-coding-cn`, `openrouter`, `cloudflare-ai-gateway`, `.manifest.json`).
+- `test/gpt-6-astra-context-window.test.ts` adds `cloudflare-ai-gateway.json` to the covered-catalog list, which now ships Astra models.
+- `test/zai-coding-plan-models.test.ts` and `test/openai-completions-tool-choice.test.ts` assert `glm-5.3`, `glm-5.3-flash` and `glm-5.3-highspeed` instead of the retired `glm-5.1`/`glm-5.2`/`glm-5v-turbo` ids, and expect the 5.3 reasoning map.
+
+### Why
+
+- `zai-coding-cn` no longer publishes the 5.1/5.2 ids. The release script regenerates the catalog before it type-checks, so the stale assertions failed `tsc` during publish and blocked the release rather than failing in a normal CI run.
+
 ## Slow-stream classification withdrawn (2026-09-16)
 
 ### What changed

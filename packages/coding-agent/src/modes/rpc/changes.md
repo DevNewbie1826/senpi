@@ -55,6 +55,33 @@
 
 - LOW: one import block plus one dispatch branch in `src/main.ts`, one new dispatcher in `src/cli/deferred-commands.ts`, and additive export lists in `src/modes/index.ts` / `src/index.ts`. Everything else is new files.
 
+
+## 2026-09-17 - Name why a session closed or parked, and when the host stalls (#1782)
+
+### What changed
+
+- `rpc-types.ts`: `RpcSessionClosedReason` is the full vocabulary (`client_close` / `idle_evicted` / `host_shutdown` / `replaced` / `handoff_parked` / `error`). `RpcSessionClosedEvent` carries optional `reason` - absent on the wire unless the caller names one, never required in decoders.
+- `session-event-writer.ts`: `closeSession` still omits `reason` when the caller does not pass one. Explicit close admission reserves the `client_close` bytes; overflow seals with `error`. `broadcastHostRecord` reconstructs `host_stalled` and `host_memory_pressure` from a typed switch so desktop `scripts/refresh-senpi-events.ts` (which scans literal `type:` sites in this file) sees both, plus the existing `session_closed` / `session_parked` literals.
+- `session-command-router.ts`: callers pass the reason. `close_session` -> `client_close`; idle sweep of a non-retained session -> `idle_evicted`; idle sweep of a retained session with a path still emits `session_parked` instead of a close; drain still -> `handoff_parked`; `dispose()` (host exit) -> `host_shutdown`.
+- `session-worker-client.ts`: a worker failure seals with `error`.
+- `multi-session-host.ts`: socket shutdown disposes the router and flushes WHILE connections are still registered, then detaches. SIGTERM can therefore deliver `session_closed { reason: "host_shutdown" }` instead of dropping the socket first.
+- Docs: `docs/rpc.md` Event Types table and a `session_closed.reason` / `session_parked` / `host_stalled` / `host_memory_pressure` section; occupancy idle-eviction names `idle_evicted` vs `session_parked` vs `host_shutdown`.
+- Tests: `test/suite/rpc-inprocess-host.test.ts` asserts each path (explicit close, idle non-retained, idle retained -> `session_parked`, drain -> `handoff_parked`, host SIGTERM -> `host_shutdown`, and SIGTERM of a retained session still `host_shutdown` not a park).
+
+### Why
+
+- A parked session and a closed session used to be indistinguishable on the wire except for the new `session_parked` type, and a host going away looked like a dropped socket. Clients (desktop threads, senpi-task) need the reason to choose reopen-by-path vs forget vs reconnect-to-new-generation vs show an error.
+- `reason` stays optional so an older client, and any record emitted before this vocabulary, keep working. Making it required in a decoder would fail closed against every host still in the field.
+
+### Why an extension could not handle it
+
+- These are host lifecycle records on the RPC wire. Extensions never see `session_closed` or emit it; the desktop event scanner reads the engine's `type:` literals.
+
+### Expected merge conflict zones
+
+- MEDIUM: `SessionEventWriter.closeSession` / `reserveCloseResponse` / `broadcastHostRecord`, `SessionCommandRouter.close` / `evictIdleSession` / `dispose`, and the socket-host shutdown order in `multi-session-host.ts`. Anything upstream that also emits `session_closed` or tears connections down before dispose conflicts there.
+- LOW: the reason union in `rpc-types.ts`, the docs Event Types table, and the new cases in `rpc-inprocess-host.test.ts`.
+
 ## 2026-09-17 - The created host modules go back under the file-size ceiling (#1782)
 
 ### What changed

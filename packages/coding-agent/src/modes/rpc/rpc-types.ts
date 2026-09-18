@@ -966,14 +966,33 @@ export type RpcSessionParkedEvent = {
 /**
  * Why a `session_closed` record was emitted, when the host names a reason.
  *
- * `handoff_parked`: a GENERATION HANDOFF drained this host and put the session back on disk once
- * its turn settled. The session was not ended - `open_session { sessionPath }` reopens it in the
- * new generation - so a client that reconnects should resume rather than report a loss.
+ * Optional on the wire and open to new members: a client that does not recognise a reason, or
+ * receives a record with no `reason` field, treats it exactly as it treated a reason-less one.
+ * Never required in decoders.
  *
- * Optional on the wire and open to new members: a client that does not recognise a reason treats
- * the record exactly as it treated a reason-less one.
+ * - `client_close`: an attached client sent `close_session`.
+ * - `idle_evicted`: the idle sweep ended a session that was not retained.
+ * - `host_shutdown`: the host process is exiting (SIGTERM / idle-exit / empty-host).
+ * - `replaced`: the live session behind this handle was swapped (`session_replaced` is the
+ *   in-place identity event; this reason is for a handle that ended because of a replacement).
+ * - `handoff_parked`: a generation handoff drained this host and put the session back on disk.
+ *   The session was not ended - `open_session { sessionPath }` reopens it in the new generation.
+ * - `error`: the session failed (worker death, output overflow) and the host sealed it.
  */
-export type RpcSessionClosedReason = "handoff_parked";
+export type RpcSessionClosedReason =
+	| "client_close"
+	| "idle_evicted"
+	| "host_shutdown"
+	| "replaced"
+	| "handoff_parked"
+	| "error";
+
+/** Terminal record of a closed routing handle. `reason` is absent on older hosts and older records. */
+export type RpcSessionClosedEvent = {
+	type: "session_closed";
+	sessionId: string;
+	reason?: RpcSessionClosedReason;
+};
 
 /** Emitted after the loaded skill, extension, or MCP inventory changes. */
 export interface RpcLoadedSurfacesChangedEvent {

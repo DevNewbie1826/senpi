@@ -377,13 +377,13 @@ describe("openai-completions tool_choice", () => {
 
 	it("stores z.ai effort metadata", () => {
 		for (const provider of ["zai", "zai-coding-cn"] as const) {
-			for (const modelId of ["glm-5.2", "glm-5.2-highspeed"] as const) {
+			for (const modelId of ["glm-5.3", "glm-5.3-highspeed"] as const) {
 				const model = getModel(provider, modelId)!;
 				expect(model.compat?.supportsReasoningEffort).toBe(true);
 				expect(model.thinkingLevelMap).toEqual({
-					off: "none",
+					off: null,
 					minimal: null,
-					low: null,
+					low: "low",
 					medium: null,
 					high: "high",
 					xhigh: null,

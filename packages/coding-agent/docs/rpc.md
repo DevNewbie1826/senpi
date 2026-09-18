@@ -572,15 +572,18 @@ What the host does enforce are lifecycle windows, and they only ever return memo
 - **Idle eviction**: a session with no routed command and no session-owned work for
   `SENPI_RPC_SESSION_IDLE_EVICTION_MS` (default 30 minutes) is closed through the exact `close_session` sequence
   (abort → waitForIdle → dispose, all attachments drained, path reservation released) and every attached connection
-  receives that handle's `session_closed` broadcast plus a final `close_session` response record. A session opened with
+  receives that handle's `session_closed { reason: "idle_evicted" }` broadcast plus a final `close_session` response
+  record. A session opened with
   `retain_on_disconnect` is PARKED by that same sweep instead: identical teardown, but the terminal record is
   `session_parked { sessionId, sessionPath }` and there is no `close_session` response, because nothing closed the session -
   the routing handle was released while the session itself stays on disk and reopens with `open_session { sessionPath }`
   (as a NEW handle). A client that does not know `session_parked` ignores it and learns the handle is gone from its next
   command's `unknown_session`. A GENERATION HANDOFF parks the same sessions for the same reason, but names itself in
   the record it emits: `session_closed { sessionId, reason: "handoff_parked" }`, so a client can tell "the host handed
-  over, reopen by path" from "this session ended". `reason` is optional on the wire; a client that does not know a
-  value treats the record exactly as a reason-less one. "Session-owned
+  over, reopen by path" from "this session ended". An explicit `close_session` is `reason: "client_close"`; the host
+  process exiting is `reason: "host_shutdown"` (even for a retained session - the process is going away, so this is not
+  a park). `reason` is optional on the wire; a client that does not know a
+  value, or receives a record with no `reason` field, treats the record exactly as a reason-less one. "Session-owned
   work" is the complete activity contract, not just a streaming turn: an agent run, a running bash command,
   background terminal jobs and any other published wake source (terminal monitors, loop-guard holds), compaction,
   and barrier-held session work all defer eviction, and the idle clock restarts when that work settles. An evicted
@@ -1919,6 +1922,8 @@ Events are streamed to stdout as JSON lines during agent operation. Events do no
 | `loaded_surfaces_changed` | Loaded skills, extensions, or MCP inventory changed; re-read `get_commands` and `get_loaded_surfaces` |
 | `model_changed` | Active model changed (any source), with the thinking level in force afterwards |
 | `service_tier_changed` | Effective service tier or fast-mode state changed |
+| `session_closed` | Multi-session host: a routing handle ended. Optional `reason`: `client_close`, `idle_evicted`, `host_shutdown`, `replaced`, `handoff_parked`, `error` |
+| `session_parked` | Multi-session host: a retained session was released to disk at the idle window (`sessionId`, `sessionPath`). Replaces `session_closed` for that handle |
 | `host_stalled` | Multi-session host: the event loop was blocked past `SENPI_RPC_LOOP_LAG_ERROR_MS`, with the drift and the session/tool blamed for it |
 | `host_memory_pressure` | Multi-session host: RSS is above `SENPI_RPC_HOST_RSS_WARN_MB`, with the live session count |
 | `session_opened` | Multi-session host: a session was opened on this host (content-free lifecycle record) |
@@ -1927,7 +1932,54 @@ Events are streamed to stdout as JSON lines during agent operation. Events do no
 | `session_replaced` | The live session was swapped by `new_session`, `switch_session` or `fork`, carrying the new `durableSessionId` |
 
 Event types are additive: a client that does not recognise a type must ignore that record rather than fail. `model_changed`
-and `service_tier_changed` were added after the initial protocol and are safe to ignore.
+and `service_tier_changed` were added after the initial protocol and are safe to ignore. `session_parked`, `host_stalled`,
+and `host_memory_pressure` are the same: ignore them if unknown. `session_closed.reason` is optional; ignore an unknown
+value the same way.
+
+### session_closed.reason
+
+When a multi-session host ends a routing handle it may name why:
+
+```json
+{ "type": "session_closed", "sessionId": "rpc-1", "reason": "client_close" }
+```
+
+| `reason` | When |
+| --- | --- |
+| `client_close` | An attached client sent `close_session` |
+| `idle_evicted` | The idle sweep ended a session that was not retained |
+| `host_shutdown` | The host process is exiting (SIGTERM, idle-exit, empty-host). A retained session is closed, not parked |
+| `replaced` | The routing handle ended because the live session behind it was replaced |
+| `handoff_parked` | A generation handoff drained this host; reopen with `open_session { sessionPath }` |
+| `error` | The session failed (worker death, output overflow) and the host sealed it |
+
+The field is absent on older hosts and on older records. Decoders must not require it. A retained session that hits the
+idle window emits `session_parked` instead of `session_closed`.
+
+### session_parked
+
+```json
+{ "type": "session_parked", "sessionId": "rpc-1", "sessionPath": "/path/to/session.jsonl" }
+```
+
+The routing handle is gone; the session file is not. `open_session { sessionPath }` opens it as a new handle.
+
+### host_stalled
+
+```json
+{ "type": "host_stalled", "driftMs": 6120, "sessionId": "rpc-1", "tool": "bash" }
+```
+
+Informational. The host does not abort or refuse anything because of a stall. `sessionId` and `tool` are omitted when
+the stall cannot be attributed to a session.
+
+### host_memory_pressure
+
+```json
+{ "type": "host_memory_pressure", "rssMb": 4608, "sessions": 12 }
+```
+
+Informational. Capacity is memory, never a refusal: the host reports the pressure and parks idle sessions sooner.
 
 ### model_changed
 

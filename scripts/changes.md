@@ -1,5 +1,83 @@
 # changes
 
+## 2026-09-18 - Guard worker_threads.markAsUncloneable in the bundle prologue (senpi#1806)
+
+### What changed
+
+- `build-coding-agent-bundle.mjs`: the esbuild banner every emitted file starts with now reads `node:worker_threads` and installs a no-op `markAsUncloneable` when the runtime has none.
+
+### Why
+
+- `undici@8.10.2` instantiates `CacheStorage` at module init, and that constructor calls `webidl.util.markAsUncloneable(this)` — bound unconditionally from `worker_threads.markAsUncloneable`, a Node >= 23 API. Bun 1.3.x has no such export, so the first `require("undici")` threw and every published senpi from `2026.9.17-3` failed to boot there, TUI and headless alike. senpi never uses `caches`; the crash was undici's own init. The banner is the one place guaranteed to run before any bundled module in every chunk, including `session-worker.js`.
+
+### Why an extension could not handle it
+
+- Extensions load after the engine has already imported undici. Only the bundle prologue runs early enough.
+
+### Expected merge conflict zones
+
+- LOW: the `banner` constant in `build-coding-agent-bundle.mjs`.
+
+## 2026-09-17 - Compiled binaries carry the build epoch and short sha (#1782)
+
+### What changed
+
+- `build-binaries.sh`: every `bun build --compile` invocation gets `--define SENPI_BUILD_EPOCH=<unix(commit date)>` and `--define SENPI_BUILD_SHA7=<sha[:7]>`, derived from the commit being built.
+
+### Why
+
+Two hosts that speak the same protocol still need a way to say which one is NEWER, and a CalVer string cannot separate two builds of the same day. The epoch is that ordinal: a successor hands off only when its epoch is strictly greater and the launch profile matches. A binary built without the defines reports no ordinal at all, which reads as "uncomparable" - it attaches, and it never initiates a handoff.
+
+### Why an extension could not handle it
+
+An extension runs inside a session; both of these are process-level surfaces that exist before any session does - the module barrel a client imports to decide what to do with a host it found, and the compile step that stamps the binary. Neither is reachable from extension code.
+
+### Expected merge conflict zones
+
+Upstream edits to the same export list, and upstream edits to the `bun build --compile` argument list in the release script.
+
+
+
+### What changed
+
+`scripts/build-binaries.sh` passes `--define SENPI_BUILD_EPOCH=<unix(commit date)>` and `--define SENPI_BUILD_SHA7=<sha[:7]>` to every `bun build --compile` invocation, derived from the commit being built.
+
+### Why
+
+Two hosts that speak the same protocol still need a way to say which is NEWER, and a CalVer version string cannot answer that for two builds of the same day. The epoch is that ordinal: a successor hands off only when its epoch is strictly greater and the launch profile matches. A binary built without the defines reports no ordinal at all, which reads as "uncomparable" - it attaches, and it never initiates a handoff.
+
+## 2026-09-17 - Keep ws's native accelerators out of the bundle
+
+### What changed
+
+- `build-coding-agent-bundle.mjs`: `bufferutil` and `utf-8-validate` are esbuild externals and members of `allowedExternalPackages`.
+
+### Why
+
+- `ws` requires those two when they are present. Their loader is `node-gyp-build`, which resolves its binding through a computed require that esbuild cannot follow; the import survives as an external named `<runtime>` and `validateExternalImports` rejects the build. They are optional accelerators with a pure-JS fallback, so they belong outside the bundle next to the other native dependencies.
+
+### Why an extension could not handle it
+
+- This is the release bundler's own external policy. Nothing outside the build script decides which packages esbuild may leave unresolved.
+
+### Expected merge conflict zones
+
+- LOW: the `external` array and the `allowedExternalPackages` set in `build-coding-agent-bundle.mjs`.
+
+## 2026-09-17 - Publish a bundled workspace's assets (senpi#1800)
+
+### What changed
+
+- `prepare-senpi-bundled-workspaces.mjs`: `shouldCopyWorkspaceFile` now copies `assets` and `assets/**` alongside `dist` and `native`; `@earendil-works/pi-agent-core` declares its two tree-sitter grammars in `requiredFiles`, so `assertSenpiPackedWorkspaceFiles` fails the release when they are missing.
+
+### Why
+
+- `pi-agent-core`'s `grammar-assets.js` embeds `import("../../../../../assets/tree-sitter/<name>.wasm", { with: { type: "file" } })`, which Bun's compiler must resolve at compile time. The staged copy omitted `assets/`, so the published tarball pointed outside itself and every `publish-platform` build in the consuming repo failed with `Could not resolve`.
+
+### Expected merge conflict zones
+
+- LOW: the `bundledWorkspaces` entry for pi-agent-core and the `shouldCopyWorkspaceFile` allowlist.
+
 ## 2026-09-17 - Keep the Bun-only reaper bindings out of the release bundle (senpi#1782)
 
 ### What changed

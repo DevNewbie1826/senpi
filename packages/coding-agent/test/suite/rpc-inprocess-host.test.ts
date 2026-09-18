@@ -14,6 +14,10 @@ import { startInProcessHost, startWorkerHost } from "./rpc-worker-host-support.t
 
 /** Sessions opened on one host: more than double the worker runtime's 20-worker cap. */
 const DAEMON_SESSIONS = 45;
+/** Idle window for the close-reason cases; eviction fires at twice this. */
+const CLOSE_REASON_IDLE_MS = 1_000;
+/** Timer-only fakes plus `Date`: the registry's idle clock is `Date.now`. */
+const IDLE_CLOCK_FAKES = ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] as const;
 
 const scratches: string[] = [];
 
@@ -206,3 +210,149 @@ it("reopens a closed path while the previous session is still tearing down", asy
 		expect.objectContaining({ sessionId: reopened.sessionId, status: "open", attachments: 1 }),
 	]);
 });
+
+it("names client_close on an explicit close_session", async () => {
+	// Given: an open session on the in-process registry.
+	const dir = await rigDir();
+	await using rig = createInProcessRig(dir);
+	const session = opened(await rig.open("conn-a", { cwd: dir, sessionPath: join(dir, "close.jsonl") }), 0);
+
+	// When: the connection that opened it closes it.
+	await rig.close("conn-a", session.sessionId);
+
+	// Then: the handle ended because the client asked, not because the host swept it.
+	expect(rig.records()).toContainEqual({
+		type: "session_closed",
+		sessionId: session.sessionId,
+		reason: "client_close",
+	});
+});
+
+it("names idle_evicted when a non-retained session hits the idle window", async () => {
+	// Given: a connected session that was never marked retain-on-disconnect.
+	vi.useFakeTimers({ toFake: [...IDLE_CLOCK_FAKES] });
+	const dir = await rigDir();
+	await using rig = createInProcessRig(dir, { idleEvictionMs: CLOSE_REASON_IDLE_MS });
+	const session = opened(await rig.open("conn-a", { cwd: dir, sessionPath: join(dir, "idle.jsonl") }), 0);
+
+	// When: the idle window elapses while that session is still listed.
+	await vi.advanceTimersByTimeAsync(CLOSE_REASON_IDLE_MS * 2);
+	await rig.settle();
+
+	// Then: the host closed it for idleness, and it is gone from the listing.
+	expect(rig.records()).toContainEqual({
+		type: "session_closed",
+		sessionId: session.sessionId,
+		reason: "idle_evicted",
+	});
+	expect(await rig.list()).toEqual([]);
+});
+
+it("emits session_parked instead of session_closed when a retained session hits the idle window", async () => {
+	// Given: a retained session whose idle window is armed.
+	vi.useFakeTimers({ toFake: [...IDLE_CLOCK_FAKES] });
+	const dir = await rigDir();
+	await using rig = createInProcessRig(dir, { idleEvictionMs: CLOSE_REASON_IDLE_MS });
+	const session = opened(
+		await rig.open("conn-a", {
+			cwd: dir,
+			sessionPath: join(dir, "park.jsonl"),
+			retain_on_disconnect: true,
+		}),
+		0,
+	);
+
+	// When: the idle window elapses.
+	await vi.advanceTimersByTimeAsync(CLOSE_REASON_IDLE_MS * 2);
+	await rig.settle();
+
+	// Then: the handle was parked for reopen-by-path, never closed as idle-evicted.
+	expect(rig.records()).toContainEqual({
+		type: "session_parked",
+		sessionId: session.sessionId,
+		sessionPath: session.state.sessionFile,
+	});
+	expect(rig.records().filter((record) => record.type === "session_closed")).toEqual([]);
+});
+
+it("names handoff_parked when a drain parks a detached retained session", async () => {
+	// Given: a retained session whose only connection has already dropped.
+	const dir = await rigDir();
+	await using rig = createInProcessRig(dir);
+	const session = opened(
+		await rig.open("conn-a", {
+			cwd: dir,
+			sessionPath: join(dir, "drain.jsonl"),
+			retain_on_disconnect: true,
+		}),
+		0,
+	);
+	await rig.drop("conn-a");
+
+	// When: the host is asked to drain for a generation handoff.
+	rig.router.beginDrain();
+	await rig.settle();
+
+	// Then: the record names the handoff, so a client reopens by path instead of treating a loss.
+	expect(rig.records()).toContainEqual({
+		type: "session_closed",
+		sessionId: session.sessionId,
+		reason: "handoff_parked",
+	});
+});
+
+it("names host_shutdown when the host process is SIGTERM'd", async () => {
+	// Given: a live in-process socket host with one attached session.
+	// Force the source CLI: the default helper boots `dist/cli.js`, which would not
+	// carry this change until a rebuild.
+	vi.stubEnv("SENPI_RPC_TEST_BUN", process.execPath);
+	const host = await startInProcessHost();
+	try {
+		const client = await host.connect();
+		const session = opened(await client.request({ type: "open_session", cwd: host.cwd }), 0);
+		const closed = client.wait(
+			(record) => record.type === "session_closed" && record.sessionId === session.sessionId,
+		);
+
+		// When: the host process receives SIGTERM.
+		host.child.kill("SIGTERM");
+
+		// Then: the still-connected client learns the host is exiting, not that the session idled out.
+		expect(await closed).toMatchObject({
+			type: "session_closed",
+			sessionId: session.sessionId,
+			reason: "host_shutdown",
+		});
+	} finally {
+		await host.dispose();
+	}
+}, 120_000);
+
+it("does not park a retained session when the host is shutting down", async () => {
+	// Given: a retained session on a live host - the adversarial mix-up is host_shutdown vs park.
+	vi.stubEnv("SENPI_RPC_TEST_BUN", process.execPath);
+	const host = await startInProcessHost();
+	try {
+		const client = await host.connect();
+		const session = opened(
+			await client.request({
+				type: "open_session",
+				cwd: host.cwd,
+				retain_on_disconnect: true,
+			}),
+			0,
+		);
+		const closed = client.wait(
+			(record) => record.type === "session_closed" && record.sessionId === session.sessionId,
+		);
+
+		// When: the host is SIGTERM'd with that retained session still attached.
+		host.child.kill("SIGTERM");
+
+		// Then: the host going away is a close named host_shutdown, never a park the client would reopen here.
+		expect(await closed).toMatchObject({ type: "session_closed", reason: "host_shutdown" });
+		expect(client.records.some((record) => record.type === "session_parked")).toBe(false);
+	} finally {
+		await host.dispose();
+	}
+}, 120_000);

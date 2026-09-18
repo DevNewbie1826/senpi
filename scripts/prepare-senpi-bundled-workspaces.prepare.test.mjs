@@ -75,6 +75,14 @@ function bundledWorkspaceFiles(workspace) {
 	if (workspace === "senpi-codemode") {
 		return ["package.json", "src/index.ts", "src/kernels/py/prelude.py"];
 	}
+	if (workspace === "agent") {
+		return [
+			"package.json",
+			"dist/index.js",
+			"assets/tree-sitter/javascript.wasm",
+			"assets/tree-sitter/web-tree-sitter.wasm",
+		];
+	}
 	if (workspace === "chord") {
 		return ["package.json", "dist/index.js", "dist/context/index.js"];
 	}

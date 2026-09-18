@@ -393,6 +393,18 @@ describe("ensureHost", () => {
 	}, 30_000);
 });
 
+/**
+ * Identity of the endpoint the host is serving, used to prove a REUSE did not quietly
+ * re-create it. On a filesystem socket that is the inode; on win32 the endpoint is a named
+ * pipe, which `stat` cannot resolve at all, so there is nothing to compare - the reuse is
+ * still proven there by `reused: true` and by the pidfile still naming the same process.
+ */
+async function socketIdentity(socketPath: string): Promise<{ ino: number } | undefined> {
+	if (process.platform === "win32") return undefined;
+	const info = await stat(socketPath);
+	return { ino: info.ino };
+}
+
 describe("generation handoff", () => {
 	it("never hands off by default, even to an older host that can drain", async () => {
 		// The default upgrade policy is `never`: finding an older, drainable host is not a reason to
@@ -402,7 +414,7 @@ describe("generation handoff", () => {
 			capabilities: HANDOFF_CAPABILITIES,
 			identity: fixtureIdentity({ engineOrdinal: [2026, 1, 1, 0, 0] }),
 		});
-		const before = await stat(qa.socket);
+		const before = await socketIdentity(qa.socket);
 
 		const result = await ensureHost({
 			agentDir: qa.agentDir,
@@ -412,7 +424,7 @@ describe("generation handoff", () => {
 		});
 
 		expect(result).toEqual({ pid: running.pid, socket: qa.socket, reused: true });
-		expect(await stat(qa.socket)).toMatchObject({ ino: before.ino });
+		if (before) expect(await socketIdentity(qa.socket)).toMatchObject({ ino: before.ino });
 		expect(await processMatchesPidFile(running.pidFile, readProcessStartTime)).toBe(true);
 	}, 20_000);
 
@@ -424,7 +436,7 @@ describe("generation handoff", () => {
 			capabilities: HANDOFF_CAPABILITIES,
 			identity: fixtureIdentity({ engineOrdinal: [9999, 1, 1, 0, 0] }),
 		});
-		const before = await stat(qa.socket);
+		const before = await socketIdentity(qa.socket);
 
 		const result = await ensureHost({
 			agentDir: qa.agentDir,
@@ -434,7 +446,7 @@ describe("generation handoff", () => {
 		});
 
 		expect(result).toEqual({ pid: running.pid, socket: qa.socket, reused: true });
-		expect(await stat(qa.socket)).toMatchObject({ ino: before.ino });
+		if (before) expect(await socketIdentity(qa.socket)).toMatchObject({ ino: before.ino });
 	}, 20_000);
 
 	it("refuses to hand off from a legacy host that cannot drain", async () => {
@@ -444,7 +456,7 @@ describe("generation handoff", () => {
 		const running = await startManagedFixture(qa, {
 			identity: fixtureIdentity({ engineOrdinal: [2026, 1, 1, 0, 0] }),
 		});
-		const before = await stat(qa.socket);
+		const before = await socketIdentity(qa.socket);
 
 		const decision = await handoffHost({
 			socket: qa.socket,
@@ -452,8 +464,15 @@ describe("generation handoff", () => {
 			_test: { launch: refuseToSpawn },
 		});
 
-		expect(decision).toMatchObject({ action: "refuse", reason: "handoff_unsupported", upgradeable: false });
-		expect(await stat(qa.socket)).toMatchObject({ ino: before.ino });
+		// Both platforms refuse and neither touches the running host; they differ in WHY. On win32 the
+		// refusal is decided before the host is even probed - a named pipe can be neither renamed nor
+		// drained - so the reason is the platform's, not the legacy host's.
+		expect(decision).toMatchObject({
+			action: "refuse",
+			reason: process.platform === "win32" ? "upgrade_unsupported" : "handoff_unsupported",
+			upgradeable: false,
+		});
+		if (before) expect(await socketIdentity(qa.socket)).toMatchObject({ ino: before.ino });
 		expect(await processMatchesPidFile(running.pidFile, readProcessStartTime)).toBe(true);
 	}, 20_000);
 

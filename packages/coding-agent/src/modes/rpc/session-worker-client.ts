@@ -269,11 +269,15 @@ export class SessionWorkerClient {
 		const sessionId = this.sessionId;
 		if (error === undefined || !writer || !sessionId) return;
 		this.terminalFailure = undefined;
-		writer.closeSession(sessionId, {
-			type: "response",
-			command: "close_session",
-			success: false,
-			error,
-		});
+		writer.closeSession(
+			sessionId,
+			{
+				type: "response",
+				command: "close_session",
+				success: false,
+				error,
+			},
+			"error",
+		);
 	}
 }
