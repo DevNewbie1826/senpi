@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Breaking Changes
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
 ## [2026.9.18-4] - 2026-09-18
 
 - Model catalog: a provider the fork ships by hand (`kimi-coding`, like `devin`) now survives a catalog regeneration that upstream no longer describes, instead of silently leaving the built-in catalog.
