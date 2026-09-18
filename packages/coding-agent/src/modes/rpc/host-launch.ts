@@ -6,11 +6,12 @@
  * handoff - build the same command here, so a rebranded binary, a compiled standalone and a
  * source checkout all agree on one re-entry route.
  */
-import { dirname, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isBunBinary } from "../../config.ts";
 import { CUSTOM_UNSUPPORTED_CAPABILITY, EXTENSION_EVENTS_CAPABILITY } from "./custom-capability.ts";
-import { INTERNAL_SUPERVISOR_FLAG } from "./host-lifecycle.ts";
+import { INTERNAL_SUPERVISOR_FLAG, resolveCliMainPath } from "./host-lifecycle.ts";
 
 /**
  * Every ensured host starts with this installation-wide profile, independent of the first
@@ -33,16 +34,33 @@ export const PINNED_HOST_CLIENT_CAPABILITIES = [EXTENSION_EVENTS_CAPABILITY, CUS
 export function defaultHostLaunch(
 	supervisorArgs: readonly string[],
 	compiled: boolean = isBunBinary,
+	/** Null stands for a bundled layout, where no standalone sibling program exists. */
+	sibling: string | null = resolveHostLifecycleEntryPath() ?? null,
 ): { command: string; args: string[] } {
 	if (compiled) return { command: process.execPath, args: [INTERNAL_SUPERVISOR_FLAG, ...supervisorArgs] };
+	if (sibling !== null)
+		return { command: process.execPath, args: [...process.execArgv, sibling, ...supervisorArgs] };
+	// Bundled, the host-lifecycle entry beside us is a bundler chunk, not the standalone
+	// program the unbundled tree ships: run directly it returns immediately without ever
+	// listening, so ensure saw "exited with code 0 before answering get_protocol_info".
+	// The CLI entry does honour the internal route in every layout, so re-enter it the way
+	// compiled binaries do, taking the entry from the package's declared bin rather than
+	// counting "..", which lands on the package root once this module is bundled.
 	return {
 		command: process.execPath,
-		args: [...process.execArgv, resolveHostLifecycleEntryPath(), ...supervisorArgs],
+		args: [...process.execArgv, resolveCliMainPath(), INTERNAL_SUPERVISOR_FLAG, ...supervisorArgs],
 	};
 }
 
-function resolveHostLifecycleEntryPath(): string {
+/**
+ * The standalone host-lifecycle program beside this module, or undefined when this module
+ * has been bundled - there the neighbour of the same name is an emitted chunk that does not
+ * start a supervisor on its own.
+ */
+function resolveHostLifecycleEntryPath(): string | undefined {
 	const modulePath = fileURLToPath(import.meta.url);
+	if (basename(dirname(modulePath)) === "chunks") return undefined;
 	const extension = modulePath.endsWith(".ts") ? ".ts" : ".js";
-	return resolve(dirname(modulePath), `host-lifecycle${extension}`);
+	const sibling = resolve(dirname(modulePath), `host-lifecycle${extension}`);
+	return existsSync(sibling) ? sibling : undefined;
 }

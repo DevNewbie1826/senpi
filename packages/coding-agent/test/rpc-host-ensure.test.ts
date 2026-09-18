@@ -599,6 +599,18 @@ describe("defaultHostLaunch", () => {
 		});
 	});
 
+	it("takes the CLI route when bundled, instead of spawning an emitted chunk", () => {
+		// Bundled, the neighbour named host-lifecycle is a bundler chunk rather than the
+		// standalone program the unbundled tree ships: run directly it returns without ever
+		// listening, so ensure reported "exited with code 0 before answering
+		// get_protocol_info" with an empty stderr log. An undefined sibling is that layout.
+		const launch = defaultHostLaunch(["--socket", "/tmp/qa.sock", "--provider", "mock"], false, null);
+		expect(launch.command).toBe(process.execPath);
+		expect(launch.args).toContain("--internal-rpc-host-supervisor");
+		expect(launch.args.some((arg) => arg.endsWith("host-lifecycle.js"))).toBe(false);
+		expect(launch.args.slice(-4)).toEqual(["--socket", "/tmp/qa.sock", "--provider", "mock"]);
+	});
+
 	it("re-enters through the host-lifecycle script outside compiled binaries", () => {
 		const launch = defaultHostLaunch(["--socket", "/tmp/qa.sock", "--provider", "mock"], false);
 		expect(launch.command).toBe(process.execPath);

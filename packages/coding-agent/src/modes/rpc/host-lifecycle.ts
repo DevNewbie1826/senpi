@@ -39,7 +39,7 @@
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { realpathSync, writeSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeSync } from "node:fs";
 import { access, chmod, mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -340,7 +340,40 @@ function parseSocketIdentity(value: string): SocketFileIdentity | undefined {
 export function resolveCliMainPath(): string {
 	const modulePath = fileURLToPath(import.meta.url);
 	const extension = modulePath.endsWith(".ts") ? ".ts" : ".js";
-	return resolve(dirname(modulePath), "..", "..", `cli-main${extension}`);
+	const unbundled = resolve(dirname(modulePath), "..", "..", `cli-main${extension}`);
+	if (existsSync(unbundled)) return unbundled;
+	// Bundled, ".." twice reaches the PACKAGE ROOT rather than dist/, naming a cli-main that
+	// was never emitted. Take the entry from the package's own declared bin instead of
+	// counting directories: it is the one statement of where the CLI lives that holds in
+	// every layout. Falls back to the old path when nothing is declared, so a caller that
+	// was working keeps working.
+	return resolveDeclaredCliEntry(modulePath) ?? unbundled;
+}
+
+/** The CLI entry declared by the nearest enclosing package.json, when it exists on disk. */
+function resolveDeclaredCliEntry(modulePath: string): string | undefined {
+	let dir = dirname(modulePath);
+	for (let depth = 0; depth < 8; depth += 1) {
+		const manifestPath = resolve(dir, "package.json");
+		if (existsSync(manifestPath)) {
+			try {
+				const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+					bin?: Record<string, string> | string;
+				};
+				const declared = manifest.bin;
+				const candidates = typeof declared === "string" ? [declared] : Object.values(declared ?? {});
+				for (const candidate of candidates) {
+					const entry = resolve(dir, candidate);
+					if (existsSync(entry)) return entry;
+				}
+			} catch {}
+			return undefined;
+		}
+		const parent = dirname(dir);
+		if (parent === dir) return undefined;
+		dir = parent;
+	}
+	return undefined;
 }
 
 /**
