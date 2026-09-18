@@ -22,6 +22,7 @@ import { googleProvider } from "./google.ts";
 import { googleVertexProvider } from "./google-vertex.ts";
 import { groqProvider } from "./groq.ts";
 import { huggingfaceProvider } from "./huggingface.ts";
+import { KIMI_CODING_MODELS } from "./kimi-coding.models.ts";
 import { kimiCodingProvider } from "./kimi-coding.ts";
 import { minimaxProvider } from "./minimax.ts";
 import { minimaxCnProvider } from "./minimax-cn.ts";
@@ -55,15 +56,30 @@ import { zaiCodingCnProvider } from "./zai-coding-cn.ts";
 
 export { ollamaProvider, radiusProvider };
 
-/** Providers present in the generated catalog. `KnownProvider` additionally
- * includes purely dynamic providers (e.g. "radius") that have no static
- * catalog entry. */
-export type BuiltinProvider = keyof typeof MODELS;
+/**
+ * Catalogs the fork owns by hand because models.dev does not describe them.
+ *
+ * A generation run emits neither their shard nor their data file, so they can
+ * never appear in `MODELS`; they are still shipped providers and every catalog
+ * read below must see them exactly like a generated one.
+ */
+const FORK_OWNED_CATALOGS = {
+	"kimi-coding": KIMI_CODING_MODELS,
+} as const;
+
+type BuiltinCatalogs = typeof MODELS & typeof FORK_OWNED_CATALOGS;
+
+const BUILTIN_CATALOGS: BuiltinCatalogs = { ...MODELS, ...FORK_OWNED_CATALOGS };
+
+/** Providers present in the generated catalog, plus the fork-owned ones.
+ * `KnownProvider` additionally includes purely dynamic providers
+ * (e.g. "radius") that have no static catalog entry. */
+export type BuiltinProvider = keyof BuiltinCatalogs;
 
 type BuiltinModelApi<
 	TProvider extends BuiltinProvider,
-	TModelId extends keyof (typeof MODELS)[TProvider],
-> = (typeof MODELS)[TProvider][TModelId] extends { api: infer TApi } ? (TApi extends Api ? TApi : never) : never;
+	TModelId extends keyof BuiltinCatalogs[TProvider],
+> = BuiltinCatalogs[TProvider][TModelId] extends { api: infer TApi } ? (TApi extends Api ? TApi : never) : never;
 
 const XIAOMI_MIMO_PROVIDERS = new Set([
 	"xiaomi",
@@ -101,16 +117,16 @@ function normalizeBuiltinModel<TApi extends Api>(model: Model<TApi> | undefined)
 }
 
 /** Typed read of the generated built-in catalog. */
-export function getBuiltinModel<TProvider extends BuiltinProvider, TModelId extends keyof (typeof MODELS)[TProvider]>(
+export function getBuiltinModel<TProvider extends BuiltinProvider, TModelId extends keyof BuiltinCatalogs[TProvider]>(
 	provider: TProvider,
 	modelId: TModelId,
 ): Model<BuiltinModelApi<TProvider, TModelId>> {
-	const models = MODELS[provider] as Record<string, Model<Api>> | undefined;
+	const models = BUILTIN_CATALOGS[provider] as Record<string, Model<Api>> | undefined;
 	return normalizeBuiltinModel(models?.[modelId as string]) as Model<BuiltinModelApi<TProvider, TModelId>>;
 }
 
 export function getBuiltinProviders(): BuiltinProvider[] {
-	return Object.keys(MODELS) as BuiltinProvider[];
+	return Object.keys(BUILTIN_CATALOGS) as BuiltinProvider[];
 }
 
 /** Generation timestamp shared by all built-in provider catalogs. */
@@ -121,13 +137,13 @@ export function getBuiltinModelDataGeneratedAt(): number | undefined {
 
 export function getBuiltinModels<TProvider extends BuiltinProvider>(
 	provider: TProvider,
-): Model<BuiltinModelApi<TProvider, keyof (typeof MODELS)[TProvider]>>[] {
-	const models = MODELS[provider] as Record<string, Model<Api>> | undefined;
+): Model<BuiltinModelApi<TProvider, keyof BuiltinCatalogs[TProvider]>>[] {
+	const models = BUILTIN_CATALOGS[provider] as Record<string, Model<Api>> | undefined;
 	return models
 		? (Object.values(models)
 				.map((model) => normalizeBuiltinModel(model))
 				.filter((model): model is Model<Api> => model !== undefined) as Model<
-				BuiltinModelApi<TProvider, keyof (typeof MODELS)[TProvider]>
+				BuiltinModelApi<TProvider, keyof BuiltinCatalogs[TProvider]>
 			>[])
 		: [];
 }
