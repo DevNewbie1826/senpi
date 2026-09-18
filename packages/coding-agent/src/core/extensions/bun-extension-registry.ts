@@ -1,5 +1,6 @@
 import { dirname } from "node:path";
-import { pathToFileURL } from "node:url";
+import { publishRuntimeMetadata } from "./extension-runtime-module.ts";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export type ModuleSource = { readonly contents: string; readonly loader: "js" };
 export type Resolution = { readonly path: string; readonly namespace: string };
@@ -27,12 +28,31 @@ declare const Bun: {
 };
 
 export const extensionNamespace = "senpi-extension";
+const RUNTIME_SPECIFIER = "runtime";
+const runtimeModulePath = fileURLToPath(new URL("./extension-runtime-module.js", import.meta.url));
+
+// An id is `<generation>/<encodeURIComponent(filename)>`. The encoded half never contains a
+// literal "/" (Windows separators arrive as %5C), so the FIRST slash is always the generation
+// separator — but only when one exists. A bare id with no slash used to slice to nonsense and
+// surface as `Cannot find package '<generation>'` (omo#8427).
+function splitModuleId(id: string): { readonly generation: string; readonly filename: string } | undefined {
+	const slash = id.indexOf("/");
+	if (slash <= 0 || slash === id.length - 1) return undefined;
+	return { generation: id.slice(0, slash), filename: decodeURIComponent(id.slice(slash + 1)) };
+}
 const graphs = new Map<string, WeakRef<ExtensionGraph>>();
 const collected = new FinalizationRegistry<string>((generation) => graphs.delete(generation));
 let nextGeneration = 0;
 let installed = false;
 let pluginRegistrations = 0;
 const registeredHosts = new Set<string>();
+
+export class ExtensionModuleIdError extends Error {
+	readonly name = "ExtensionModuleIdError";
+	constructor(id: string) {
+		super(`Extension module id is not "<generation>/<encoded filename>": ${id}`);
+	}
+}
 
 export class ExtensionGenerationDisposedError extends Error {
 	readonly name = "ExtensionGenerationDisposedError";
@@ -81,19 +101,27 @@ function installRegistry(virtualModules: Readonly<Record<string, Readonly<Record
 					registeredHosts.add(name);
 				}
 				if (installed) return;
-				builder.module(`${extensionNamespace}:runtime`, () => ({ exports: { metadata }, loader: "object" }));
+				// "runtime" resolves to a real file, never a Bun.plugin virtual module. A
+				// builder.module() registration is intermittently invisible to the resolver under
+				// `bun test --parallel` on a loaded Windows shard: onResolve still fires and returns
+				// the namespace, the registration is still listed, and Bun answers
+				// `Cannot find package 'runtime'` anyway — generation 1 served 40 resolves and
+				// refused the 41st in the same worker (omo#8427, run 35329245740). A file on disk
+				// has no registration window to lose.
+				publishRuntimeMetadata(metadata);
 				builder.onResolve({ filter: /.*/, namespace: extensionNamespace }, ({ path }) => {
-					if (path === "runtime") return { path, namespace: extensionNamespace };
-					const slash = path.indexOf("/");
-					graphFor(path.slice(0, slash));
-					const filename = decodeURIComponent(path.slice(slash + 1));
-					return /\.[cm]?[jt]sx?$/.test(filename)
+					if (path === RUNTIME_SPECIFIER) return { path: runtimeModulePath, namespace: "file" };
+					const parsed = splitModuleId(path);
+					if (parsed === undefined) throw new ExtensionModuleIdError(path);
+					graphFor(parsed.generation);
+					return /\.[cm]?[jt]sx?$/.test(parsed.filename)
 						? { path, namespace: extensionNamespace }
-						: { path: filename, namespace: "file" };
+						: { path: parsed.filename, namespace: "file" };
 				});
 				builder.onLoad({ filter: /.*/, namespace: extensionNamespace }, ({ path }) => {
-					const slash = path.indexOf("/");
-					return graphFor(path.slice(0, slash)).load(decodeURIComponent(path.slice(slash + 1)));
+					const parsed = splitModuleId(path);
+					if (parsed === undefined) throw new ExtensionModuleIdError(path);
+					return graphFor(parsed.generation).load(parsed.filename);
 				});
 				installed = true;
 			},

@@ -1,5 +1,26 @@
 # Core Extensions Changes
 
+## 2026-09-18 — The extension runtime shim resolves to a file, not a Bun virtual module (omo#8427)
+
+### What changed
+
+- `bun-extension-registry.ts`: `"runtime"` resolves to `extension-runtime-module.js` on disk instead of a `builder.module()` virtual module; the metadata factory is published through `Symbol.for("senpi.extension.runtime.metadata")` and read back by that file.
+- `extension-runtime-module.ts` (new): the shim the namespace now resolves to.
+- Module ids are parsed by one `splitModuleId()` helper that requires a real `<generation>/<encoded filename>` shape and raises `ExtensionModuleIdError` otherwise, replacing two open-coded `indexOf("/")` slices.
+
+### Why
+
+- On `windows-latest` under `bun test --parallel`, a `builder.module()` registration is intermittently invisible to Bun's resolver while the hooks keep working. Measured on the shard (omo run 35329245740): `onResolve` fired for `"runtime"` and returned `{ path: "runtime", namespace }` with the registration still listed (`hasModuleReg: ["runtime"]`), and Bun answered `Cannot find package 'runtime'` anyway — generation 0 on its only resolve, generation 1 on its **41st** after 40 successes in the same worker. An independent plugin's virtual module resolved fine in that worker, so this is not a Bun-wide outage. Every agent-dir extension in the affected worker then failed to load, which is what made omo's two marker tests red on every `windows 2/2` shard across three releases.
+- The `indexOf("/")` slices produced `Cannot find package '1'` (the generation number) for an id whose encoded half holds no literal slash — a second defect the first one had been masking.
+
+### Why an extension could not handle it
+
+- This is the loader that runs before any extension exists.
+
+### Expected merge conflict zones
+
+- MEDIUM: the `setup(builder)` body in `bun-extension-registry.ts`.
+
 ## 2026-09-18 - The extension reference publishes the session identity and what the config-reload watcher costs (senpi#1782)
 
 ### What changed
