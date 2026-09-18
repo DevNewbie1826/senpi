@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
-import { publishRuntimeMetadata } from "./extension-runtime-module.ts";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { publishRuntimeMetadata } from "./extension-runtime-module.ts";
 
 export type ModuleSource = { readonly contents: string; readonly loader: "js" };
 export type Resolution = { readonly path: string; readonly namespace: string };
