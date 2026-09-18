@@ -1,3 +1,24 @@
+## 2026-09-19 - A fork-owned provider survives a catalog regeneration
+
+### What changed
+
+- `packages/ai/src/providers/kimi-coding.models.ts` is hand-written with inline values, the way
+  `devin.models.ts` is, instead of importing a `data/kimi-coding.json` that a generation run no
+  longer writes; the data file and its manifest entry are gone.
+- `packages/ai/src/providers/all.ts` reads a `FORK_OWNED_CATALOGS` map alongside the generated
+  `MODELS`, so `getBuiltinModel`, `getBuiltinModels` and `getBuiltinProviders` keep serving a
+  provider that can never appear in the generated aggregate.
+- `packages/ai/scripts/model-shards.ts` lists the shard as fork-owned.
+- `packages/ai/test/fork-owned-catalogs.test.ts` requires the provider to be absent from `MODELS`
+  and still readable through the catalog API.
+
+### Why
+
+- models.dev stopped describing `kimi-coding`, so a regeneration emits neither its shard nor its
+  data file and the provider silently left the generated catalog - fifteen type errors that only the
+  release job ever saw. Keeping the shard (the prune guard) and tolerating it (the aggregator gate)
+  were the first two layers; a provider the fork ships also has to stay readable.
+
 ## 2026-09-18 — Drop the OpenRouter Mistral overflow case that the catalog no longer carries
 
 ### What changed
