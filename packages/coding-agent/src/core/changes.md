@@ -8,8 +8,12 @@
   `packageManager.resolve()` + `resolveExtensionSources(additionalExtensionPaths)`, keyed on a
   stable digest of `{ agentDir, cwd, globalSettings, projectSettings, additionalExtensionPaths }`.
   A rejected computation is evicted so the next caller retries.
-- `resource-loader.ts` `reload()` resolves through it. The key is computed AFTER
-  `settingsManager.reload()` at the top of `reload()`, so a settings change yields a new key.
+- `resource-loader.ts` resolves through it from ONE private `resolvePackagePaths()`, used by both
+  `reload()` and the pre-trust bootstrap pass `loadCurrentExtensionSet()`. The bootstrap pass
+  had its own un-memoized pair of calls, so a session in a trust-requiring project resolved
+  twice per open with only the second memoized; now each pass shares its own entry (the keys
+  differ: the bootstrap pass sees untrusted project settings). The key is computed AFTER
+  `settingsManager.reload()`, so a settings change yields a new key.
 
 ### Why
 

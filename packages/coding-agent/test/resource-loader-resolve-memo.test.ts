@@ -66,6 +66,18 @@ describe("DefaultResourceLoader package resolution memo", () => {
 		expect(resolve).toHaveBeenCalledTimes(2);
 	});
 
+	it("resolves once through the project-trust path too", async () => {
+		const resolve = vi.spyOn(DefaultPackageManager.prototype, "resolve");
+		const reloadOptions = { resolveProjectTrust: () => Promise.resolve(true) };
+
+		await makeLoader().reload(reloadOptions);
+		const afterFirst = resolve.mock.calls.length;
+		await makeLoader().reload(reloadOptions);
+
+		expect(afterFirst).toBeGreaterThan(0);
+		expect(resolve).toHaveBeenCalledTimes(afterFirst);
+	});
+
 	it("shares one in-flight resolution across concurrent loaders", async () => {
 		const resolve = vi.spyOn(DefaultPackageManager.prototype, "resolve");
 

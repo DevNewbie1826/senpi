@@ -615,21 +615,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		if (!settingsAreFresh) {
 			await this.settingsManager.reload();
 		}
-		const { resolvedPaths, cliExtensionPaths } = await memoizeResolvedPaths(
-			resolvedPathsMemoKey({
-				agentDir: this.agentDir,
-				cwd: this.cwd,
-				globalSettings: this.settingsManager.getGlobalSettings(),
-				projectSettings: this.settingsManager.getProjectSettings(),
-				additionalExtensionPaths: this.additionalExtensionPaths,
-			}),
-			async () => ({
-				resolvedPaths: await this.packageManager.resolve(),
-				cliExtensionPaths: await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
-					temporary: true,
-				}),
-			}),
-		);
+		const { resolvedPaths, cliExtensionPaths } = await this.resolvePackagePaths();
 		time("packageResolve", "extensions");
 		// Keep package metadata available for later extendResources() passes.
 		this.resourceMetadataByPath = new Map();
@@ -822,6 +808,24 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 	}
 
+	private resolvePackagePaths() {
+		return memoizeResolvedPaths(
+			resolvedPathsMemoKey({
+				agentDir: this.agentDir,
+				cwd: this.cwd,
+				globalSettings: this.settingsManager.getGlobalSettings(),
+				projectSettings: this.settingsManager.getProjectSettings(),
+				additionalExtensionPaths: this.additionalExtensionPaths,
+			}),
+			async () => ({
+				resolvedPaths: await this.packageManager.resolve(),
+				cliExtensionPaths: await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
+					temporary: true,
+				}),
+			}),
+		);
+	}
+
 	private buildGlobalDefaultExtensionLoadOptions(): ExtensionSessionProfile & {
 		factoryResolver: ExtensionFactoryResolver;
 	} {
@@ -833,10 +837,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	private async loadCurrentExtensionSet(options: { includeInlineFactories: boolean }): Promise<LoadExtensionsResult> {
-		const resolvedPaths = await this.packageManager.resolve();
-		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
-			temporary: true,
-		});
+		const { resolvedPaths, cliExtensionPaths } = await this.resolvePackagePaths();
 		const enabledExtensions = resolvedPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
 		const cliEnabledExtensions = cliExtensionPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
 		const extensionPaths = this.noExtensions
