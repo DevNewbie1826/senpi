@@ -88,6 +88,28 @@ assert.deepEqual(factory(), ["a", "a", true]);
 		);
 	});
 
+	it("re-throws from a CommonJS module that failed to evaluate instead of caching its partial exports", () => {
+		// Given: a dependency whose evaluation throws after it has started filling exports.
+		const root = fixture('import lib from "cjs-lib"; export default () => lib;');
+		commonJsPackage(root, "cjs-lib", {
+			"index.js": [
+				"const outcomes = [];",
+				'for (const attempt of [1, 2]) { try { outcomes.push(require("./boom.js")); } catch (error) { outcomes.push(error.message); } }',
+				"module.exports = outcomes;",
+			].join("\n"),
+			"boom.js": 'exports.partial = "set"; throw new Error("boom");',
+		});
+		// When / Then: every require of the failed module throws, as Node evicts a module that failed to load.
+		run(
+			root,
+			`
+const importer = await createBunExtensionImporter({});
+const factory = await importer.import(entry, { default: true });
+assert.deepEqual(factory(), ["boom", "boom"]);
+`,
+		);
+	});
+
 	it("keeps a .mjs file with top-level await and no import or export on the ESM path", () => {
 		// Given: an ES module by extension whose only module-level syntax is await.
 		const root = fixture('import "./side.mjs"; export default () => globalThis.__senpiSideEffect;');
