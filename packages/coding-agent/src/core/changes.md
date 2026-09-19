@@ -1,5 +1,35 @@
 # changes
 
+## 2026-09-19 - A shared model runtime refreshes only what this session registered (senpi#1844)
+
+### What changed
+
+- `agent-session-services.ts` records the provider ids its replay loop registers. When the
+  caller injected `options.modelRuntime`, the trailing refresh is
+  `refresh({ providers: [those ids] })`, and is skipped when none were registered. A runtime
+  built for this session still refreshes everything, as before.
+
+### Why
+
+The in-process daemon now hands one `ModelRuntime` to every session (see `src/changes.md`,
+same date). With that in place the unconditional `modelRuntime.refresh()` recomposed every
+provider the shared instance had accumulated, on every open, serialized on the one instance -
+measured 29-118 ms against ~5 ms on a per-session runtime - and cost more than the parallel
+`create` it replaced. Scoped to what this open added, the two paths reach the same state:
+everything else was refreshed by whoever added it. Built daemon over its socket: single warm
+open 277 -> 162 ms median; eight concurrent 507 -> 439 ms wall median.
+
+### Why an extension could not handle it
+
+The refresh runs in the services layer after the replay of extension provider registrations
+and before any session exists. An extension has no hook there and cannot see whether the
+runtime it registered into is private or shared.
+
+### Expected merge conflict zones
+
+- `agent-session-services.ts` - the provider replay loop and the `modelRuntime.refresh` call
+  that follows it.
+
 ## 2026-09-18 - Default B.AI model selection
 
 ### What changed

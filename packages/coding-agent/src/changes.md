@@ -1,5 +1,51 @@
 # changes
 
+## 2026-09-19 - The in-process daemon shares one model runtime across its sessions (senpi#1844)
+
+### What changed
+
+- `main.ts` `createCliRuntimeFactory` accepts `modelRuntime` in its local options and passes it
+  to `createAgentSessionServices`, which already honoured an injected runtime but was never
+  handed one on the daemon path.
+- `main.ts` multi-session entry builds one `ModelRuntime` for the host's agent dir and gives it to
+  the factory - in-process only. Worker sessions build their own inside the isolate; an object
+  cannot cross that boundary, so the shared one is not offered there.
+
+### Why
+
+Measured on `main` from source (44 extensions, sandbox agent dir): an open is ~92%
+`createAgentSessionServices`, and inside it `ModelRuntime.create` (~110 ms) runs in parallel with
+`resourceLoader.reload` (~105 ms), so an open costs the slower branch. Under concurrency the
+opens interleave as synchronous CPU on one loop: 8 concurrent opens on a warm cache took 1013 ms
+wall with min 1008 - every open waited for all eight. That is the 32-open / 10.5 s minimum on
+#1844 to the millisecond. A shared host's sessions all live in one agent dir, so every one of
+those runtimes was identical.
+
+Sharing it alone did NOT move the daemon: the unconditional per-open `modelRuntime.refresh()`
+recomposed every provider the shared instance had accumulated, serialized on that one instance,
+and cost more than the parallel `create` it replaced (measured 29-118 ms vs ~5 ms). So a shared
+runtime refreshes only the providers this open registered, and nothing when it registered none.
+
+Measured on the built daemon over its socket, 9 rounds each, alternating: single warm open
+277 -> 162 ms median (~40%); 8 concurrent opens 507 -> 439 ms wall median (~15%), the two
+distributions separating. Not the ~50% a source-level probe had promised - that probe's faux
+extensions registered no providers, which hid the refresh cost. `reload` is now the sole
+critical path (tracked on #1844).
+
+### Why an extension could not handle it
+
+The runtime is built before any extension of the session exists, by the services layer that
+extensions are loaded into. An extension sees the runtime only through `ctx`; it cannot supply
+one.
+
+### Expected merge conflict zones
+
+- `main.ts` - the `createCliRuntimeFactory` options type and the `runMultiSessionHost` call.
+  Upstream changes to either the factory's local options or the daemon entry meet this.
+- `core/agent-session-services.ts` - the provider replay loop now records what it registered and
+  the trailing refresh is scoped when the runtime was injected. Upstream changes to the replay or
+  to the refresh call meet this.
+
 ## 2026-09-18 - Every daemon surface this fork added is documented where its client reads (senpi#1782)
 
 ### What changed

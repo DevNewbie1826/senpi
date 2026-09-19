@@ -6,7 +6,7 @@
  * createAgentSession() options. The SDK does the heavy lifting.
  */
 
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import { setCapabilityOverrides } from "@earendil-works/pi-tui";
@@ -714,6 +714,15 @@ export function createCliRuntimeFactory(
 		extensionFactories?: InlineExtension[];
 		startupSettingsManager?: SettingsManager;
 		startupLoadingIndicator?: ReturnType<typeof createStartupLoadingIndicator>;
+		/**
+		 * One model runtime for every session this factory creates. A shared host's
+		 * sessions all live in one agent dir, so they would each build an identical
+		 * runtime - ~100 ms of loop CPU per open that, concurrent, every open pays
+		 * N times over (senpi#1844). Provider registration is keyed by id and
+		 * merges, so replaying each session's extension providers into one runtime
+		 * is idempotent.
+		 */
+		modelRuntime?: ModelRuntime;
 	} = {},
 ): CreateAgentSessionRuntimeFactory {
 	const { parsed, cwd, agentDir, appMode } = configuration;
@@ -751,6 +760,7 @@ export function createCliRuntimeFactory(
 			cwd,
 			agentDir,
 			settingsManager: runtimeSettingsManager,
+			...(local.modelRuntime === undefined ? {} : { modelRuntime: local.modelRuntime }),
 			modelRuntimeSignal: AbortSignal.timeout(15_000),
 			extensionFlagValues: parsed.unknownFlags,
 			resourceLoaderReloadOptions: shouldResolveProjectTrust
@@ -1108,10 +1118,25 @@ export async function main(args: string[], options?: MainOptions) {
 		// is passed, so withholding it is what selects the uncapped in-process registry.
 		const sessionRuntime = resolveSessionRuntime(parsed);
 		const { runMultiSessionHost } = await import("./modes/rpc/multi-session-host.ts");
+		// In-process sessions share the host's model runtime: one agent dir, one
+		// catalog. Worker sessions build their own inside the isolate - an object
+		// cannot cross that boundary - so the shared one is offered only here.
+		const hostModelRuntime =
+			sessionRuntime === "worker"
+				? undefined
+				: await ModelRuntime.create({
+						credentials: AuthStorage.create(join(agentDir, "auth.json")),
+						authPath: join(agentDir, "auth.json"),
+						agentDir,
+						modelsPath: join(agentDir, "models.json"),
+						signal: AbortSignal.timeout(15_000),
+					});
 		printTimings();
 		await runMultiSessionHost({
 			agentDir,
-			createRuntime: createCliRuntimeFactory(runtimeConfiguration),
+			createRuntime: createCliRuntimeFactory(runtimeConfiguration, {
+				...(hostModelRuntime === undefined ? {} : { modelRuntime: hostModelRuntime }),
+			}),
 			...(sessionRuntime === "worker" ? { workerConfiguration: runtimeConfiguration } : {}),
 			cwd,
 			creationModel:
