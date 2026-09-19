@@ -1208,6 +1208,25 @@
 
 # changes
 
+## 2026-09-19 - Run before_agent_start for idle custom trigger turns (#1329)
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session.ts` routes an idle `sendCustomMessage(..., { triggerTurn: true })` through `before_agent_start` after core pre-provider compaction and before final provider admission. Hook custom messages and system-prompt overrides use the same application path as ordinary prompts. A user abort while an awaited hook is held prevents a ghost provider turn and retains the trigger in its selected queue. The branch holds the session-work barrier for the whole awaited admission span, the way `prompt()` does: a trigger turn sent from `agent_settled` (the ttsr nudge) otherwise races the settling run's own continuation and the recovery turn is lost (`goal-ttsr-user-abort-race.test.ts`).
+
+### Why
+
+- Under a goal loop every turn is such a trigger turn, so the compaction extension's proactive policy (`threshold_trigger`, warm-summary consumption, speculative lead) never ran: sessions rode from the proactive threshold to the hard reserve valve and then paid a from-scratch blocking summarization inside the turn, which surfaced as minutes of `Compacting...` (evidence on #1329).
+- Extension-triggered turns bypassed `before_agent_start`, so hook-provided context and system-prompt changes were absent from their actual provider request. Awaiting the newly-added hook also created an abort window where a released hook could start a turn after the user cancelled it.
+
+### Why an extension could not handle it
+
+- The idle trigger-turn branch chooses provider admission, cancellation ownership, and invokes the agent loop inside `AgentSession`; extensions only receive the lifecycle hook after the host emits it.
+
+### Expected merge conflict zones
+
+- MEDIUM: `sendCustomMessage` trigger-turn admission, cancellation generation, and the shared `before_agent_start` result application in `packages/coding-agent/src/core/agent-session.ts`.
+
 ## 2026-09-08 - Reserve session writers before opening or replacing them
 
 ### What changed
