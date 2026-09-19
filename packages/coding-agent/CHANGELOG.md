@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- An open that waits behind other opens now says so. The shared host starts sessions one at a time, so several starting at once queue up — and when one waited past its deadline, the only message was a bare timeout with nothing after it. The host now tells each caller its place in the queue as soon as the request is accepted, so a slow start can be told apart from a broken one. ([#1844](https://github.com/code-yeongyu/senpi/issues/1844))
+
 - Opening a session on a busy machine no longer fails instantly. The open deadline was fixed once when the request queue was built, so anything opened later inherited what was left of it — and after 30 seconds the next open was given a zero-length timer that expired immediately. Each open is now given its own deadline, measured from when it is sent. ([#1719](https://github.com/code-yeongyu/senpi/issues/1719))
 
 ### Removed

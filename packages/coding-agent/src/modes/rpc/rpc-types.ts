@@ -1010,6 +1010,25 @@ export interface RpcAuthAccountsChangedEvent {
  * serves, naming the routing handle and tool whose work held it when that can be
  * attributed. Informational: the host never aborts or refuses anything because of it.
  */
+/**
+ * Sent to ONE opener the moment its `open_session` is accepted, before the open enters the
+ * session loop. The in-process host serves opens one at a time, so a burst queues; without this
+ * the client's only signal is a deadline it cannot explain (senpi#1844).
+ *
+ * `for_request` carries the opener's request id deliberately, NOT the response-id field: a client
+ * settles pending requests by response id, and a queued record wearing the open's id would be
+ * taken as the open's reply.
+ */
+export interface RpcOpenQueuedEvent {
+	type: "queued";
+	/** The `open_session` request this position belongs to. */
+	for_request: string;
+	/** 1-based place in the open queue at the moment of acceptance. */
+	position: number;
+	/** Opens already in flight when this one arrived; `position` is this plus one. */
+	in_flight: number;
+}
+
 export interface RpcHostStalledEvent {
 	type: "host_stalled";
 	/** How late the host's own 200ms timer was invoked, i.e. how long the loop was held. */

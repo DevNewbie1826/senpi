@@ -6,6 +6,7 @@ import { omitInlineMedia } from "./media-placeholders.ts";
 import type {
 	RpcHostMemoryPressureEvent,
 	RpcHostStalledEvent,
+	RpcOpenQueuedEvent,
 	RpcSessionClosedEvent,
 	RpcSessionClosedReason,
 	RpcSessionParkedEvent,
@@ -343,6 +344,27 @@ export class SessionEventWriter {
 	 * with a routing handle by the writer: `host_stalled` carries the handle it blames,
 	 * and `host_memory_pressure` belongs to the process, not to a session.
 	 */
+	/**
+	 * Tell ONE opener where it sits in the open queue, before its open reaches the loop.
+	 *
+	 * Sent to the opening connection only: a queue position is about that caller's request, not
+	 * about the host. If the connection is gone the record is dropped rather than queued - a
+	 * position is worthless to a client that already left.
+	 */
+	sendOpenQueued(connection: string, record: RpcOpenQueuedEvent): void {
+		// Reconstruct so desktop `refresh-senpi-events.ts` sees a literal `type:` site in this file.
+		const wire: RpcRecord = {
+			type: "queued",
+			for_request: record.for_request,
+			position: record.position,
+			in_flight: record.in_flight,
+		};
+		const target = this.fanout.get(connection);
+		if (target === undefined) return;
+		target.actor.enqueue(serializeJsonLine(wire));
+		this.requestFlush();
+	}
+
 	broadcastHostRecord(record: RpcHostStalledEvent | RpcHostMemoryPressureEvent): void {
 		// Reconstruct so desktop `refresh-senpi-events.ts` sees literal `type:` sites in this file.
 		let wire: RpcRecord;
