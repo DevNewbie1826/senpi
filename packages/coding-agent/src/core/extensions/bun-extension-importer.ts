@@ -6,6 +6,8 @@ import { parse } from "es-module-lexer/js";
 import { isCommonJsFile, rewriteCommonJsImport } from "./bun-extension-commonjs.ts";
 import { ExtensionSourceError } from "./bun-extension-error.ts";
 import {
+	type CommonJsBody,
+	type CommonJsModule,
 	ExtensionGenerationDisposedError,
 	extensionNamespace,
 	type ModuleSource,
@@ -30,6 +32,10 @@ export function createBunExtensionImporter(
 ) {
 	const sources = new Map<string, ModuleSource>();
 	const commonJs = new Set<string>();
+	// Live `module` objects by id, registered while a CommonJS body runs: a require inside a
+	// cycle receives the partially built exports, as in Node, instead of an unset ESM default.
+	// A body that throws is evicted so a later require re-throws instead of seeing a half-built module.
+	const commonJsModules = new Map<string, CommonJsModule>();
 	const nativeRequire = createRequire(import.meta.url);
 	let active = true;
 	const assertActive = () => {
@@ -53,8 +59,23 @@ export function createBunExtensionImporter(
 		},
 		require(specifier: string, filename: string): unknown {
 			const id = graph.resolve(specifier, filename);
+			const evaluating = commonJsModules.get(id);
+			if (evaluating !== undefined) return evaluating.exports;
 			const result: { readonly default?: unknown } = nativeRequire(id);
 			return commonJs.has(id) ? result.default : result;
+		},
+		evaluateCommonJs(filename: string, body: CommonJsBody): unknown {
+			assertActive();
+			const id = moduleId(filename);
+			const module: CommonJsModule = { exports: {} };
+			commonJsModules.set(id, module);
+			try {
+				body.call(module.exports, module.exports, module);
+			} catch (error) {
+				commonJsModules.delete(id);
+				throw error;
+			}
+			return module.exports;
 		},
 		load(filename: string): ModuleSource {
 			assertActive();
@@ -106,13 +127,17 @@ export function createBunExtensionImporter(
 			for (const edit of edits.sort((a, b) => b.start - a.start)) {
 				contents = contents.slice(0, edit.start) + edit.text + contents.slice(edit.end);
 			}
-			// Runtime plugins load ESM, even for CommonJS source. A local module
-			// wrapper preserves synchronous export assignment.
-			if (!hasModuleSyntax) {
+			// A shebang is only a shebang on the first line, so it goes before any prologue.
+			contents = contents.replace(/^#![^\n]*\n/, "");
+			// Runtime plugins load ESM, even for CommonJS source. Node's module
+			// function wrapper preserves synchronous export assignment and keeps
+			// `exports` and `module` reassignable bindings with `this` as the exports
+			// object, as dependencies such as whatwg-url and jsdom require.
+			if (!hasModuleSyntax && extension !== ".mjs" && extension !== ".mts") {
 				commonJs.add(moduleId(filename));
-				contents = `const module = { exports: {} }; const exports = module.exports;\n${contents}\nexport default module.exports;`;
+				contents = `export default ${name}.commonJs(function (exports, module) {\n${contents}\n});`;
 			}
-			contents = `import { metadata as ${name}Factory } from "${extensionNamespace}:runtime";\nconst ${name} = ${name}Factory(${JSON.stringify(registration.generation)}, ${JSON.stringify(filename)});\n${contents.replace(/^#![^\n]*\n/, "")}`;
+			contents = `import { metadata as ${name}Factory } from "${extensionNamespace}:runtime";\nconst ${name} = ${name}Factory(${JSON.stringify(registration.generation)}, ${JSON.stringify(filename)});\n${contents}`;
 			const prepared = { contents, loader: "js" } satisfies ModuleSource;
 			sources.set(filename, prepared);
 			return prepared;
@@ -138,6 +163,7 @@ export function createBunExtensionImporter(
 			registration.dispose();
 			sources.clear();
 			commonJs.clear();
+			commonJsModules.clear();
 		},
 	};
 }

@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Extensions load again when their dependency graph contains CommonJS modules that reassign `exports` (`module.exports = exports = { ... }`, the shape jsdom and whatwg-url ship), call `require.resolve`, or require each other in a cycle. The loader wrapped such a module in a prologue that declared `exports` as a constant, so Bun rejected it at parse time with `This assignment will throw because "exports" is a constant` and the entire extension graph failed to load; the per-file `require` had no `resolve`, and a module inside a require cycle received `undefined` instead of the partially built exports. CommonJS now evaluates inside Node's module function wrapper with a live module registry and a `require.resolve` that returns the file's absolute path, so an extension such as pi-webfetch (jsdom) loads.
+
 ### Removed
 
 ## [2026.9.18-6] - 2026-09-18
