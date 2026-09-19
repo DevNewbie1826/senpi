@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Reopening a session file no longer splits it in two. A session started without a file path created one but never claimed it, so opening that same file afterwards started a second session on top of the first and both wrote to it. The file is now claimed as soon as the session has one, and opening it again joins the session that already has it.
+
 - The shared host opens sessions faster still. Every session it opened was rediscovering the same installed packages; the host now resolves them once and reuses the answer until its settings change. Measured on the daemon over its socket: eight sessions opened at once finish about 30% sooner than the previous release, and a single open about 25% sooner. ([#1844](https://github.com/code-yeongyu/senpi/issues/1844))
 
 - The shared host opens a session faster. Every session it opened was building its own copy of the same model catalog; the host now builds one and hands it to each session, and each session refreshes only the providers it added. Measured on the daemon over its socket: a single open is about 40% faster, and eight opened at once finish about 15% sooner. ([#1844](https://github.com/code-yeongyu/senpi/issues/1844))
