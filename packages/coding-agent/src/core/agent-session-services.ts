@@ -185,14 +185,17 @@ export async function createAgentSessionServices(
 
 	const diagnostics: AgentSessionRuntimeDiagnostic[] = [];
 	const extensionsResult = resourceLoader.getExtensions();
+	const registeredProviders = new Set<string>();
 	// Replay registrations queued during extension loading in original call order
 	// so last-registration-wins holds across mixed legacy/native registrations.
 	for (const registration of drainPendingProviderRegistrations(extensionsResult.runtime)) {
 		try {
 			if (registration.kind === "config") {
 				void modelRuntime.registerProvider(registration.name, registration.config, { refresh: false });
+				registeredProviders.add(registration.name);
 			} else {
 				void modelRuntime.registerNativeProvider(registration.provider, { refresh: false });
+				registeredProviders.add(registration.provider.id);
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -202,7 +205,16 @@ export async function createAgentSessionServices(
 			});
 		}
 	}
-	await modelRuntime.refresh({ allowNetwork: false });
+	// A runtime built for this session refreshes everything it has, which is what
+	// it just composed. A runtime shared across a host's sessions already holds
+	// every provider earlier opens refreshed, so this open recomposes only what
+	// it added - an unscoped refresh there rebuilt every provider on every open,
+	// serialized on the one instance (senpi#1844).
+	if (options.modelRuntime === undefined) {
+		await modelRuntime.refresh({ allowNetwork: false });
+	} else if (registeredProviders.size > 0) {
+		await modelRuntime.refresh({ allowNetwork: false, providers: [...registeredProviders] });
+	}
 	diagnostics.push(...applyExtensionFlagValues(resourceLoader, options.extensionFlagValues));
 
 	return {
