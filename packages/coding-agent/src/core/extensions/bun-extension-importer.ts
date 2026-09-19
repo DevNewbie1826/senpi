@@ -6,6 +6,7 @@ import { parse } from "es-module-lexer/js";
 import { isCommonJsFile, rewriteCommonJsImport } from "./bun-extension-commonjs.ts";
 import { ExtensionSourceError } from "./bun-extension-error.ts";
 import {
+	type CommonJsModule,
 	ExtensionGenerationDisposedError,
 	extensionNamespace,
 	type ModuleSource,
@@ -30,6 +31,9 @@ export function createBunExtensionImporter(
 ) {
 	const sources = new Map<string, ModuleSource>();
 	const commonJs = new Set<string>();
+	// Live `module` objects by id, registered before a CommonJS body runs: a require inside a
+	// cycle receives the partially built exports, as in Node, instead of an unset ESM default.
+	const commonJsModules = new Map<string, CommonJsModule>();
 	const nativeRequire = createRequire(import.meta.url);
 	let active = true;
 	const assertActive = () => {
@@ -53,8 +57,16 @@ export function createBunExtensionImporter(
 		},
 		require(specifier: string, filename: string): unknown {
 			const id = graph.resolve(specifier, filename);
+			const evaluating = commonJsModules.get(id);
+			if (evaluating !== undefined) return evaluating.exports;
 			const result: { readonly default?: unknown } = nativeRequire(id);
 			return commonJs.has(id) ? result.default : result;
+		},
+		commonJsModule(filename: string): CommonJsModule {
+			assertActive();
+			const module: CommonJsModule = { exports: {} };
+			commonJsModules.set(moduleId(filename), module);
+			return module;
 		},
 		load(filename: string): ModuleSource {
 			assertActive();
@@ -114,7 +126,7 @@ export function createBunExtensionImporter(
 			// object, as dependencies such as whatwg-url and jsdom require.
 			if (!hasModuleSyntax) {
 				commonJs.add(moduleId(filename));
-				contents = `const module = { exports: {} };\n(function (exports, module) {\n${contents}\n}).call(module.exports, module.exports, module);\nexport default module.exports;`;
+				contents = `const module = ${name}.commonJs();\n(function (exports, module) {\n${contents}\n}).call(module.exports, module.exports, module);\nexport default module.exports;`;
 			}
 			contents = `import { metadata as ${name}Factory } from "${extensionNamespace}:runtime";\nconst ${name} = ${name}Factory(${JSON.stringify(registration.generation)}, ${JSON.stringify(filename)});\n${contents}`;
 			const prepared = { contents, loader: "js" } satisfies ModuleSource;
@@ -142,6 +154,7 @@ export function createBunExtensionImporter(
 			registration.dispose();
 			sources.clear();
 			commonJs.clear();
+			commonJsModules.clear();
 		},
 	};
 }

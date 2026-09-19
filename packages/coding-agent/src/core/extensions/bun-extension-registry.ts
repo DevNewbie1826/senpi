@@ -5,10 +5,12 @@ import { publishRuntimeMetadata } from "./extension-runtime-module.ts";
 
 export type ModuleSource = { readonly contents: string; readonly loader: "js" };
 export type Resolution = { readonly path: string; readonly namespace: string };
+export type CommonJsModule = { exports: unknown };
 export interface ExtensionGraph {
 	resolve(specifier: string, filename: string): string;
 	load(filename: string): ModuleSource;
 	require(specifier: string, filename: string): unknown;
+	commonJsModule(filename: string): CommonJsModule;
 }
 type ModuleObject = { readonly exports: Readonly<Record<string, unknown>>; readonly loader: "object" };
 declare const Bun: {
@@ -84,18 +86,26 @@ function graphFor(generation: string): ExtensionGraph {
 // Module-registry exports must never close over a graph: Bun retains modules.
 // Only the importer, returned factory wrappers, and live runtimes own graphs.
 function metadata(generation: string, filename: string) {
+	const resolvePath = (specifier: string) => {
+		const id = graphFor(generation).resolve(specifier, filename);
+		return id.startsWith(`${extensionNamespace}:`) ? decodeURIComponent(id.slice(id.indexOf("/") + 1)) : undefined;
+	};
+	// CommonJS code calls `require.resolve` for sibling files (jsdom locates its XHR sync
+	// worker that way), so `require` is a function object carrying Node's resolver shape.
+	const require = Object.assign((specifier: string) => graphFor(generation).require(specifier, filename), {
+		resolve: (specifier: string) => resolvePath(specifier) ?? graphFor(generation).resolve(specifier, filename),
+	});
 	return {
 		url: pathToFileURL(filename).href,
 		path: filename,
 		dir: dirname(filename),
-		require: (specifier: string) => graphFor(generation).require(specifier, filename),
+		require,
+		commonJs: () => graphFor(generation).commonJsModule(filename),
 		import: async (specifier: string, options?: ImportCallOptions) =>
 			import(graphFor(generation).resolve(specifier, filename), { ...options }),
 		resolve: (specifier: string) => {
-			const id = graphFor(generation).resolve(specifier, filename);
-			return id.startsWith(`${extensionNamespace}:`)
-				? pathToFileURL(decodeURIComponent(id.slice(id.indexOf("/") + 1))).href
-				: id;
+			const path = resolvePath(specifier);
+			return path === undefined ? graphFor(generation).resolve(specifier, filename) : pathToFileURL(path).href;
 		},
 	};
 }
