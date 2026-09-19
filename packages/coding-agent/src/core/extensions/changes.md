@@ -1,5 +1,25 @@
 # Core Extensions Changes
 
+## 2026-09-19 - CommonJS dependencies evaluate under a module function wrapper (#1838)
+
+### What changed
+
+- `bun-extension-importer.ts`: a CommonJS module is wrapped in Node's module function wrapper — `const module = { exports: {} }; (function (exports, module) { ... }).call(module.exports, module.exports, module); export default module.exports;` — instead of the previous `const module = { exports: {} }; const exports = module.exports;` prologue. `exports` and `module` are parameters again, so a dependency may reassign either, and top-level `this` is the exports object.
+- `bun-extension-importer.ts`: the shebang strip (`/^#![^\n]*\n/`) runs on the transpiled source before any prologue is prepended, not on the final string. The regex is anchored at string start, so once a prologue sat in front of it a shebang in a CommonJS entry survived into the middle of the wrapped module.
+
+### Why
+
+- `const exports` made every CommonJS file that reassigns `exports` a parse-time failure under Bun: `module.exports = exports = { ... }` is the published shape of `whatwg-url/lib/utils.js` and `jsdom/lib/generated/idl/utils.js`, and Bun rejects the wrapped module with `This assignment will throw because "exports" is a constant`. The rejection is not contained to that module: the whole extension graph fails to load, which is how it surfaced (an extension that pulls in jsdom through its dependency graph could not load at all).
+- Node evaluates a CommonJS module inside a function whose `exports` and `module` are parameters, with `this === module.exports`. Matching that wrapper is what makes a published CommonJS dependency behave here as it does under `node` and under plain `bun`.
+
+### Why an extension could not handle it
+
+- This is the loader that evaluates extension source; it runs before any extension exists.
+
+### Expected merge conflict zones
+
+- LOW: the `!hasModuleSyntax` branch and the runtime-prologue template at the end of `graph.load()`.
+
 ## 2026-09-18 — The extension runtime shim resolves to a file, not a Bun virtual module (omo#8427)
 
 ### What changed

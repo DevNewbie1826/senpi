@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Extensions load again when their dependency graph contains a CommonJS module that reassigns `exports` (`module.exports = exports = { ... }`, the shape jsdom and whatwg-url ship). The loader wrapped such a module in a prologue that declared `exports` as a constant, so Bun rejected it at parse time with `This assignment will throw because "exports" is a constant` and the entire extension graph failed to load. CommonJS now evaluates inside Node's module function wrapper, where `exports` and `module` are reassignable and top-level `this` is the exports object.
+
 ### Removed
 
 ## [2026.9.18-6] - 2026-09-18
