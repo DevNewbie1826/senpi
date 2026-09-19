@@ -1,3 +1,16 @@
+## An open is given its own deadline, measured from when it is sent (#1719)
+
+`SessionWorkerRequests` fixed its open deadline once, at construction: `Date.now() + openMs`.
+Every later open shared what was left of that single budget, and once `openMs` had elapsed the
+`Math.max(0, ...)` clamp handed the next open a 0 ms timer, which fired on the following tick.
+The failure therefore arrived as an instant, silent fallback rather than as a slow open, and it
+only showed up under load - because the gap between constructing the queue and sending the open
+is exactly what a loaded host stretches.
+
+Non-control commands were never timed and control commands were already budgeted per request;
+only the open/handshake path read the shared instant. It now uses `SESSION_WORKER_LIMITS.openMs`
+at send time, so each open gets its full budget and a genuinely stalled open is still bounded.
+
 ## An ensure never ends a host whose socket still accepts connections
 
 A host serving many sessions can miss the 10 s `get_protocol_info` budget while its event loop is

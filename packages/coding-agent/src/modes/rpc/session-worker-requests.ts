@@ -22,7 +22,6 @@ export class SessionWorkerRequests {
 	>();
 	private serial = 0;
 	private closed = false;
-	private readonly openingDeadline = Date.now() + SESSION_WORKER_LIMITS.openMs;
 	private readonly send: (message: Request) => void;
 	private readonly timeout: () => void;
 
@@ -62,7 +61,10 @@ export class SessionWorkerRequests {
 					? undefined
 					: setTimeout(
 							this.timeout,
-							control ? SESSION_WORKER_LIMITS.controlMs : Math.max(0, this.openingDeadline - Date.now()),
+							// Budgeted from THIS send, never from when the queue was constructed: the gap
+							// before an open is sent is exactly what grows on a loaded host, and charging it
+							// to the open left later opens with a 0 ms timer that fired at once (senpi#1719).
+							control ? SESSION_WORKER_LIMITS.controlMs : SESSION_WORKER_LIMITS.openMs,
 						);
 			this.pending.set(request, { resolve, reject, bytes, control, timer });
 			try {
