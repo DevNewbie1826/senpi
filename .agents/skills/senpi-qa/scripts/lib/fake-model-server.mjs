@@ -20,13 +20,15 @@ import { pathToFileURL } from "node:url";
 const isMain = import.meta.url === pathToFileURL(process.argv[1] || "").href;
 
 /**
- * @param {{ port?: number, turns?: Array<{reasoning?:string, text?:string, chunks?:number, chunkDelayMs?:number, toolCalls?:Array<{id?:string,name:string,args:object}>, error?:{status:number,message:string,type?:string}}> }} opts
+ * @param {{ port?: number, turns?: Array<{reasoning?:string, text?:string, chunks?:number, chunkDelayMs?:number, toolCalls?:Array<{id?:string,name:string,args:object}>, usage?:{promptTokens?:number}, error?:{status:number,message:string,type?:string}}> }} opts
  * @returns {Promise<{url:string, origin:string, port:number, requests:object[], streamLog:Array<{streamId:number,protocol:string,kind:string,delta:string}>, stop:()=>Promise<void>}>}
  *
  * A turn's non-empty `reasoning` and `text` fields are each emitted as ONE delta
  * by default. Set `chunks` (>1) to split either field into that many deltas and
  * `chunkDelayMs` to space those deltas apart. One shared emitter keeps text and
  * reasoning on the identical chunking/delay path for abort and steering QA.
+ * `usage.promptTokens` sets the prompt-token count the completions route
+ * reports for that turn, so a scenario can seed provider-reported context size.
  */
 export function startFakeModelServer({ port = 0, turns = [{ text: "OK" }] } = {}) {
 	validateScriptedTurns(turns);
@@ -202,7 +204,10 @@ function writeCompletionsSse(res, turn, modelId, streamLog, streamId) {
 	const finish = () => {
 		if (tcs.length) send({ tool_calls: tcs });
 		send({}, tcs.length ? "tool_calls" : "stop");
-		res.write(`data: ${JSON.stringify({ ...base, choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })}\n\n`);
+		const promptTokens = Number.isInteger(turn.usage?.promptTokens) && turn.usage.promptTokens > 0 ? turn.usage.promptTokens : 1;
+		res.write(
+			`data: ${JSON.stringify({ ...base, choices: [], usage: { prompt_tokens: promptTokens, completion_tokens: 1, total_tokens: promptTokens + 1 } })}\n\n`,
+		);
 		res.write("data: [DONE]\n\n");
 		res.end();
 	};
