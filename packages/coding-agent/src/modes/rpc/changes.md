@@ -1,3 +1,21 @@
+## 2026-09-19 — a pathless session now reserves the file it created (#1850)
+
+**What:** `session-registry.ts` `syncRuntimeMetadata()` reconciles when the canonical
+key it holds differs from the key the runtime is writing, not only when the path
+moved: `currentPath !== entry.sessionPath || currentKey !== entry.reservationKey`.
+
+**Why:** `open_session` without `sessionPath` puts the created file straight into
+`entry.sessionPath` while `reservationKey` stays `undefined` (it was only ever
+assigned from `profile.sessionPath`). The paths matched, so the reconciliation block
+never ran and the file was never reserved — a later `open_session` on that exact path
+missed the `reservations.has` guard and built a SECOND runtime over the same
+transcript. On the shared daemon that is cross-client corruption.
+
+**A future refactor must not break:** the canonical-key comparison is what preserves
+the original symlink-spelling intent (SessionManager may report a resolved spelling
+for a file that did not exist at open); comparing raw paths alone reopens #1850.
+Pinned by `test/suite/regressions/1850-pathless-session-reservation.test.ts`.
+
 ## A queued open tells its client where it stands (#1844)
 
 The in-process host serves `open_session` one at a time, so a parent fanning out children

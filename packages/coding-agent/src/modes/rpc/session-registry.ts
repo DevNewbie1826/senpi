@@ -434,12 +434,19 @@ export class RpcSessionRegistry {
 			const manager = entry.runtime?.session.sessionManager;
 			if (!manager) continue;
 			const currentPath = manager.getSessionFile();
+			const currentKey = currentPath ? canonicalPath(currentPath) : undefined;
 			// Preserve the originally canonicalized key while the runtime still points at
 			// the same path. SessionManager may expose a symlink-resolved spelling after
 			// opening a file that did not exist yet; treating that as replacement would
 			// break ordinary attach-on-open aliases.
-			if (currentPath !== entry.sessionPath) {
-				const currentKey = currentPath ? canonicalPath(currentPath) : undefined;
+			//
+			// A moved path is not the only reason to reconcile: a session opened WITHOUT
+			// `sessionPath` lands its created file straight into `sessionPath` and never
+			// takes a reservation, so comparing paths alone leaves that file unclaimed
+			// forever and a later open of it builds a SECOND runtime over the same
+			// transcript. Reconcile whenever the canonical key we hold is not the key the
+			// runtime is actually writing.
+			if (currentPath !== entry.sessionPath || currentKey !== entry.reservationKey) {
 				if (entry.reservationKey) {
 					this.reservations.delete(entry.reservationKey);
 					this.options.pathReservations?.release(entry.reservationKey);
