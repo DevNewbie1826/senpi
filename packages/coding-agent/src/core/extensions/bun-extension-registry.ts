@@ -6,11 +6,12 @@ import { publishRuntimeMetadata } from "./extension-runtime-module.ts";
 export type ModuleSource = { readonly contents: string; readonly loader: "js" };
 export type Resolution = { readonly path: string; readonly namespace: string };
 export type CommonJsModule = { exports: unknown };
+export type CommonJsBody = (this: unknown, exports: unknown, module: CommonJsModule) => void;
 export interface ExtensionGraph {
 	resolve(specifier: string, filename: string): string;
 	load(filename: string): ModuleSource;
 	require(specifier: string, filename: string): unknown;
-	commonJsModule(filename: string): CommonJsModule;
+	evaluateCommonJs(filename: string, body: CommonJsBody): unknown;
 }
 type ModuleObject = { readonly exports: Readonly<Record<string, unknown>>; readonly loader: "object" };
 declare const Bun: {
@@ -100,7 +101,7 @@ function metadata(generation: string, filename: string) {
 		path: filename,
 		dir: dirname(filename),
 		require,
-		commonJs: () => graphFor(generation).commonJsModule(filename),
+		commonJs: (body: CommonJsBody) => graphFor(generation).evaluateCommonJs(filename, body),
 		import: async (specifier: string, options?: ImportCallOptions) =>
 			import(graphFor(generation).resolve(specifier, filename), { ...options }),
 		resolve: (specifier: string) => {

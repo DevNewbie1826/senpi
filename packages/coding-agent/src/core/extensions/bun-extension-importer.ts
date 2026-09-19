@@ -6,6 +6,7 @@ import { parse } from "es-module-lexer/js";
 import { isCommonJsFile, rewriteCommonJsImport } from "./bun-extension-commonjs.ts";
 import { ExtensionSourceError } from "./bun-extension-error.ts";
 import {
+	type CommonJsBody,
 	type CommonJsModule,
 	ExtensionGenerationDisposedError,
 	extensionNamespace,
@@ -31,8 +32,9 @@ export function createBunExtensionImporter(
 ) {
 	const sources = new Map<string, ModuleSource>();
 	const commonJs = new Set<string>();
-	// Live `module` objects by id, registered before a CommonJS body runs: a require inside a
+	// Live `module` objects by id, registered while a CommonJS body runs: a require inside a
 	// cycle receives the partially built exports, as in Node, instead of an unset ESM default.
+	// A body that throws is evicted so a later require re-throws instead of seeing a half-built module.
 	const commonJsModules = new Map<string, CommonJsModule>();
 	const nativeRequire = createRequire(import.meta.url);
 	let active = true;
@@ -62,11 +64,18 @@ export function createBunExtensionImporter(
 			const result: { readonly default?: unknown } = nativeRequire(id);
 			return commonJs.has(id) ? result.default : result;
 		},
-		commonJsModule(filename: string): CommonJsModule {
+		evaluateCommonJs(filename: string, body: CommonJsBody): unknown {
 			assertActive();
+			const id = moduleId(filename);
 			const module: CommonJsModule = { exports: {} };
-			commonJsModules.set(moduleId(filename), module);
-			return module;
+			commonJsModules.set(id, module);
+			try {
+				body.call(module.exports, module.exports, module);
+			} catch (error) {
+				commonJsModules.delete(id);
+				throw error;
+			}
+			return module.exports;
 		},
 		load(filename: string): ModuleSource {
 			assertActive();
@@ -126,7 +135,7 @@ export function createBunExtensionImporter(
 			// object, as dependencies such as whatwg-url and jsdom require.
 			if (!hasModuleSyntax && extension !== ".mjs" && extension !== ".mts") {
 				commonJs.add(moduleId(filename));
-				contents = `const module = ${name}.commonJs();\n(function (exports, module) {\n${contents}\n}).call(module.exports, module.exports, module);\nexport default module.exports;`;
+				contents = `export default ${name}.commonJs(function (exports, module) {\n${contents}\n});`;
 			}
 			contents = `import { metadata as ${name}Factory } from "${extensionNamespace}:runtime";\nconst ${name} = ${name}Factory(${JSON.stringify(registration.generation)}, ${JSON.stringify(filename)});\n${contents}`;
 			const prepared = { contents, loader: "js" } satisfies ModuleSource;
