@@ -87,4 +87,19 @@ assert.deepEqual(factory(), ["a", "a", true]);
 `,
 		);
 	});
+
+	it("keeps a .mjs file with top-level await and no import or export on the ESM path", () => {
+		// Given: an ES module by extension whose only module-level syntax is await.
+		const root = fixture('import "./side.mjs"; export default () => globalThis.__senpiSideEffect;');
+		writeFileSync(join(root, "side.mjs"), "globalThis.__senpiSideEffect = await Promise.resolve(41);");
+		// When / Then: it evaluates as a module instead of failing to parse inside a CommonJS wrapper.
+		run(
+			root,
+			`
+const importer = await createBunExtensionImporter({});
+const factory = await importer.import(entry, { default: true });
+assert.equal(factory(), 41);
+`,
+		);
+	});
 });
