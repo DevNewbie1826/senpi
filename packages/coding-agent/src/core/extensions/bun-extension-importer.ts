@@ -124,7 +124,7 @@ export function createBunExtensionImporter(
 			// function wrapper preserves synchronous export assignment and keeps
 			// `exports` and `module` reassignable bindings with `this` as the exports
 			// object, as dependencies such as whatwg-url and jsdom require.
-			if (!hasModuleSyntax) {
+			if (!hasModuleSyntax && extension !== ".mjs" && extension !== ".mts") {
 				commonJs.add(moduleId(filename));
 				contents = `const module = ${name}.commonJs();\n(function (exports, module) {\n${contents}\n}).call(module.exports, module.exports, module);\nexport default module.exports;`;
 			}
