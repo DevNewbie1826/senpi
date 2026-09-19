@@ -1,5 +1,47 @@
 # changes
 
+## 2026-09-19 - Package resolution is memoized per host, keyed on its real inputs (senpi#1844)
+
+### What changed
+
+- `resolved-paths-memo.ts` (new, 41 LOC): a module-scoped LRU of 16 that memoizes the PROMISE of
+  `packageManager.resolve()` + `resolveExtensionSources(additionalExtensionPaths)`, keyed on a
+  stable digest of `{ agentDir, cwd, globalSettings, projectSettings, additionalExtensionPaths }`.
+  A rejected computation is evicted so the next caller retries.
+- `resource-loader.ts` `reload()` resolves through it. The key is computed AFTER
+  `settingsManager.reload()` at the top of `reload()`, so a settings change yields a new key.
+
+### Why
+
+On the daemon, `reload()` cost ~150 ms per open warm and interleaved (SENPI_TIMING marks,
+aggregated): `packageResolve` 68 ms, per-extension `module import` 77 ms, `factory` 3 ms. The
+first is discovery over the agent dir's installed packages - identical for every session of a host
+whose set is fixed - and it was rerun by every open, N-way interleaved on one loop for N concurrent
+opens. Memoizing the promise makes N concurrent opens of one key await ONE resolution.
+Measured after: `packageResolve` 68 -> 0-1 ms on warm opens; warm concurrent `reload` 150 -> 53 ms.
+Built daemon over its socket, 8 rounds alternating against `main` (which already carries the shared
+model runtime): 8 concurrent opens 448 -> 320 ms wall median (~29%), single warm open 222 -> 168 ms
+(~24%), 0 failed. Invalidation pinned with real loaders: a `settings.json` change makes the next
+loader resolve again; three concurrent loaders share one in-flight resolution.
+
+### Why an extension could not handle it
+
+Package resolution is what decides WHICH extensions load; it runs before any extension of the
+session exists.
+
+### Expected merge conflict zones
+
+- `resource-loader.ts` - the two `packageManager` awaits at the top of `reload()` and the
+  import block from `./extensions/loader.ts`.
+
+### What did NOT ship, and why
+
+A synchronous fast path in `extensions/loader.ts` for already-cached factories was built on the
+hypothesis that the per-extension `await` hop was the remaining cost. Measured: `module import`
+49 -> 48 ms. Reverted; a change that measures as a no-op has no place in a perf change. Only 15 of
+the 49 extensions reach `loadExtension` at all - builtins take the inline route - so that remaining
+~48 ms spans two code paths and is the next step on #1844.
+
 ## 2026-09-19 - A shared model runtime refreshes only what this session registered (senpi#1844)
 
 ### What changed

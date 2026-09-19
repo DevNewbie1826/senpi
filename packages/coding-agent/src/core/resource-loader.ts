@@ -43,6 +43,7 @@ import { dedupePathsByPackageIdentity, findNearestPackageIdentity } from "./pack
 import { DefaultPackageManager, type PathMetadata, type ResolvedResource } from "./package-manager.ts";
 import type { PromptTemplate } from "./prompt-templates.ts";
 import { loadPromptTemplates } from "./prompt-templates.ts";
+import { memoizeResolvedPaths, resolvedPathsMemoKey } from "./resolved-paths-memo.ts";
 import { SettingsManager } from "./settings-manager.ts";
 import type { Skill } from "./skills.ts";
 import { loadSkills } from "./skills.ts";
@@ -614,10 +615,21 @@ export class DefaultResourceLoader implements ResourceLoader {
 		if (!settingsAreFresh) {
 			await this.settingsManager.reload();
 		}
-		const resolvedPaths = await this.packageManager.resolve();
-		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
-			temporary: true,
-		});
+		const { resolvedPaths, cliExtensionPaths } = await memoizeResolvedPaths(
+			resolvedPathsMemoKey({
+				agentDir: this.agentDir,
+				cwd: this.cwd,
+				globalSettings: this.settingsManager.getGlobalSettings(),
+				projectSettings: this.settingsManager.getProjectSettings(),
+				additionalExtensionPaths: this.additionalExtensionPaths,
+			}),
+			async () => ({
+				resolvedPaths: await this.packageManager.resolve(),
+				cliExtensionPaths: await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
+					temporary: true,
+				}),
+			}),
+		);
 		time("packageResolve", "extensions");
 		// Keep package metadata available for later extendResources() passes.
 		this.resourceMetadataByPath = new Map();
