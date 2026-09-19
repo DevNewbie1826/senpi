@@ -4,16 +4,16 @@
 
 ### What changed
 
-- `bun-extension-importer.ts`: a CommonJS module is wrapped in Node's module function wrapper — `const module = <meta>.commonJs(); (function (exports, module) { ... }).call(module.exports, module.exports, module); export default module.exports;` — instead of the previous `const module = { exports: {} }; const exports = module.exports;` prologue. `exports` and `module` are parameters again, so a dependency may reassign either.
-- `bun-extension-importer.ts`: the graph keeps the live `module` object of every CommonJS file, registered through `<meta>.commonJs()` before the body runs, and `graph.require()` answers from that registry before falling back to Bun's native require. A require issued inside a cycle therefore receives the partially built exports, as in Node, and a repeated require returns the same object.
-- `bun-extension-registry.ts`: the per-file `require` handed to extension code is a function object carrying `resolve`, which returns the absolute path of a graph-resolved file (and the id itself for builtins and virtual modules); `ExtensionGraph` gains `commonJsModule(filename)`.
+- `bun-extension-importer.ts`: a CommonJS module is wrapped in Node's module function wrapper — `export default <meta>.commonJs(function (exports, module) { ... });` — instead of the previous `const module = { exports: {} }; const exports = module.exports;` prologue. `exports` and `module` are parameters again, so a dependency may reassign either; the body still runs in strict mode because the wrapper lives inside an ES module.
+- `bun-extension-importer.ts`: `graph.evaluateCommonJs()` registers the live `module` object of a CommonJS file before its body runs, and `graph.require()` answers from that registry before falling back to Bun's native require. A require issued inside a cycle therefore receives the partially built exports, as in Node, and a repeated require returns the same object. A body that throws is evicted from the registry, so a later require re-throws instead of returning a half-built module.
+- `bun-extension-registry.ts`: the per-file `require` handed to extension code is a function object carrying `resolve`, which returns the absolute path of a graph-resolved file (and the id itself for builtins and virtual modules); the metadata gains `commonJs(body)` and `ExtensionGraph` gains `evaluateCommonJs(filename, body)`.
 - `bun-extension-importer.ts`: files with a `.mjs` or `.mts` extension stay on the ESM path even when they carry no import or export statement, so top-level `await` in such a file keeps parsing. The shebang strip now runs on the transpiled source before any prologue is prepended; Bun's transpiler already removes a hashbang, so this is a tidy-up rather than a behavior change.
 
 ### Why
 
 - `const exports` made every CommonJS file that reassigns `exports` a parse-time failure under Bun: `module.exports = exports = { ... }` is the published shape of `whatwg-url/lib/utils.js` and `jsdom/lib/generated/idl/utils.js`, and Bun rejects the wrapped module with `This assignment will throw because "exports" is a constant`. The rejection is not contained to that module: the whole extension graph fails to load, which is how it surfaced (an extension that pulls in jsdom through its dependency graph could not load at all).
 - With that prologue gone the same graph hit the next two gaps. `jsdom/lib/jsdom/living/xhr/XMLHttpRequest-impl.js` calls `require.resolve("./xhr-sync-worker.js")`, and `resolve` only existed as a sibling key of the metadata object, so `require.resolve` was undefined. `@acemir/cssom` requires `CSSStyleDeclaration` and `CSSStyleRule` mutually; a CommonJS module reached through the graph exposed its exports only through `export default module.exports`, which is assigned after the body finishes, so the inner require of a cycle saw `undefined`.
-- Node evaluates a CommonJS module inside a function whose `exports` and `module` are parameters, hands out the module object from its cache as soon as evaluation starts, and gives every module a `require.resolve`. Matching those three points is what makes a published CommonJS dependency behave here as it does under `node` and under plain `bun`; the jsdom probe extension and pi-webfetch load on the rebuilt engine.
+- Node evaluates a CommonJS module inside a function whose `exports` and `module` are parameters, hands out the module object from its cache as soon as evaluation starts, and gives every module a `require.resolve`. Matching those three points is what lets a published CommonJS dependency load here the way it does under `node` and under plain `bun` for the shapes jsdom and whatwg-url use; the jsdom probe extension and pi-webfetch load on the rebuilt engine. One difference stays: the body runs in strict mode, so a dependency that relies on sloppy-mode behavior (assigning an implicit global, writing a read-only property) still throws here.
 
 ### Why an extension could not handle it
 
@@ -21,7 +21,7 @@
 
 ### Expected merge conflict zones
 
-- LOW: the `!hasModuleSyntax` branch and the runtime-prologue template at the end of `graph.load()`, `graph.require()` and the new `graph.commonJsModule()` in `bun-extension-importer.ts`; `metadata()` and the `ExtensionGraph` interface in `bun-extension-registry.ts`.
+- LOW: the `!hasModuleSyntax` branch and the runtime-prologue template at the end of `graph.load()`, `graph.require()` and the new `graph.evaluateCommonJs()` in `bun-extension-importer.ts`; `metadata()` and the `ExtensionGraph` interface in `bun-extension-registry.ts`.
 
 ## 2026-09-18 — The extension runtime shim resolves to a file, not a Bun virtual module (omo#8427)
 
