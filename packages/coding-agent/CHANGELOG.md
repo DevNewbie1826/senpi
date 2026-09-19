@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Opening a session on a busy machine no longer fails instantly. The open deadline was fixed once when the request queue was built, so anything opened later inherited what was left of it — and after 30 seconds the next open was given a zero-length timer that expired immediately. Each open is now given its own deadline, measured from when it is sent. ([#1719](https://github.com/code-yeongyu/senpi/issues/1719))
+
 ### Removed
 
 ## [2026.9.19-2] - 2026-09-19

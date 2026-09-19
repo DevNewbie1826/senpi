@@ -22,13 +22,27 @@ export class SessionWorkerRequests {
 	>();
 	private serial = 0;
 	private closed = false;
-	private readonly openingDeadline = Date.now() + SESSION_WORKER_LIMITS.openMs;
+	/**
+	 * Armed by the FIRST open message, never at construction. The open sequence (commit then
+	 * bind) deliberately shares one budget - resetting it between them is what
+	 * "does not reset the opening deadline between commit and bind" forbids - but a queue
+	 * built long before its first open must not be charged for the wait, which is the
+	 * silent instant timeout senpi#1719 reports on a loaded machine.
+	 */
+	private openingDeadline: number | undefined;
 	private readonly send: (message: Request) => void;
 	private readonly timeout: () => void;
 
 	constructor(send: (message: Request) => void, timeout: () => void) {
 		this.send = send;
 		this.timeout = timeout;
+	}
+
+	/** Remaining share of the open budget, armed on first use so idle time before it is free. */
+	private remainingOpenMs(): number {
+		const now = Date.now();
+		if (this.openingDeadline === undefined) this.openingDeadline = now + SESSION_WORKER_LIMITS.openMs;
+		return Math.max(0, this.openingDeadline - now);
 	}
 
 	get activeCount(): number {
@@ -62,7 +76,7 @@ export class SessionWorkerRequests {
 					? undefined
 					: setTimeout(
 							this.timeout,
-							control ? SESSION_WORKER_LIMITS.controlMs : Math.max(0, this.openingDeadline - Date.now()),
+							control ? SESSION_WORKER_LIMITS.controlMs : this.remainingOpenMs(),
 						);
 			this.pending.set(request, { resolve, reject, bytes, control, timer });
 			try {
