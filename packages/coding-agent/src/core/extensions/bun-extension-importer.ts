@@ -106,13 +106,17 @@ export function createBunExtensionImporter(
 			for (const edit of edits.sort((a, b) => b.start - a.start)) {
 				contents = contents.slice(0, edit.start) + edit.text + contents.slice(edit.end);
 			}
-			// Runtime plugins load ESM, even for CommonJS source. A local module
-			// wrapper preserves synchronous export assignment.
+			// A shebang is only a shebang on the first line, so it goes before any prologue.
+			contents = contents.replace(/^#![^\n]*\n/, "");
+			// Runtime plugins load ESM, even for CommonJS source. Node's module
+			// function wrapper preserves synchronous export assignment and keeps
+			// `exports` and `module` reassignable bindings with `this` as the exports
+			// object, as dependencies such as whatwg-url and jsdom require.
 			if (!hasModuleSyntax) {
 				commonJs.add(moduleId(filename));
-				contents = `const module = { exports: {} }; const exports = module.exports;\n${contents}\nexport default module.exports;`;
+				contents = `const module = { exports: {} };\n(function (exports, module) {\n${contents}\n}).call(module.exports, module.exports, module);\nexport default module.exports;`;
 			}
-			contents = `import { metadata as ${name}Factory } from "${extensionNamespace}:runtime";\nconst ${name} = ${name}Factory(${JSON.stringify(registration.generation)}, ${JSON.stringify(filename)});\n${contents.replace(/^#![^\n]*\n/, "")}`;
+			contents = `import { metadata as ${name}Factory } from "${extensionNamespace}:runtime";\nconst ${name} = ${name}Factory(${JSON.stringify(registration.generation)}, ${JSON.stringify(filename)});\n${contents}`;
 			const prepared = { contents, loader: "js" } satisfies ModuleSource;
 			sources.set(filename, prepared);
 			return prepared;
