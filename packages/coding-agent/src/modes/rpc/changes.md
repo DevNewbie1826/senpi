@@ -20,6 +20,38 @@ left - a queue position is worthless to a client that is gone.
 This does not make opens concurrent; it makes the queue visible. The serialization itself is
 tracked on #1844.
 
+## 2026-09-19 - A queued open tells its client where it stands (#1844)
+
+### What changed
+
+- `rpc-types.ts` adds `RpcOpenQueuedEvent`: `{ type: "queued", for_request, position, in_flight }`.
+- `session-event-writer.ts` gains `sendOpenQueued`, addressed to one connection and dropped if
+  that connection has already disconnected - a queue position is worthless to a client that left.
+- `session-command-router.ts` emits it from `openWithBarrier` before the open reaches the loop,
+  counting opens accepted across the whole host rather than per connection.
+
+### Why
+
+The in-process host serves `open_session` one at a time, so a parent fanning out children queues
+behind itself: 32 concurrent opens on an idle machine finish in ~14 s with the fastest at 10.5 s,
+against ~700 ms for a single open. Under load the queue crosses the 30 s open deadline and the
+client saw only `Timeout waiting for response to open_session. Stderr: ` - nothing after it,
+because nothing crashed. That silence produced four wrong diagnoses in one investigation. This
+does not make opens concurrent; the serialization is tracked on #1844.
+
+### Why an extension could not handle it
+
+Queue depth lives in the router's own in-flight bookkeeping and the record has to leave before the
+open reaches the loop. No extension surface observes either: an extension binds to a session that
+does not exist yet at that moment, and host status is itself a request on the loop, so it queues
+behind the opens it would report.
+
+### Expected merge conflict zones
+
+- `rpc-types.ts` - record union additions.
+- `session-event-writer.ts` - the literal `type:` site the desktop event scraper reads.
+- `session-command-router.ts` - `openWithBarrier`; upstream edits to the barrier meet this change.
+
 ## An open is given its own deadline, measured from when it is sent (#1719)
 
 `SessionWorkerRequests` fixed its open deadline once, at construction: `Date.now() + openMs`.
