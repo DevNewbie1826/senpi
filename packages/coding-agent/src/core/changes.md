@@ -28,6 +28,17 @@ model runtime): 8 concurrent opens 448 -> 320 ms wall median (~29%), single warm
 (~24%), 0 failed. Invalidation pinned with real loaders: a `settings.json` change makes the next
 loader resolve again; three concurrent loaders share one in-flight resolution.
 
+### What CI caught, and the fix
+
+`hooks-builtin-extension` failed on the first push: a test edits a package's own `package.json`
+(which hooks it declares) and reloads. Settings are unchanged, so the key was unchanged, so the memo
+served the stale manifest. Resolution reads manifest content on disk, which a settings digest cannot
+see. The old per-loader path handled this through the re-load signal - `if (this.loaded)
+clearExtensionCache()` - which the memo had bypassed. A re-load of the same loader now passes
+`refresh: true` through both call sites and replaces the entry; only a FRESH loader (a new session on
+a shared host) reads through the memo. Pinned: reload twice on one loader = 2 resolves, and a fresh
+loader afterwards adds none. 56 suites that construct a loader or call `reload()`: 538/538.
+
 ### Why an extension could not handle it
 
 Package resolution is what decides WHICH extensions load; it runs before any extension of the

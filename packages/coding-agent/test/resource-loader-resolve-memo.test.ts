@@ -66,6 +66,21 @@ describe("DefaultResourceLoader package resolution memo", () => {
 		expect(resolve).toHaveBeenCalledTimes(2);
 	});
 
+	it("re-resolves on a re-load of the same loader, and a later fresh loader sees that result", async () => {
+		// A package's own manifest is not part of the key, so the re-load signal has
+		// to carry disk changes through the memo. This is the hole CI found.
+		const resolve = vi.spyOn(DefaultPackageManager.prototype, "resolve");
+		const loader = makeLoader();
+
+		await loader.reload();
+		await loader.reload();
+		const afterReload = resolve.mock.calls.length;
+		await makeLoader().reload();
+
+		expect(afterReload).toBe(2);
+		expect(resolve).toHaveBeenCalledTimes(2);
+	});
+
 	it("resolves once through the project-trust path too", async () => {
 		const resolve = vi.spyOn(DefaultPackageManager.prototype, "resolve");
 		const reloadOptions = { resolveProjectTrust: () => Promise.resolve(true) };

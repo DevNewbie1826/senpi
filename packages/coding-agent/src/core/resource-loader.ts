@@ -587,24 +587,28 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 	}
 
-	async loadProjectTrustExtensions(): Promise<LoadExtensionsResult> {
+	async loadProjectTrustExtensions(options: { readonly refresh?: boolean } = {}): Promise<LoadExtensionsResult> {
 		// Force untrusted project settings for the bootstrap pass. This keeps project-local
 		// extensions/packages out while still loading user/global and temporary CLI extensions.
 		this.settingsManager.setProjectTrusted(false);
 		await this.settingsManager.reload();
-		return this.loadCurrentExtensionSet({ includeInlineFactories: true });
+		return this.loadCurrentExtensionSet({ includeInlineFactories: true, ...options });
 	}
 
 	async reload(options?: ResourceLoaderReloadOptions): Promise<void> {
 		resetTimings("extensions");
 
-		if (this.loaded) {
+		// A re-load of this loader is the signal that disk may have changed - it
+		// discards the extension cache, and it must not read package resolution
+		// through the host memo either (a package's own manifest is not in the key).
+		const refresh = this.loaded;
+		if (refresh) {
 			clearExtensionCache();
 		}
 		this.ensureGlobalDefaultExtensions();
 		let preTrustExtensions: LoadExtensionsResult | undefined;
 		if (options?.resolveProjectTrust) {
-			preTrustExtensions = await this.loadProjectTrustExtensions();
+			preTrustExtensions = await this.loadProjectTrustExtensions({ refresh });
 			const projectTrusted = await options.resolveProjectTrust({ extensionsResult: preTrustExtensions });
 			this.settingsManager.setProjectTrusted(projectTrusted);
 		}
@@ -615,7 +619,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		if (!settingsAreFresh) {
 			await this.settingsManager.reload();
 		}
-		const { resolvedPaths, cliExtensionPaths } = await this.resolvePackagePaths();
+		const { resolvedPaths, cliExtensionPaths } = await this.resolvePackagePaths({ refresh });
 		time("packageResolve", "extensions");
 		// Keep package metadata available for later extendResources() passes.
 		this.resourceMetadataByPath = new Map();
@@ -808,7 +812,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 	}
 
-	private resolvePackagePaths() {
+	private resolvePackagePaths(options: { readonly refresh?: boolean } = {}) {
 		return memoizeResolvedPaths(
 			resolvedPathsMemoKey({
 				agentDir: this.agentDir,
@@ -823,6 +827,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 					temporary: true,
 				}),
 			}),
+			options,
 		);
 	}
 
@@ -836,8 +841,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 		};
 	}
 
-	private async loadCurrentExtensionSet(options: { includeInlineFactories: boolean }): Promise<LoadExtensionsResult> {
-		const { resolvedPaths, cliExtensionPaths } = await this.resolvePackagePaths();
+	private async loadCurrentExtensionSet(options: {
+		includeInlineFactories: boolean;
+		readonly refresh?: boolean;
+	}): Promise<LoadExtensionsResult> {
+		const { resolvedPaths, cliExtensionPaths } = await this.resolvePackagePaths({ refresh: options.refresh });
 		const enabledExtensions = resolvedPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
 		const cliEnabledExtensions = cliExtensionPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
 		const extensionPaths = this.noExtensions

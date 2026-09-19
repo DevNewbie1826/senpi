@@ -8,9 +8,13 @@
  * sources - never on the session - so it is memoized on exactly those inputs.
  *
  * The memo stores the PROMISE, not the value: N concurrent opens with one key
- * await a single resolution instead of racing N of them. Invalidation is by
- * key - settings are reloaded before the key is computed, so a change yields
- * a new key and the stale entry ages out of the LRU.
+ * await a single resolution instead of racing N of them.
+ *
+ * The key covers settings, not disk: resolution also reads each package's own
+ * manifest, which a settings digest cannot see. A RE-load of a loader is the
+ * existing signal that disk may have changed (it is where the extension cache
+ * is cleared too), so a re-load bypasses the memo and refreshes the entry;
+ * only a fresh loader - a new session on a shared host - reads through it.
  */
 
 const MAX_ENTRIES = 16;
@@ -37,8 +41,12 @@ export function resolvedPathsMemoKey(input: ResolvedPathsMemoKeyInput): string {
 	return stable(input);
 }
 
-export function memoizeResolvedPaths<T>(key: string, compute: () => Promise<T>): Promise<T> {
-	const existing = memo.get(key);
+export function memoizeResolvedPaths<T>(
+	key: string,
+	compute: () => Promise<T>,
+	options: { readonly refresh?: boolean } = {},
+): Promise<T> {
+	const existing = options.refresh ? undefined : memo.get(key);
 	if (existing !== undefined) {
 		memo.delete(key);
 		memo.set(key, existing);
