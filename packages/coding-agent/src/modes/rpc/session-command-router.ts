@@ -403,8 +403,21 @@ export class SessionCommandRouter {
 			resolveBarrier = resolve;
 		});
 		const opens = this.opensByConnection.get(owner) ?? new Set<Promise<void>>();
+		// Every open already accepted anywhere on this host, not just on this connection: the
+		// in-process runtime serves them on ONE loop, so the wait this caller faces is the total.
+		let inFlight = 0;
+		for (const pending of this.opensByConnection.values()) inFlight += pending.size;
 		opens.add(barrier);
 		this.opensByConnection.set(owner, opens);
+		// Before the open reaches the loop: a client that later hits its deadline can then say
+		// where it was queued instead of reporting a bare timeout (senpi#1844).
+		if (command.id !== undefined)
+			this.writer.sendOpenQueued(owner, {
+				type: "queued",
+				for_request: command.id,
+				position: inFlight + 1,
+				in_flight: inFlight,
+			});
 		return this.open(command, owner).finally(() => {
 			resolveBarrier();
 			opens.delete(barrier);

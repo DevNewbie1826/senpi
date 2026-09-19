@@ -628,6 +628,13 @@ REPORT: nothing here aborts a turn, kills a session, or refuses an `open_session
 - **Event-loop stalls**: a 200 ms timer measures how late it is actually invoked; that lateness is the time the loop
   could serve nobody. Drift above `SENPI_RPC_LOOP_LAG_WARN_MS` (default 500) writes one stderr line per 10 seconds,
   `senpi rpc host stall: event loop blocked <drift>ms (sessionId=<handle> tool=<tool>)`. Drift above
+- On accepting an `open_session`, the host sends that connection a `queued` record
+  (`{ type, for_request, position, in_flight }`) before the open enters the session loop.
+  `position` is 1-based and `in_flight` counts opens already accepted across the whole host,
+  since every session shares one loop. It is addressed to the opener only, carries the request
+  id under `for_request` rather than the response-id field, and is dropped if that connection
+  has disconnected. A client that later times out can report where it was queued instead of a
+  bare deadline.
   `SENPI_RPC_LOOP_LAG_ERROR_MS` (default 5000) additionally broadcasts a `host_stalled` record
   (`{ type, driftMs, sessionId?, tool? }`) to every connection, like the other content-free lifecycle records.
 - **Stall attribution**: each routed command is dispatched inside an `AsyncLocalStorage` scope carrying its routing
