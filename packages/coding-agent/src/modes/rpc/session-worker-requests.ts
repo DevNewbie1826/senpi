@@ -22,12 +22,27 @@ export class SessionWorkerRequests {
 	>();
 	private serial = 0;
 	private closed = false;
+	/**
+	 * Armed by the FIRST open message, never at construction. The open sequence (commit then
+	 * bind) deliberately shares one budget - resetting it between them is what
+	 * "does not reset the opening deadline between commit and bind" forbids - but a queue
+	 * built long before its first open must not be charged for the wait, which is the
+	 * silent instant timeout senpi#1719 reports on a loaded machine.
+	 */
+	private openingDeadline: number | undefined;
 	private readonly send: (message: Request) => void;
 	private readonly timeout: () => void;
 
 	constructor(send: (message: Request) => void, timeout: () => void) {
 		this.send = send;
 		this.timeout = timeout;
+	}
+
+	/** Remaining share of the open budget, armed on first use so idle time before it is free. */
+	private remainingOpenMs(): number {
+		const now = Date.now();
+		if (this.openingDeadline === undefined) this.openingDeadline = now + SESSION_WORKER_LIMITS.openMs;
+		return Math.max(0, this.openingDeadline - now);
 	}
 
 	get activeCount(): number {
@@ -61,10 +76,7 @@ export class SessionWorkerRequests {
 					? undefined
 					: setTimeout(
 							this.timeout,
-							// Budgeted from THIS send, never from when the queue was constructed: the gap
-							// before an open is sent is exactly what grows on a loaded host, and charging it
-							// to the open left later opens with a 0 ms timer that fired at once (senpi#1719).
-							control ? SESSION_WORKER_LIMITS.controlMs : SESSION_WORKER_LIMITS.openMs,
+							control ? SESSION_WORKER_LIMITS.controlMs : this.remainingOpenMs(),
 						);
 			this.pending.set(request, { resolve, reject, bytes, control, timer });
 			try {
