@@ -253,7 +253,7 @@ assert.deepEqual(factory(), ["thing", "other", "other", "d"]);
 		);
 	});
 
-	it("loads a CommonJS package that reassigns exports and binds top-level this to module.exports (#1838)", () => {
+	it("loads a CommonJS package that reassigns exports and keeps exports aliased to module.exports (#1838)", () => {
 		// Given: a dependency that reassigns exports, as whatwg-url and jsdom's generated IDL utils do.
 		const root = fixture(`import lib from "cjs-lib";
 import { thing } from "cjs-lib";
@@ -265,7 +265,7 @@ export default () => [lib.thing, thing, lib.selfIsExports, lib.later];`);
 			join(directory, "index.js"),
 			'module.exports = exports = { thing: "reassigned", selfIsExports: this === module.exports };\nexports.later = "late";\n',
 		);
-		// When / Then: the reassignment reaches every binding and top-level `this` is module.exports, as in Node.
+		// When / Then: the reassignment reaches every binding and `exports` starts as module.exports, as in Node.
 		run(
 			root,
 			`
