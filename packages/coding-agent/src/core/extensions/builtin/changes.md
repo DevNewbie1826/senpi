@@ -1,5 +1,23 @@
 # Builtin extensions changes
 
+## 2026-09-20 - Register question renderers at extension load (#1857 I4)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/extension.ts` registers both question tool definitions at load time instead of in session-start synchronization. Active-tool selection and disable checks remain in synchronization.
+
+### Why
+
+- A streaming tool card can request its renderer after the reload rebuilds the tool registry but before session-start handlers run. Both definitions must already be available then.
+
+### Why an extension could not handle it
+
+- This builtin owns the registrations; a second extension cannot reliably repair their absence during a runner replacement.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/extension.ts`: tool registration and sync.
+
 ## 2026-09-20 - Recover unsettled async questions after restart (#1857 I3)
 
 ### What changed

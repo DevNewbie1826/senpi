@@ -25,7 +25,8 @@ export default function askUserExtension(pi: ExtensionAPI): void {
 		},
 	});
 	const state: AskUserState = { timedOut: false, unavailable: false };
-	let registered = false;
+	pi.registerTool(createAskUserTool("codex", pi, state));
+	pi.registerTool(createAskUserTool("claude", pi, state));
 	const cancelPending = (ctx: ExtensionContext, message: string, reportDetachedLoss = false) => {
 		for (const entry of getPendingQuestions(ctx.sessionManager.getSessionId()))
 			entry.cancel(message, reportDetachedLoss);
@@ -36,11 +37,6 @@ export default function askUserExtension(pi: ExtensionAPI): void {
 			cancelPending(ctx, "The pending question was cancelled because ask-user is disabled.", true);
 			pi.setActiveTools(rest);
 			return;
-		}
-		if (!registered) {
-			pi.registerTool(createAskUserTool("codex", pi, state));
-			pi.registerTool(createAskUserTool("claude", pi, state));
-			registered = true;
 		}
 		pi.setActiveTools(state.unavailable ? rest : [...rest, TOOL_NAMES[pickVariant(model)]]);
 	};

@@ -82,14 +82,18 @@ describe("ask-user builtin", () => {
 	it.each([
 		[false, false],
 		[true, true],
-	])("does not register when disabled (%s, flag %s)", async (enabled, flag) => {
-		const { runner } = await setup(enabled, flag);
+	])("keeps renderers registered but tools inactive when disabled (%s, flag %s)", async (enabled, flag) => {
+		const { h, runner, tool, ctx } = await setup(enabled, flag);
 		expect(runner.getFlags().get("no-ask-user")).toMatchObject({ type: "boolean", default: false });
 		expect(
-			runner
-				.getAllRegisteredTools()
-				.filter((t) => ["ask_user_question", "request_user_input"].includes(t.definition.name)),
+			h.session.getActiveToolNames().filter((name) => ["ask_user_question", "request_user_input"].includes(name)),
 		).toEqual([]);
+		for (const name of ["ask_user_question", "request_user_input"])
+			expect(h.session.getToolDefinition(name)?.renderCall).toBeTypeOf("function");
+		expect((await required(tool).execute("disabled", args, undefined, undefined, ctx)).details).toMatchObject({
+			status: "unavailable",
+		});
+		expect(ctx.ui.question).not.toHaveBeenCalled();
 	});
 	it("returns blocking answers through the formatter", async () => {
 		const { tool, ctx, deliveries } = await setup();
