@@ -168,7 +168,7 @@ function runSourceChecks(root, args, fail) {
 	const pkg = readJson(`${CA}/package.json`);
 	if (pkg) {
 		if (pkg.name !== "@code-yeongyu/senpi") fail(`${CA}/package.json: name is ${pkg.name}`);
-		if (pkg.bin?.senpi !== "dist/cli.js") fail(`${CA}/package.json: bin.senpi is ${pkg.bin?.senpi}`);
+		if (pkg.bin?.senpi !== "dist/bundle/cli.js") fail(`${CA}/package.json: bin.senpi is ${pkg.bin?.senpi}`);
 		if (!CALVER.test(pkg.version ?? "")) fail(`${CA}/package.json: version ${pkg.version} is not CalVer`);
 		for (const entry of [".", "./rpc-entry", "./client"]) {
 			if (pkg.exports?.[entry] === undefined) fail(`${CA}/package.json: exports["${entry}"] missing`);

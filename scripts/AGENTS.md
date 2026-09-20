@@ -25,8 +25,9 @@ cell grid. Prefixes encode role:
 - `build-coding-agent-bundle.mjs`: esbuild release bundle of the compiled coding-agent (and the
   `packages/ai` lazy loaders it reaches). `packages/coding-agent`'s `build:bundle` script runs it as
   the last step of that package's `build`, so every root build emits
-  `packages/coding-agent/dist/bundle/` — the tree `bin.pi` resolves to and the npm tarball ships
-  (`bin.senpi` stays on the unbundled `dist/cli.js`). It consumes compiled `dist/` output from
+  `packages/coding-agent/dist/bundle/` — the tree both `bin.pi` and `bin.senpi` resolve to and the
+  npm tarball ships. The unbundled `dist/` tree is still published for library consumers, the RPC
+  supervisor re-entry and this directory's profiler. It consumes compiled `dist/` output from
   `packages/ai` and `packages/coding-agent`, so it runs after those builds, never before them.
   `node-bundle-smoke.test.ts` rebuilds it and runs the bundled CLI under both Node and Bun.
 - `run-workspaces.mjs`: root -> workspace script runner
