@@ -102,6 +102,16 @@ export function formatUserMessage(response: QuestionResponse, requestId: string,
 	return `[Answer to question ${requestId}]\n${formatBody(response, questions)}`;
 }
 
+export interface AskUserAnswerFrame {
+	readonly requestId: string;
+	readonly body: string;
+}
+
+export function parseAskUserAnswerFrame(text: string): AskUserAnswerFrame | undefined {
+	const match = /^\[Answer to question ([^\]\r\n]+)\]\r?\n([\s\S]*)$/.exec(text);
+	return match ? { requestId: match[1], body: match[2] } : undefined;
+}
+
 function selectedAnswers(answer: { selected: string[]; text?: string }): string[] {
 	if (answer.selected.length > 0) return answer.selected;
 	const text = answer.text?.trim();

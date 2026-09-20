@@ -14,11 +14,22 @@
 
 - Provider network failures now update one retry status instead of filling the transcript with repeated error payloads. Recovery clears the status, cancellation no longer reports a failed retry, and exhausted retries leave one notice with a next step. Partial answers and stored error details remain available, including when reopening a session. ([#1874](https://github.com/code-yeongyu/senpi/issues/1874))
 
+- The startup timing table no longer files the help-flags cache write under the stdin read. `PI_TIMING=1` reported that work in a row named `readPipedStdin`, which returns immediately on a terminal; the write is now its own row. Timings only, no behavior change.
+
+- Sending `.` to continue now resumes a blocked goal. Previously, the conversation continued but the goal stayed blocked until you ran `/goal resume`. ([#1871](https://github.com/code-yeongyu/senpi/issues/1871))
+
 - An extension's `import value from "./data.json" with { type: "file" }` returns the file path again. The loader rewrites a static import of a CommonJS-shaped file so that Node's export interop keeps working, and that rewrite rebuilt the statement without the attributes that followed the specifier, so a .json, .toml or .txt asset came back parsed or as text instead of as a path. The attributes now travel with the rewritten import. ([#1864](https://github.com/code-yeongyu/senpi/issues/1864))
+
+- `senpi` starts about five seconds faster. The command was still booting the unbundled module graph while `pi`, the other name the same package installs, had already moved onto the pre-linked bundle shipped for exactly this reason. Measured on a real TUI launch, with ready meaning the editor accepts a keystroke: 6.3 s to 1.2 s, and the work done before `main()` runs drops from 5.3 s to 0.3 s. `--version` and `--help` produce the same bytes on both Node and Bun. ([#1868](https://github.com/code-yeongyu/senpi/issues/1868))
 
 - Building the package no longer prints two esbuild warnings. esbuild reads an `import()` only when its attributes are spelled out in the source, and the extension loader forwards whatever attributes an extension passed, so every build reported that call as unrecognized and the noise sat where a real warning would show up. The loader now builds its import function while it runs, which keeps the bundler out of it; extension imports and their attributes behave as before. ([#1862](https://github.com/code-yeongyu/senpi/issues/1862))
 
 - Fixed Ctrl+V silently inserting nothing in the published bundle under Bun. The bundle now resolves the installed native clipboard helper instead of treating the package name as a file path. ([#1848](https://github.com/code-yeongyu/senpi/issues/1848), [#1849](https://github.com/code-yeongyu/senpi/pull/1849) by [@Daiwenxi798673133](https://github.com/Daiwenxi798673133))
+
+- Pending questions survive a reload without resetting their answer deadline or sending a duplicate answer. ([#1857](https://github.com/code-yeongyu/senpi/issues/1857))
+- If a question cannot be restored after reload, the user sees a notice and the model receives its outcome once. ([#1857](https://github.com/code-yeongyu/senpi/issues/1857))
+- Unanswered async questions can be recovered after restart; settled questions are not asked again. ([#1857](https://github.com/code-yeongyu/senpi/issues/1857))
+- Question cards retain their renderer while extensions reload. ([#1857](https://github.com/code-yeongyu/senpi/issues/1857))
 
 - Skills that ship inside the packaged binary load again. Reading only a skill's frontmatter needs a file descriptor, and the filesystem the binary keeps its own files in hands out none, so those skills were dropped on every start and reported as a `Skill conflicts` warning instead - image generation's skill being the one users saw. A skill the binary can read is now read whole when a descriptor is refused. ([#1852](https://github.com/code-yeongyu/senpi/issues/1852))
 
@@ -338,6 +349,8 @@
 - Branched sessions materialize entry content before the previous backing is released, so resident tokens can no longer be written into a new branched session file.
 
 ### Fixed
+
+- Switching models no longer fails because of headroom the switch does not need. Admission used to charge the speculation lead - the margin the background compactor works inside - against a transcript that had not been admitted yet, so a model the session would have fit onto was refused with a token shortfall smaller than the lead itself. A live switch is now admitted on whether the next request fits, which is the same reasoning already applied to resume. Starting a session on a model still charges the lead, because at that point the margin describes the model itself ([#1873](https://github.com/code-yeongyu/senpi/issues/1873)).
 
 - Moving the model selector off a Claude model and back no longer re-sends the whole conversation. Leaving the `claude-sdk-oauth` provider now closes the live SDK session but keeps its continuity binding - the same thing a thinking-level change already did - so returning to the same Claude model re-attaches to the existing session and sends only the messages added while you were away, instead of paying for the full history again. Switching to a different Claude model, a restart with no usable transcript, a diverged conversation and an unacknowledged session id all still start fresh exactly as before. When a binding really was discarded, the transcript notice now names the recorded cause (`model_selected`, `tainted_compaction`, `branch_diverged`, `extensions_removed`, ...) instead of the generic `registry_miss`, which from now on means only "no record was ever found" ([#1747](https://github.com/code-yeongyu/senpi/issues/1747)).
 

@@ -1252,6 +1252,7 @@ export async function main(args: string[], options?: MainOptions) {
 		printHelp(extensionFlags);
 		process.exit(0);
 	}
+	time("extensionFlags");
 	// Every full launch refreshes what `--help` reads, so the fast path stays warm without a help
 	// run of its own.
 	writeHelpFlagsCache({
@@ -1259,6 +1260,7 @@ export async function main(args: string[], options?: MainOptions) {
 		flags: extensionFlags,
 		extensionPaths: loadedExtensions.map((extension) => extension.resolvedPath),
 	});
+	time("helpFlagsCache");
 
 	// Read piped stdin content (if any) - skip for RPC mode which uses stdin for JSON-RPC
 	let stdinContent: string | undefined;

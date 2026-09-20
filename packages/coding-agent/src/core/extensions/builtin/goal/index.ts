@@ -1,3 +1,4 @@
+import { MANUAL_CONTINUE_CUSTOM_TYPE } from "../../../manual-continue.ts";
 import { GOAL_CONTINUATION_MESSAGE_TYPE } from "../../../messages.ts";
 import type { SessionEntry } from "../../../session-manager.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../types.ts";
@@ -205,6 +206,14 @@ export default function goalExtension(pi: ExtensionAPI): void {
 		} else {
 			agentGoalAccounting = null;
 		}
+	});
+
+	pi.on("message_start", async (event, ctx) => {
+		if (event.message.role !== "custom" || event.message.customType !== MANUAL_CONTINUE_CUSTOM_TYPE) return;
+		const ref = goalStoreRef(ctx);
+		const goal = await readGoal(ref);
+		if (goal?.status !== "blocked") return;
+		syncContinuationGoal(ctx, await updateGoal(ref, { status: "active" }, "user"));
 	});
 
 	pi.on("message_end", async (event) => {

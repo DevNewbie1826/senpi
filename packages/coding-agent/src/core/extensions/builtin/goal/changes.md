@@ -1,5 +1,24 @@
 # goal Extension Changes
 
+## 2026-09-20 - Resume blocked goals on manual continue (#1871)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/goal/index.ts` resumes a blocked goal when a `manual-continue` custom message starts. The user-authorized transition clears blocked metadata and continuation counters, restarts accounting, and refreshes the goal UI without queuing another turn.
+- Regression coverage drives idle, steering, and follow-up dot submissions through `AgentSession`, including model, user-interrupt, and provider blocks. Paused/completed goals, ordinary input, image submissions, unrelated custom messages, and sessions without goals retain their behavior.
+
+### Why
+
+- The dot shortcut bypasses ordinary input events, so the direct-input lifecycle never saw the user's request to continue. The conversation resumed while its goal remained blocked.
+
+### Why an extension could not handle it
+
+- This is implemented in the existing goal extension using its message lifecycle hook. No core or public extension API change is needed.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/goal/index.ts`: imports and message lifecycle handlers.
+
 ## 2026-09-13 - Park on the earliest authoritative question deadline (senpi#1645)
 
 ### What changed

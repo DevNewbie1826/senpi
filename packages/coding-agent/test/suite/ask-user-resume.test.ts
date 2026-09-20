@@ -6,8 +6,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEventBus } from "../../src/core/event-bus.ts";
 import { formatUserMessage } from "../../src/core/extensions/builtin/ask-user/format.ts";
 import askUserExtension from "../../src/core/extensions/builtin/ask-user/index.ts";
+import { getPendingQuestions } from "../../src/core/extensions/builtin/ask-user/registry.ts";
 import type { QuestionRequest, QuestionResponse } from "../../src/core/extensions/builtin/ask-user/schema.ts";
-import type { ExtensionAPI, ExtensionContext, SessionStartEvent } from "../../src/core/extensions/types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	SessionStartEvent,
+	ToolDefinition,
+} from "../../src/core/extensions/types.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 
 const CALL_ID = "call_ask_user_1";
@@ -17,10 +23,24 @@ const ARGS = {
 	waitForAnswer: true,
 };
 const CANONICAL_QUESTIONS = [
-	{ id: "q1", header: "Library", question: "Which library?", options: [], multiSelect: false },
+	{
+		id: "q1",
+		header: "Library",
+		question: "Which library?",
+		options: [],
+		multiSelect: false,
+	},
 ];
-const ANSWER: QuestionResponse = { status: "answered", answers: { q1: { selected: ["A"] } }, unanswered: [] };
-const ORPHANED: QuestionResponse = { status: "orphaned-after-restart", answers: {}, unanswered: ["q1"] };
+const ANSWER: QuestionResponse = {
+	status: "answered",
+	answers: { q1: { selected: ["A"] } },
+	unanswered: [],
+};
+const ORPHANED: QuestionResponse = {
+	status: "orphaned-after-restart",
+	answers: {},
+	unanswered: ["q1"],
+};
 const EMPTY_USAGE: Usage = {
 	input: 0,
 	output: 0,
@@ -42,7 +62,14 @@ afterEach(async () => {
 function assistantQuestion(id: string, waitForAnswer: boolean): AssistantMessage {
 	return {
 		role: "assistant",
-		content: [{ type: "toolCall", id, name: "ask_user_question", arguments: { ...ARGS, waitForAnswer } }],
+		content: [
+			{
+				type: "toolCall",
+				id,
+				name: "ask_user_question",
+				arguments: { ...ARGS, waitForAnswer },
+			},
+		],
 		api: "anthropic-messages",
 		provider: "anthropic",
 		model: "claude-opus-4-6",
@@ -56,7 +83,11 @@ async function danglingSession(waitForAnswer = true): Promise<SessionManager> {
 	const root = await mkdtemp(join(tmpdir(), "ask-user-resume-"));
 	roots.push(root);
 	const writer = SessionManager.create(root, join(root, "sessions"));
-	writer.appendMessage({ role: "user", content: "pick a library", timestamp: 1 });
+	writer.appendMessage({
+		role: "user",
+		content: "pick a library",
+		timestamp: 1,
+	});
 	writer.appendMessage(assistantQuestion(CALL_ID, waitForAnswer));
 	const file = writer.getSessionFile();
 	if (!file) throw new Error("expected session JSONL fixture");
@@ -79,11 +110,14 @@ function install(sessionManager: SessionManager) {
 	const userMessages: string[] = [];
 	const received = Promise.withResolvers<string>();
 	const handlers = new Map<string, StartHandler[]>();
+	const tools = new Map<string, ToolDefinition>();
 	const pi = {
 		events: createEventBus(),
 		registerFlag() {},
 		registerCommand() {},
-		registerTool() {},
+		registerTool(tool: ToolDefinition) {
+			tools.set(tool.name, tool);
+		},
 		getFlag() {
 			return false;
 		},
@@ -109,13 +143,14 @@ function install(sessionManager: SessionManager) {
 		},
 	};
 	askUserExtension(pi as unknown as ExtensionAPI);
-	return { userMessages, received, handlers, events: pi.events };
+	return { userMessages, received, handlers, events: pi.events, tools };
 }
 
 function ctx(sessionManager: SessionManager, question?: ExtensionContext["ui"]["question"]): ExtensionContext {
 	return {
 		sessionManager,
-		ui: question ? { question } : {},
+		ui: question ? { question, notify: vi.fn() } : { notify: vi.fn() },
+		isIdle: () => true,
 		getAskUserSettings: () => ({ enabled: true, timeoutMinutes: 30 }),
 		mode: "tui",
 		hasUI: question !== undefined,
@@ -133,6 +168,103 @@ async function emitStart(
 }
 
 describe("ask-user resume", () => {
+	it.each(["frame", "resumed"] as const)(
+		"does not replay legacy async questions settled by %s metadata",
+		async (kind) => {
+			const manager = await danglingSession(false);
+			manager.appendMessage({
+				role: "toolResult",
+				toolCallId: CALL_ID,
+				toolName: "ask_user_question",
+				content: [{ type: "text", text: "accepted" }],
+				details: { accepted: true, requestId: CALL_ID, status: "pending" },
+				isError: false,
+				timestamp: 3,
+			});
+			if (kind === "frame")
+				manager.appendMessage({
+					role: "user",
+					content: formatUserMessage(ANSWER, CALL_ID, CANONICAL_QUESTIONS),
+					timestamp: 4,
+				});
+			else manager.appendCustomEntry("ask-user:resumed", { toolCallId: CALL_ID });
+			const installed = install(manager);
+			const question = vi.fn(async () => ANSWER);
+			await emitStart(installed.handlers, "resume", ctx(manager, question));
+			await emitStart(installed.handlers, "reload", ctx(manager, question));
+			expect(question).not.toHaveBeenCalled();
+			expect(installed.userMessages).toEqual([]);
+		},
+	);
+	// #1857: an accepted async tool result does not mean its question settled.
+	it("recovers an unsettled async question with a tool result once per restart", async () => {
+		const manager = await danglingSession(false);
+		manager.appendMessage({
+			role: "toolResult",
+			toolCallId: CALL_ID,
+			toolName: "ask_user_question",
+			content: [{ type: "text", text: "accepted" }],
+			details: { accepted: true, requestId: CALL_ID, status: "pending" },
+			isError: false,
+			timestamp: 3,
+		});
+		const file = manager.getSessionFile();
+		if (!file) throw new Error("missing session file");
+		const restarted = SessionManager.open(file);
+		const installed = install(restarted);
+		const answer = Promise.withResolvers<QuestionResponse>();
+		const question = vi.fn(() => answer.promise);
+		await emitStart(installed.handlers, "resume", ctx(restarted, question));
+		await emitStart(installed.handlers, "resume", ctx(restarted, question));
+		expect(question).toHaveBeenCalledOnce();
+		expect(installed.userMessages).toEqual([]);
+		answer.resolve(ANSWER);
+		await installed.received.promise;
+		expect(installed.userMessages).toHaveLength(1);
+	});
+
+	it.each(["answered", "comment-submitted", "timed_out", "cancelled"] as const)(
+		"persists async %s settlement and never re-presents it after restart",
+		async (status) => {
+			const manager = await danglingSession(false);
+			const installed = install(manager);
+			const response = Promise.withResolvers<QuestionResponse>();
+			const context = ctx(manager, () => response.promise);
+			await emitStart(installed.handlers, "new", context);
+			const tool = installed.tools.get("ask_user_question");
+			if (!tool) throw new Error("missing tool");
+			const result = await tool.execute(CALL_ID, { ...ARGS, waitForAnswer: false }, undefined, undefined, context);
+			manager.appendMessage({
+				role: "toolResult",
+				toolCallId: CALL_ID,
+				toolName: "ask_user_question",
+				...result,
+				isError: false,
+				timestamp: 3,
+			});
+			const pending = getPendingQuestions(manager.getSessionId())[0];
+			if (!pending) throw new Error("missing pending question");
+			response.resolve({
+				...ANSWER,
+				status,
+				comment: status === "comment-submitted" ? "use A" : undefined,
+			});
+			await pending.completion;
+			expect(
+				manager
+					.getBranch()
+					.filter((entry) => entry.type === "custom" && entry.customType === "ask-user:settlement"),
+			).toHaveLength(1);
+			const file = manager.getSessionFile();
+			if (!file) throw new Error("missing session file");
+			const restarted = SessionManager.open(file);
+			const next = install(restarted);
+			const question = vi.fn(async () => ANSWER);
+			await emitStart(next.handlers, "resume", ctx(restarted, question));
+			expect(question).not.toHaveBeenCalled();
+			expect(next.userMessages).toEqual([]);
+		},
+	);
 	it.each([true, false])(
 		"pairs an orphaned fresh runtime registration in wait=%s mode only once",
 		async (waitForAnswer) => {
