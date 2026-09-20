@@ -114,10 +114,13 @@ export function createBunExtensionImporter(
 					const target = resolveTarget(edge.n, filename);
 					if (target.path !== undefined && isCommonJsFile(target.path)) {
 						const clause = contents.slice(edge.ss + "import".length, edge.s - 1).replace(/\bfrom\s*$/, "");
+						// This branch replaces the whole statement, so the attributes between the
+						// specifier and the end of it have to travel with it: they pick the loader.
+						const attributes = edge.a < 0 ? "" : contents.slice(edge.e + 1, edge.se).replace(/;\s*$/, "");
 						edits.push({
 							start: edge.ss,
 							end: edge.se,
-							text: rewriteCommonJsImport(clause, target.id, `${name}Cjs${commonJsImports++}`),
+							text: rewriteCommonJsImport(clause, target.id, `${name}Cjs${commonJsImports++}`, attributes),
 						});
 					} else {
 						edits.push({ start: edge.s - 1, end: edge.e + 1, text: JSON.stringify(target.id) });
