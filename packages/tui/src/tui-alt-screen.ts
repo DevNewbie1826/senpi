@@ -820,10 +820,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 	private applyMouseDispatchResult(event: TuiMouseEvent, result: TuiMouseDispatchResult, applyFocus = true): boolean {
 		const focusTarget =
 			applyFocus && result.focus
-				? this.resolveMouseFocusTarget(
-						result.focusTarget ?? result.target.component,
-						result.focusTransparent === true,
-					)
+				? this.resolveMouseFocusTarget(result.focusTarget ?? result.target.component)
 				: null;
 		const focusChanged = focusTarget !== null && this.getFocusedComponent() !== focusTarget;
 		if (focusTarget) this.setFocus(focusTarget);

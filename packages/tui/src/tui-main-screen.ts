@@ -102,10 +102,7 @@ export class TuiMainScreen extends TuiBase {
 
 	private applyMouseResult(result: TuiMouseDispatchResult | undefined): void {
 		if (!result?.focus) return;
-		const target = this.resolveMouseFocusTarget(
-			result.focusTarget ?? result.target.component,
-			result.focusTransparent === true,
-		);
+		const target = this.resolveMouseFocusTarget(result.focusTarget ?? result.target.component);
 		if (target) this.setFocus(target);
 	}
 

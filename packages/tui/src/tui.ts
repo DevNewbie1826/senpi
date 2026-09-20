@@ -123,12 +123,6 @@ export interface TuiMouseEventResult {
 	 * press, click, drag, and wheel default to true.
 	 */
 	render?: boolean;
-	/**
-	 * Set by decorators that broker a click for the component they wrap (MouseRegion).
-	 * They never own keyboard focus themselves, so the renderer resolves focus to the
-	 * nearest surrounding component that can receive keys instead.
-	 */
-	focusTransparent?: boolean;
 }
 
 /** Internal target metadata used by containers and alternate-screen dispatch. */
@@ -1263,19 +1257,19 @@ export abstract class TuiBase extends Container {
 	}
 
 	/**
-	 * Keyboard focus owner for a clicked component: the overlay that owns it, otherwise the
-	 * component itself. A focus-transparent decorator never owns focus, so its click resolves
-	 * to the nearest surrounding component that can receive keys, or to null when there is
-	 * none - parking focus on a decorator would swallow every later keystroke.
+	 * Keyboard focus owner for a clicked component: the overlay that owns it, else the component
+	 * itself when it can receive keys, else the nearest surrounding component that can. Null when
+	 * nothing in that chain can - a mouse-only control (a clickable row, a tab strip) that owned
+	 * focus would swallow every later keystroke.
 	 */
-	protected resolveMouseFocusTarget(component: Component, focusTransparent = false): Component | null {
+	protected resolveMouseFocusTarget(component: Component): Component | null {
 		for (let index = this.overlayStack.length - 1; index >= 0; index--) {
 			const overlay = this.overlayStack[index]!;
 			if (this.isOverlayVisible(overlay) && this.containsComponent(overlay.component, component)) {
 				return overlay.component;
 			}
 		}
-		if (!focusTransparent || canReceiveKeys(component)) return component;
+		if (canReceiveKeys(component)) return component;
 		return this.findKeyFocusOwner(component);
 	}
 
