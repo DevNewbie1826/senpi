@@ -1114,6 +1114,7 @@ export class AgentSession {
 					invalidateCompaction: true,
 					ephemeralThinkingLevel: thinking,
 					allowDeferral: false,
+					repairWithSlice: true,
 				});
 			},
 			emit: (event) => this._emit(event),
@@ -4862,7 +4863,24 @@ export class AgentSession {
 		});
 	}
 
-	private _projectPendingSwitchFit(model: Model<Api>): ModelUsabilityBudgetProjection {
+	/**
+	 * Fit a fallback rung by reducing the transcript without a provider request
+	 * (#1873). Summarizing is not available here: the model being fallen back from
+	 * has usually just failed, and the rung itself cannot hold the transcript, so
+	 * the deterministic slice is the only reduction that can run. The recorded
+	 * transcript stays intact in the session file.
+	 */
+	private _reduceForSwitchTarget(model: Model<Api>, liveContextTokens: number): number {
+		if (!this._getCompactionSettings().enabled) return liveContextTokens;
+		const projection = this._projectSwitchFit(model);
+		if (projection.usable || projection.verdict !== "fits-after-compaction") return liveContextTokens;
+		const plan = planResumeSlice({ entries: this.sessionManager.getBranch(), projection });
+		if (!plan) return liveContextTokens;
+		this.applyResumeSlice(plan);
+		return this._projectSwitchFit(model).liveContextTokens;
+	}
+
+	private _projectSwitchFit(model: Model<Api>): ModelUsabilityBudgetProjection {
 		// Measured per message rather than through the context estimate: a retained
 		// turn keeps the usage it reported before the reduction, so a usage-derived
 		// total cannot observe the compaction that just ran (the sdk.ts convention).
@@ -4905,12 +4923,12 @@ export class AgentSession {
 			pendingSwitchKeepRecentTokens(pending.projection),
 		);
 
-		let projection = this._projectPendingSwitchFit(pending.model);
+		let projection = this._projectSwitchFit(pending.model);
 		if (!projection.usable) {
 			const plan = planResumeSlice({ entries: this.sessionManager.getBranch(), projection });
 			if (plan) {
 				this.applyResumeSlice(plan);
-				projection = this._projectPendingSwitchFit(pending.model);
+				projection = this._projectSwitchFit(pending.model);
 			}
 		}
 
@@ -5135,6 +5153,13 @@ export class AgentSession {
 			 * lanes, whose retry is the next request and has nothing to wait for.
 			 */
 			allowDeferral?: boolean;
+			/**
+			 * Reduce the transcript in place so this switch can settle now (#1873). Used
+			 * by the fallback lanes: a rung that cannot hold the conversation is repaired
+			 * rather than rejected, because rejecting it fails a chain whose rungs are all
+			 * smaller than the model that just failed.
+			 */
+			repairWithSlice?: boolean;
 		},
 	): Promise<SystemPromptChangeEvent | undefined> {
 		const previousModel = this.model;
@@ -5193,7 +5218,10 @@ export class AgentSession {
 				this._admitSwitchCompactionRequired(model, deferral, opts.persistDefault);
 				return undefined;
 			}
-			this._assertModelUsableForSwitch(model, liveContextTokens);
+			const admittedLiveContextTokens = opts.repairWithSlice
+				? this._reduceForSwitchTarget(model, liveContextTokens)
+				: liveContextTokens;
+			this._assertModelUsableForSwitch(model, admittedLiveContextTokens);
 			if (opts.appendSessionEntry) {
 				this.sessionManager.appendModelChange(
 					model.provider,

@@ -1,5 +1,27 @@
 # changes
 
+## 2026-09-20 - A fallback rung too small for the transcript is repaired, not rejected (senpi#1873)
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session.ts`: `_switchActiveModel` gained `repairWithSlice`, set by the retry-fallback lanes. When a rung reports `fits-after-compaction`, `_reduceForSwitchTarget` reduces the transcript with `planResumeSlice` against that rung's own projection and re-measures before the admission guard runs, so the chain advances onto a model that can now hold the conversation instead of rejecting it.
+- `_projectPendingSwitchFit` is renamed `_projectSwitchFit`; it is now shared by the held-switch repair and the fallback repair.
+- The reduction is skipped when compaction is disabled, and `planResumeSlice` returning nothing leaves the original refusal in place, so a transcript with no interior boundary to cut still fails the rung rather than advancing onto a model that cannot serve it.
+
+### Why
+
+- A fallback switch has no next message to defer to: the retry is the next request. The model being fallen back from has usually just failed, so it cannot be asked for a summary either, and the rung itself cannot hold the transcript. The deterministic, provider-free slice is the only reduction available, and the recorded transcript stays intact in the session file.
+- Rejecting the rung fails a chain whose rungs are all smaller than the model that just failed, which is the case a fallback chain exists for.
+
+### Why an extension could not handle it
+
+- The repair has to run between the `model_select` hook and the admission guard inside `_switchActiveModel`, a window no extension can observe, and it mutates session context that only the session owns.
+
+### Expected merge conflict zones
+
+- MEDIUM: `agent-session.ts` around the `_switchActiveModel` guard. PR #1338 rewrites the same seam to *skip* incompatible rungs; this supersedes that policy.
+- Coverage: `test/suite/regressions/1873-fallback-rung-repair.test.ts`.
+
 ## 2026-09-20 - A switch one compaction would admit is held, not refused (senpi#1873)
 
 ### What changed
