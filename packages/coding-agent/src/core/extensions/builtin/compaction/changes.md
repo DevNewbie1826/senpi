@@ -1,3 +1,23 @@
+## Hold a model switch until the next send can compact for it (2026-09-20)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/compaction/switch-admission.ts` (new): `PendingModelSwitch` plus `createPendingModelSwitch`, the switch-side counterpart to `resume-admission.ts`, and `pendingSwitchKeepRecentTokens`, which recovers the keep-recent size the *pending* model's window is designed around from that model's own projection (`postCompactionRequiredTokens` minus the fixed overhead).
+- The geometry and the summarizer deliberately come from different models: the reduction targets the window the transcript must end up inside, while the summary request is still issued by the model that can hold the transcript today. Aiming at the current model's geometry leaves a result the target still cannot hold; aiming at whatever merely fits leaves no room for the summary the compaction is about to add.
+
+### Why
+
+- The session-side half of #1873 needs a reduction target that belongs to a model which is not the active one. Every existing geometry helper resolves against the active model, so the pending switch had no way to express "compact as if you were already on the target".
+
+### Why an extension could not handle it
+
+- The value is consumed inside `_executeCompaction`'s settings resolution, which no hook can reach, and it is derived from an admission projection that is private to this extension.
+
+### Expected merge conflict zones
+
+- LOW: new file; only its import in `agent-session.ts` can conflict.
+- Coverage: `test/suite/regressions/1873-deferred-model-switch.test.ts`.
+
 ## Project a three-tier admission verdict instead of one usable boolean (2026-09-20)
 
 ### What changed
