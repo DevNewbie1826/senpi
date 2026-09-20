@@ -1,5 +1,23 @@
 # TUI delta rendering fork changes
 
+## 2026-09-20 - Resolve native clipboard helpers in the published bundle (senpi#1848)
+
+### What changed
+
+- `packages/tui/src/native-module-path.ts`: resolve the installed TUI entry with `import.meta.resolve`, fall back to `moduleRequire.resolve`, and accept the package-anchored candidate only when the entry is absolute.
+
+### Why
+
+- `packages/tui/src/native-module-path.ts`: Bun can return the bare package specifier from `require.resolve` inside an esbuild chunk. The resulting relative candidate cannot load the native helper, so Ctrl+V silently reads an empty clipboard.
+
+### Why an extension could not handle it
+
+- `packages/tui/src/native-module-path.ts`: native helper discovery belongs to the TUI package, below extension clipboard handling.
+
+### Expected merge conflict zones
+
+- `packages/tui/src/native-module-path.ts`: package resolution and its first candidate. The module-directory and executable-directory fallbacks retain their order.
+
 ## 2026-09-17 - Repeated dollar mentions and styled skill tokens (senpi#1778)
 
 ### What changed
