@@ -1,5 +1,92 @@
 # Builtin extensions changes
 
+## 2026-09-20 - Serve question card renderers without a registration (#1857 I4)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/render.ts` exports `askUserRenderers(toolName)`, the renderer pair for both question tool names, independent of whether the tools are registered.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts` gives the first attachment the full idle budget and a re-attachment only what the authoritative timer has left.
+- Registration itself stays inside session-start synchronization: registering at load also activates a directly exposed tool, which would hand a `noTools` session a question tool it never asked for.
+
+### Why
+
+- A question card can stream while the registry holds no ask-user tools - during a reload, or in a session where ask-user is disabled - and would otherwise render as a raw argument dump. Its renderers do not depend on the registration, so the card no longer does either.
+
+### Why an extension could not handle it
+
+- This builtin owns the question tools and their renderers; no other extension can supply them for a card the host is already drawing.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/render.ts`: renderer exports.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts`: attachment options.
+
+
+## 2026-09-20 - Recover unsettled async questions after restart (#1857 I3)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/resume.ts` recovers accepted async calls without settlement evidence. It excludes durable terminal entries, delivered answer frames in older sessions, prior recovery records, and live pending registrations.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/format.ts` exports the parser that inverts its answer formatter. Recovery and the answer chip consume the same grammar.
+
+### Why
+
+- An async tool result means acceptance, not completion. Recovery must distinguish unanswered requests from completed ones without replaying legacy answers.
+
+### Why an extension could not handle it
+
+- This builtin owns the session records and recovery dispatch. An outside extension would introduce competing registrations and delivery subscriptions.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/resume.ts`: terminal-evidence scan and recovery dispatch.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/format.ts`: shared answer-frame parser.
+
+## 2026-09-20 - Report question reattachment failures (#1857 I2)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts` turns a missing, throwing, or rejecting reload bridge into one orphaned outcome and one UI notice.
+
+### Why
+
+- Cancelling a failed reattachment silently leaves the model expecting an answer that can no longer arrive.
+
+### Why an extension could not handle it
+
+- The builtin owns the bridge promise and the single framed delivery; outside observers cannot safely settle it.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts`: fail and attach.
+
+## 2026-09-20 - Preserve pending questions across reload (#1857 I1)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/extension.ts` detaches pending UI bridges on reload and reattaches them on session start.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/registry.ts` retains the reattachment operations and draft options.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts` preserves the pending object, deadline, draft, and request ID while replacing the runner used for delivery. Old bridge responses cannot settle the replacement.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/notify.ts` declares a terminal settlement entry. The lifecycle records async outcomes, including silent cancellations, for restart recovery.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/resume.ts` leaves delivery to the pending lifecycle and avoids a second delivery subscription for a live request.
+- A request that expires without a bound runner becomes terminal immediately, resolves its completion, leaves the pending registry, and notifies the live UI. Its outcome waits in memory for the next bound runner rather than using a torn-down API.
+
+### Why
+
+- Reload is a UI ownership change, not a dismissal. Recreating a pending question would reset its timeout and duplicate its arrival metadata.
+
+### Why an extension could not handle it
+
+- This is the builtin extension that owns the pending registry and answer delivery; an external extension cannot transfer that ownership.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/extension.ts`: lifecycle handlers.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/registry.ts`: pending entry interface.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts`: startQuestion bridge and completion ownership.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/notify.ts`: settlement entry export.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/resume.ts`: single-owner delivery.
+
 ## 2026-09-13 - Retain question headers for transcript replay (senpi#1645)
 
 ### What changed

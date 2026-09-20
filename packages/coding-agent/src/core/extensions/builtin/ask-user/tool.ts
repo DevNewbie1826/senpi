@@ -5,12 +5,18 @@ import { formatResultDetails, formatResultText, formatUserMessage } from "./form
 import {
 	ASK_USER_ASKED_EVENT,
 	ASK_USER_QUESTION_ENTRY,
+	ASK_USER_SETTLEMENT_ENTRY,
 	type AskUserAskedEvent,
 	type AskUserQuestionEntry,
 	emitAskUserNotification,
 } from "./notify.ts";
 import { createPendingQuestion } from "./pending.ts";
-import { getPendingQuestions, type QuestionDialogOptions, registerPendingQuestion } from "./registry.ts";
+import {
+	getPendingQuestions,
+	type QuestionDialogOptions,
+	queueQuestionOutcome,
+	registerPendingQuestion,
+} from "./registry.ts";
 import { renderCall, renderResult } from "./render.ts";
 import {
 	AskUserSchemaError,
@@ -73,14 +79,18 @@ function emitWake(pi: Pick<ExtensionAPI, "events">, sessionId: string) {
 	pi.events.emit(WAKE_SOURCE_STATE_EVENT, event);
 }
 export function startQuestion(
-	pi: Pick<ExtensionAPI, "sendUserMessage" | "events" | "appendEntry">,
-	ctx: ExtensionContext,
+	initialPi: Pick<ExtensionAPI, "sendUserMessage" | "events" | "appendEntry">,
+	initialCtx: ExtensionContext,
 	request: QuestionRequest,
 	signal: AbortSignal | undefined,
-	state: AskUserState,
+	initialState: AskUserState,
 	variant: "codex" | "claude",
 	{ resuming = false }: { resuming?: boolean } = {},
 ) {
+	let pi = initialPi;
+	let ctx = initialCtx;
+	let state = initialState;
+	let notify = ctx.ui.notify.bind(ctx.ui);
 	const question = ctx.ui.question;
 	if (!question && !resuming) throw new Error("Question UI is unavailable");
 	const sessionId = ctx.sessionManager.getSessionId();
@@ -91,10 +101,25 @@ export function startQuestion(
 		answers: {},
 		unanswered: request.questions.map((question) => question.id),
 	});
-	const controller = new AbortController();
+	let controller = new AbortController();
+	let attached = true;
+	let ownerBound = true;
+	let generation = 0;
 	const completion = Promise.withResolvers<QuestionResponse>();
 	let settled = false;
 	let unregister = () => {};
+	const publish = (
+		ownerPi: Pick<ExtensionAPI, "sendUserMessage" | "events" | "appendEntry">,
+		ownerCtx: ExtensionContext,
+		response: QuestionResponse,
+	) => {
+		if (!request.waitForAnswer)
+			ownerPi.appendEntry(ASK_USER_SETTLEMENT_ENTRY, {
+				requestId: request.requestId,
+				status: response.status,
+			});
+		if (!request.waitForAnswer || resuming) deliverAnswer(ownerPi, ownerCtx, request, response, variant);
+	};
 	const finish = (response: QuestionResponse) => {
 		if (settled) return;
 		settled = true;
@@ -103,6 +128,17 @@ export function startQuestion(
 		signal?.removeEventListener("abort", abort);
 		if (!request.waitForAnswer) emitWake(pi, sessionId);
 		pi.events.emit("herdr:blocked", { active: false, id: request.requestId });
+		if (ownerBound) publish(pi, ctx, response);
+		else {
+			// The old API is invalid after reload. End the request at its deadline,
+			// notify the still-live UI, and deliver through the next bound runner.
+			queueQuestionOutcome(sessionId, (nextPi, nextCtx) => publish(nextPi, nextCtx, response));
+			if (response.status !== "cancelled")
+				notify(
+					`Question ${request.requestId} ended (${response.status}) while reload was incomplete. Its outcome will reach the model when the session starts again.`,
+					"error",
+				);
+		}
 		completion.resolve(response);
 		// This extension owns the authoritative idle timer (pending.ts), so a UI
 		// bridge that is still waiting learns the outcome only from this abort.
@@ -117,12 +153,39 @@ export function startQuestion(
 		idleTimeoutMs: request.timeoutMs,
 		onTimeout: finish,
 	});
-	const cancel = (message?: string) => {
-		const response = pending.cancel();
+	const cancel = (message?: string, reportDetachedLoss = false) => {
+		const lost = !attached && reportDetachedLoss;
+		const response = pending.cancel(lost ? "orphaned-after-restart" : "cancelled");
 		finish(message ? { ...response, comment: message } : response);
+		if (lost) notify(message ?? "The pending question could not be restored.", "error");
 	};
 	const abort = () => cancel();
-	unregister = registerPendingQuestion(sessionId, { request, pending, completion: completion.promise, cancel });
+	unregister = registerPendingQuestion(sessionId, {
+		request,
+		pending,
+		completion: completion.promise,
+		cancel,
+		detach() {
+			if (!attached || settled) return;
+			attached = false;
+			ownerBound = false;
+			generation++;
+			controller.abort("reload");
+		},
+		rebind(nextPi, nextCtx, nextState) {
+			pi = nextPi;
+			ctx = nextCtx;
+			state = nextState;
+			notify = ctx.ui.notify.bind(ctx.ui);
+			ownerBound = true;
+		},
+		reattach() {
+			if (attached || settled) return;
+			attached = true;
+			controller = new AbortController();
+			attach();
+		},
+	});
 	pi.appendEntry<AskUserQuestionEntry>(ASK_USER_QUESTION_ENTRY, {
 		requestId: request.requestId,
 		headers: request.questions.map((question) => question.header),
@@ -167,24 +230,50 @@ export function startQuestion(
 	const fail = (error: unknown) => {
 		if (settled) return;
 		const message = `Question UI failed: ${error instanceof Error ? error.message : String(error)}`;
-		if (resuming) {
+		if (resuming || generation > 0) {
 			accept({ ...orphaned(), comment: message });
+			ctx.ui.notify(message, "error");
 			return;
 		}
 		cancel(message);
 		ctx.ui.notify(message, "error");
 	};
-	if (signal?.aborted) abort();
-	else if (!question) accept(orphaned());
-	else {
+	const attach = () => {
+		const currentGeneration = generation;
+		const currentQuestion = ctx.ui.question;
+		if (!currentQuestion) {
+			accept(orphaned());
+			if (generation > 0)
+				ctx.ui.notify("The pending question could not be restored: question UI is unavailable.", "error");
+			return;
+		}
 		try {
-			question.call(ctx.ui, request, opts).then(accept, fail);
+			currentQuestion
+				.call(ctx.ui, request, {
+					...opts,
+					signal: controller.signal,
+					// The first attachment owns the whole budget; a re-attachment inherits what the
+					// authoritative idle timer has left, so a reload cannot hand the question a fresh one.
+					timeout: currentGeneration === 0 ? request.timeoutMs : pending.remainingMs(Date.now()),
+					initialDraft: draft,
+					onProgress: (progress) => {
+						if (attached && generation === currentGeneration) opts.onProgress(progress);
+					},
+				})
+				.then(
+					(response) => {
+						if (attached && generation === currentGeneration) accept(response);
+					},
+					(error: unknown) => {
+						if (attached && generation === currentGeneration) fail(error);
+					},
+				);
 		} catch (error: unknown) {
 			fail(error);
 		}
-	}
-	if (!request.waitForAnswer && !resuming)
-		void completion.promise.then((response) => deliverAnswer(pi, ctx, request, response, variant));
+	};
+	if (signal?.aborted) abort();
+	else attach();
 	return completion.promise;
 }
 export function createAskUserTool(variant: AskUserVariant, pi: ExtensionAPI, state: AskUserState): ToolDefinition {

@@ -1,5 +1,6 @@
 import { Text } from "@earendil-works/pi-tui";
 import type { ToolDefinition } from "../../types.ts";
+import { TOOL_NAMES } from "./family.ts";
 
 export const renderCall: NonNullable<ToolDefinition["renderCall"]> = (args, theme) => {
 	const values = typeof args === "object" && args !== null ? args : {};
@@ -32,3 +33,12 @@ export const renderResult: NonNullable<ToolDefinition["renderResult"]> = (result
 		0,
 	);
 };
+
+/**
+ * Renderers for a question card whose tool definition is not resolvable: the tools are registered
+ * when the session synchronizes them, so a card streamed while a reload is in flight - or replayed
+ * in a session where ask-user is disabled - would otherwise fall back to a raw argument dump.
+ */
+export function askUserRenderers(toolName: string): Pick<ToolDefinition, "renderCall" | "renderResult"> | undefined {
+	return Object.values(TOOL_NAMES).includes(toolName) ? { renderCall, renderResult } : undefined;
+}

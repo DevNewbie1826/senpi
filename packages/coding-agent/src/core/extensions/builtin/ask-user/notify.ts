@@ -5,6 +5,8 @@ export const ASK_USER_SETTLED_EVENT = "ask-user:settled";
 export const ASK_USER_ASKED_EVENT = "ask-user:asked";
 /** UI-only session metadata; never included in the model-facing answer frame. */
 export const ASK_USER_QUESTION_ENTRY = "ask-user:question";
+/** Durable terminal outcome, including silent cancellation, for restart recovery. */
+export const ASK_USER_SETTLEMENT_ENTRY = "ask-user:settlement";
 export interface AskUserQuestionEntry {
 	readonly requestId: string;
 	readonly headers: readonly string[];

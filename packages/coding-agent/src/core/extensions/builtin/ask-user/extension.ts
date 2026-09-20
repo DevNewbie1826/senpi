@@ -1,7 +1,7 @@
 import { APP_NAME } from "../../../../config.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../types.ts";
 import { pickVariant, TOOL_NAMES } from "./family.ts";
-import { getPendingQuestions } from "./registry.ts";
+import { deliverQueuedQuestionOutcomes, getPendingQuestions } from "./registry.ts";
 import { resumeDanglingQuestion } from "./resume.ts";
 import { type AskUserState, createAskUserTool } from "./tool.ts";
 
@@ -26,13 +26,14 @@ export default function askUserExtension(pi: ExtensionAPI): void {
 	});
 	const state: AskUserState = { timedOut: false, unavailable: false };
 	let registered = false;
-	const cancelPending = (ctx: ExtensionContext, message: string) => {
-		for (const entry of getPendingQuestions(ctx.sessionManager.getSessionId())) entry.cancel(message);
+	const cancelPending = (ctx: ExtensionContext, message: string, reportDetachedLoss = false) => {
+		for (const entry of getPendingQuestions(ctx.sessionManager.getSessionId()))
+			entry.cancel(message, reportDetachedLoss);
 	};
 	const sync = (ctx: ExtensionContext, model = ctx.model) => {
 		const rest = pi.getActiveTools().filter((name) => !Object.values(TOOL_NAMES).includes(name));
 		if (ctx.getAskUserSettings?.().enabled === false || pi.getFlag("no-ask-user") === true) {
-			cancelPending(ctx, "The pending question was cancelled because ask-user is disabled.");
+			cancelPending(ctx, "The pending question was cancelled because ask-user is disabled.", true);
 			pi.setActiveTools(rest);
 			return;
 		}
@@ -46,7 +47,11 @@ export default function askUserExtension(pi: ExtensionAPI): void {
 	pi.on("session_start", async (event, ctx) => {
 		state.timedOut = false;
 		state.unavailable = false;
+		const sessionId = ctx.sessionManager.getSessionId();
+		for (const entry of getPendingQuestions(sessionId)) entry.rebind(pi, ctx, state);
+		deliverQueuedQuestionOutcomes(sessionId, pi, ctx);
 		sync(ctx);
+		for (const entry of getPendingQuestions(sessionId)) entry.reattach();
 		void resumeDanglingQuestion(pi, event, ctx);
 	});
 	pi.on("model_select", async (event, ctx) => {
@@ -55,7 +60,11 @@ export default function askUserExtension(pi: ExtensionAPI): void {
 	pi.on("agent_end", async () => {
 		state.timedOut = false;
 	});
-	pi.on("session_shutdown", async (_event, ctx) => {
+	pi.on("session_shutdown", async (event, ctx) => {
+		if (event.reason === "reload") {
+			for (const entry of getPendingQuestions(ctx.sessionManager.getSessionId())) entry.detach();
+			return;
+		}
 		cancelPending(ctx, "The pending question was cancelled because the session closed.");
 	});
 }

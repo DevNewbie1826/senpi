@@ -1,18 +1,11 @@
 import { type Component, Container, MouseRegion, truncateToWidth } from "@earendil-works/pi-tui";
+import type { AskUserAnswerFrame } from "../../../core/extensions/builtin/ask-user/format.ts";
 import { ASK_USER_QUESTION_ENTRY } from "../../../core/extensions/builtin/ask-user/notify.ts";
 import type { SessionEntry } from "../../../core/session-manager.ts";
 import { stripAnsi } from "../../../utils/ansi.ts";
 import { theme } from "../theme/theme.ts";
 
-export interface AskUserAnswerFrame {
-	readonly requestId: string;
-	readonly body: string;
-}
-
-export function parseAskUserAnswerFrame(text: string): AskUserAnswerFrame | undefined {
-	const match = /^\[Answer to question ([^\]\r\n]+)\]\r?\n([\s\S]*)$/.exec(text);
-	return match ? { requestId: match[1], body: match[2] } : undefined;
-}
+export { type AskUserAnswerFrame, parseAskUserAnswerFrame } from "../../../core/extensions/builtin/ask-user/format.ts";
 
 /** Custom entries are display metadata, excluded from model context. Older sessions may lack them. */
 export function getAskUserAnswerHeaders(entries: readonly SessionEntry[], requestId: string): readonly string[] {
