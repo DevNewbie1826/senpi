@@ -75,10 +75,10 @@ export function parseImportClause(clause: string): ImportClause | undefined {
 	return { defaultBinding, namespaceBinding, named };
 }
 
-export function rewriteCommonJsImport(clause: string, resolvedId: string, alias: string): string {
+export function rewriteCommonJsImport(clause: string, resolvedId: string, alias: string, attributes = ""): string {
 	const parsed = parseImportClause(clause);
-	if (parsed === undefined) return `import ${JSON.stringify(resolvedId)};`;
-	const lines = [`import ${alias} from ${JSON.stringify(resolvedId)};`];
+	if (parsed === undefined) return `import ${JSON.stringify(resolvedId)}${attributes};`;
+	const lines = [`import ${alias} from ${JSON.stringify(resolvedId)}${attributes};`];
 	if (parsed.defaultBinding !== undefined) lines.push(`const ${parsed.defaultBinding} = ${alias};`);
 	if (parsed.namespaceBinding !== undefined) lines.push(`const ${parsed.namespaceBinding} = ${alias};`);
 	if (parsed.named.length > 0) {
