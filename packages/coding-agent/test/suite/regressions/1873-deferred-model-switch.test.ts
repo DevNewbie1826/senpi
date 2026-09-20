@@ -225,6 +225,49 @@ describe("#1873 deferred model switch", () => {
 		).toEqual(["900k"]);
 	});
 
+	it("lets a successful cycle win over a held one", async () => {
+		// given a held switch, and a favourite pair whose other member fits right now
+		const harness = await createHarness({
+			models: [
+				{ id: "million", contextWindow: 1_000_000, maxTokens: 32_000 },
+				{ id: "372k", contextWindow: 372_000, maxTokens: 32_000 },
+				{ id: "900k", contextWindow: 900_000, maxTokens: 32_000 },
+			],
+			settings: { compaction: { keepRecentTokens: 1 } },
+		});
+		harnesses.push(harness);
+		const current = harness.getModel("million");
+		const held = harness.getModel("372k");
+		const roomy = harness.getModel("900k");
+		if (!current || !held || !roomy) throw new Error("missing cycle-supersede fixture");
+		harness.session.setFavoriteModels([{ model: current }, { model: roomy }]);
+		seedLiveContext(harness, 321_000);
+		await harness.session.setModel(held);
+		expect(harness.session.pendingModelSwitch?.model.id).toBe("372k");
+
+		// when the user cycles onto a model that needs no repair
+		await harness.session.cycleModel("forward");
+		expect(harness.session.model?.id).toBe("900k");
+		harness.setResponses([fauxAssistantMessage("answered on the cycled model")]);
+		await harness.session.prompt("continue");
+
+		// then the cycle supersedes the hold; the older choice must not reclaim the send
+		expect(harness.session.model?.id).toBe("900k");
+		expect(harness.session.pendingModelSwitch).toBeUndefined();
+		expect(
+			harness.faux
+				.getCallLog()
+				.map((call) => call.modelId)
+				.at(-1),
+		).toBe("900k");
+		expect(
+			harness.sessionManager
+				.getEntries()
+				.filter((entry) => entry.type === "model_change")
+				.map((entry) => (entry as { modelId: string }).modelId),
+		).toEqual(["900k"]);
+	});
+
 	it("holds a cycle candidate one compaction would admit instead of refusing it", async () => {
 		// given a favourite pair whose other member cannot hold the transcript yet
 		const harness = await createHarness({

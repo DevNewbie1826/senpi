@@ -5379,6 +5379,10 @@ export class AgentSession {
 			this._assertModelUsableForSwitch(next.model, liveContextTokens);
 			this.sessionManager.appendModelChange(next.model.provider, next.model.id);
 			this.settingsManager.setDefaultModelAndProvider(next.model.provider, next.model.id);
+			// #1873: the cycle commits here rather than through `_switchActiveModel`, so it
+			// has to supersede a held switch itself - otherwise cycling onto a model that
+			// fits leaves an older hold to reclaim the session on the next message.
+			this._pendingModelSwitch = undefined;
 			// Post-switch, same contract as _switchActiveModel: the level in force AFTER the cycle.
 			this._emit({
 				type: "model_changed",
