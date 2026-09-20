@@ -17,6 +17,7 @@
 - Fixed Ctrl+V silently inserting nothing in the published bundle under Bun. The bundle now resolves the installed native clipboard helper instead of treating the package name as a file path. ([#1848](https://github.com/code-yeongyu/senpi/issues/1848), [#1849](https://github.com/code-yeongyu/senpi/pull/1849) by [@Daiwenxi798673133](https://github.com/Daiwenxi798673133))
 
 - Pending questions survive a reload without resetting their answer deadline or sending a duplicate answer. ([#1857](https://github.com/code-yeongyu/senpi/issues/1857))
+- If a question cannot be restored after reload, the user sees a notice and the model receives its outcome once. ([#1857](https://github.com/code-yeongyu/senpi/issues/1857))
 
 - Skills that ship inside the packaged binary load again. Reading only a skill's frontmatter needs a file descriptor, and the filesystem the binary keeps its own files in hands out none, so those skills were dropped on every start and reported as a `Skill conflicts` warning instead - image generation's skill being the one users saw. A skill the binary can read is now read whole when a descriptor is refused. ([#1852](https://github.com/code-yeongyu/senpi/issues/1852))
 

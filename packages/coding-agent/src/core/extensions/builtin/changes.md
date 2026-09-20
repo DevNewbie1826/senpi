@@ -1,5 +1,23 @@
 # Builtin extensions changes
 
+## 2026-09-20 - Report question reattachment failures (#1857 I2)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts` turns a missing, throwing, or rejecting reload bridge into one orphaned outcome and one UI notice.
+
+### Why
+
+- Cancelling a failed reattachment silently leaves the model expecting an answer that can no longer arrive.
+
+### Why an extension could not handle it
+
+- The builtin owns the bridge promise and the single framed delivery; outside observers cannot safely settle it.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts`: fail and attach.
+
 ## 2026-09-20 - Preserve pending questions across reload (#1857 I1)
 
 ### What changed

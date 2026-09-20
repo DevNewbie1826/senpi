@@ -230,8 +230,9 @@ export function startQuestion(
 	const fail = (error: unknown) => {
 		if (settled) return;
 		const message = `Question UI failed: ${error instanceof Error ? error.message : String(error)}`;
-		if (resuming) {
+		if (resuming || generation > 0) {
 			accept({ ...orphaned(), comment: message });
+			ctx.ui.notify(message, "error");
 			return;
 		}
 		cancel(message);
@@ -242,6 +243,8 @@ export function startQuestion(
 		const currentQuestion = ctx.ui.question;
 		if (!currentQuestion) {
 			accept(orphaned());
+			if (generation > 0)
+				ctx.ui.notify("The pending question could not be restored: question UI is unavailable.", "error");
 			return;
 		}
 		try {
