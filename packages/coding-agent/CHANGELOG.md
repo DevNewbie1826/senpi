@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- An extension's `import value from "./data.json" with { type: "file" }` returns the file path again. The loader rewrites a static import of a CommonJS-shaped file so that Node's export interop keeps working, and that rewrite rebuilt the statement without the attributes that followed the specifier, so a .json, .toml or .txt asset came back parsed or as text instead of as a path. The attributes now travel with the rewritten import. ([#1864](https://github.com/code-yeongyu/senpi/issues/1864))
+
 - Building the package no longer prints two esbuild warnings. esbuild reads an `import()` only when its attributes are spelled out in the source, and the extension loader forwards whatever attributes an extension passed, so every build reported that call as unrecognized and the noise sat where a real warning would show up. The loader now builds its import function while it runs, which keeps the bundler out of it; extension imports and their attributes behave as before. ([#1862](https://github.com/code-yeongyu/senpi/issues/1862))
 
 - Fixed Ctrl+V silently inserting nothing in the published bundle under Bun. The bundle now resolves the installed native clipboard helper instead of treating the package name as a file path. ([#1848](https://github.com/code-yeongyu/senpi/issues/1848), [#1849](https://github.com/code-yeongyu/senpi/pull/1849) by [@Daiwenxi798673133](https://github.com/Daiwenxi798673133))
