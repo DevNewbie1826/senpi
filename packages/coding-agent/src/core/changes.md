@@ -1,5 +1,24 @@
 # changes
 
+## 2026-09-20 - A model switch stops charging the speculation lead at admission (senpi#1873)
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session.ts`: `_assertModelUsableForSwitch` now passes `includeSpeculationLead: admission === "start"`, so an actual switch on a live session is admitted without the lead while the cold-start floor keeps charging it. The guard seam itself is unchanged - every refusal still records a `model_change_rejected` entry and rethrows the original error (#1526).
+
+### Why
+
+- #1339 removed the lead from resume admission because speculation cannot shrink a transcript it has not been admitted to yet, and closed with the note that a live switch could keep charging it. That held only while refusal was the sole outcome, so the lead doubled as a refusal margin. It refuses real switches on its own: in the session that prompted #1873 the shortfall was 44110 tokens against a lead of 32768, and the regression test reproduces the same shape at a 31549-token shortfall against a 32549-token lead. Admission decides whether the next single request fits; speculation runs after the switch is admitted.
+
+### Why an extension could not handle it
+
+- The switch guard is core session state: it runs inside `_setModel` and `_switchActiveModel`, before any extension-visible model change is emitted, and no hook can relax or re-run it.
+
+### Expected merge conflict zones
+
+- LOW: `agent-session.ts` around `_assertModelUsableForSwitch`, a five-line body that #1526 and #1338 both touch.
+- Coverage: `test/suite/model-usability-budget.test.ts` (`admits a switch that only the speculation lead would have rejected`, and the updated lead assertion in `rejects a downswitch before committing when live context exceeds the target budget`).
+
 ## 2026-09-20 - Fable 5 ships an Opus-only default fallback chain (senpi#1860)
 
 ### What changed
