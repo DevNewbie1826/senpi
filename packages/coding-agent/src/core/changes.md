@@ -1,5 +1,29 @@
 # changes
 
+## 2026-09-20 - A switch one compaction would admit is held, not refused (senpi#1873)
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session.ts`: a switch whose target reports `fits-after-compaction` is registered as `_pendingModelSwitch` instead of throwing. `_setModel` holds it only after the auth check has passed, so a pending switch can never be waiting on a model with no key, and returns without touching durable state. `_switchActiveModel` gained `allowDeferral`, off for the two paths that must settle now: applying a held switch (re-holding would defer the same switch forever) and the fallback lanes (their retry is the next request).
+- `_applyPendingModelSwitch` runs from `_enforceCompactionBeforeProvider` ahead of the resume branch. It compacts with the model still holding the transcript, aims the reduction at the pending model's window through the new `keepRecentTokensOverride` on `CompactionExecutionRequest`, falls back to `planResumeSlice` when summarization did not get there, and only then calls `_switchActiveModel`. A transcript that still does not fit records the refusal and throws, so a held switch cannot strand the session.
+- `_projectPendingSwitchFit` measures the reduced transcript per message with `estimateTokens` rather than through `estimateContextTokens`: a retained turn keeps the usage it reported before the reduction, so a usage-derived total reports the pre-compaction size and would reject a compaction that actually worked.
+- `_modelChangeWouldExhaustContext` now skips a cycle candidate only when the verdict is `impossible`, and a held switch emits `model_change_pending`, which the interactive mode renders.
+
+### Why
+
+- Refusing the switch discards what the user asked for and leaves the session on the old model; #1378's cycle skip does the same silently. Resume already had the repair (admit, compact before the first prompt, revalidate) but it was keyed to the resume admission. Holding the switch reuses that shape for the case users actually hit.
+- The compaction has to run before the switch, not after: `_runPrePromptCompaction` summarizes with `this.model`, so switching first would ask the model that cannot hold the transcript to summarize it.
+
+### Why an extension could not handle it
+
+- Pending-switch state lives in the session's admission and pre-provider compaction path. No public hook can hold a refused switch, order a compaction against a model other than the active one, or re-enter the switch once the transcript fits.
+
+### Expected merge conflict zones
+
+- MEDIUM: `agent-session.ts` around `_setModel`, the `_switchActiveModel` options, and the head of `_enforceCompactionBeforeProvider`; PR #1338 rewrites the same guard seam for its fallback preflight.
+- LOW: `_executeCompaction`'s settings resolution, which PR #1735 also touches.
+- Coverage: `test/suite/regressions/1873-deferred-model-switch.test.ts`, plus the two re-pinned cases in `test/suite/model-usability-budget.test.ts`.
+
 ## 2026-09-20 - A model switch stops charging the speculation lead at admission (senpi#1873)
 
 ### What changed

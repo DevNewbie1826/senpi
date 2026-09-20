@@ -212,7 +212,7 @@ describe("model usability budget", () => {
 		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "model_change")).toHaveLength(1);
 	});
 
-	it("rejects a downswitch before committing when live context exceeds the target budget", async () => {
+	it("holds a downswitch before committing when live context exceeds the target budget", async () => {
 		// given
 		const harness = await createHarness({
 			models: [
@@ -226,22 +226,22 @@ describe("model usability budget", () => {
 		seedLiveContext(harness, 321_000);
 
 		// when
-		const error = await harness.session.setModel(target).then(
-			() => undefined,
-			(reason: unknown) => reason,
-		);
+		await harness.session.setModel(target);
 
-		// then
-		expect(error).toBeInstanceOf(ModelUsabilityBudgetError);
-		if (!(error instanceof ModelUsabilityBudgetError)) throw new Error("expected downswitch budget rejection");
-		expect(error.projection).toMatchObject({
+		// then: #1873 holds the switch instead of discarding it, and the projection it
+		// was held on still describes the same shortfall the refusal used to report.
+		const pending = harness.session.pendingModelSwitch;
+		if (!pending) throw new Error("expected the downswitch to be held");
+		expect(pending.projection).toMatchObject({
 			model: "faux/372k",
 			contextWindow: 372_000,
 			outputReserveTokens: 32_000,
 			compactionReserveTokens: 16_384,
 			safetyMarginTokens: 8_192,
 			usable: false,
+			verdict: "fits-after-compaction",
 		});
+		const error = { projection: pending.projection };
 		// The usage estimate includes the current prompt and schemas; live messages
 		// exclude them exactly, including restored grep's schema and guidance.
 		expect(error.projection.liveContextTokens).toBe(
@@ -286,7 +286,7 @@ describe("model usability budget", () => {
 		expect(harness.session.model?.id).toBe("372k");
 	});
 
-	it("revalidates and accepts a rejected downswitch after explicit compaction", async () => {
+	it("accepts a downswitch outright once an explicit compaction has made room", async () => {
 		// given
 		const harness = await createHarness({
 			models: [
@@ -310,9 +310,8 @@ describe("model usability budget", () => {
 		seedLiveContext(harness, 321_000);
 		const target = harness.getModel("372k");
 		if (!target) throw new Error("missing compact-retry target fixture");
-		await expect(harness.session.setModel(target)).rejects.toBeInstanceOf(ModelUsabilityBudgetError);
 
-		// when
+		// when: the transcript is reduced first, so the switch needs no deferral
 		await harness.session.compact();
 		await harness.session.setModel(target);
 

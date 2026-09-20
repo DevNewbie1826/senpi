@@ -1,3 +1,21 @@
+## 2026-09-20 - Surface a held model switch (senpi#1873)
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` renders the new `model_change_pending` event as a warning and invalidates the footer, so a switch waiting for the next message to compact for it is visible rather than looking like nothing happened.
+
+### Why
+
+- #1873 stops refusing a switch onto a model that one compaction would make usable, and holds it instead. Without a surface the model selector would appear to do nothing: the picker closes, the footer still shows the old model, and no error is printed.
+
+### Why an extension could not handle it
+
+- The event is emitted by the session's admission path and consumed by the interactive event switch, which no extension can extend with a new case.
+
+### Expected merge conflict zones
+
+- LOW: the session-event switch in `interactive-mode.ts`, next to the `model_change_skipped` case.
+
 ## 2026-09-20 - Share the ask-user answer-frame parser (#1857 I3)
 
 ### What changed
