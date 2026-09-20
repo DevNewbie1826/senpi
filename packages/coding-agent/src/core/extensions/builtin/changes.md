@@ -1,5 +1,25 @@
 # Builtin extensions changes
 
+## 2026-09-20 - Recover unsettled async questions after restart (#1857 I3)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/resume.ts` recovers accepted async calls without settlement evidence. It excludes durable terminal entries, delivered answer frames in older sessions, prior recovery records, and live pending registrations.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/format.ts` exports the parser that inverts its answer formatter. Recovery and the answer chip consume the same grammar.
+
+### Why
+
+- An async tool result means acceptance, not completion. Recovery must distinguish unanswered requests from completed ones without replaying legacy answers.
+
+### Why an extension could not handle it
+
+- This builtin owns the session records and recovery dispatch. An outside extension would introduce competing registrations and delivery subscriptions.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/resume.ts`: terminal-evidence scan and recovery dispatch.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/format.ts`: shared answer-frame parser.
+
 ## 2026-09-20 - Report question reattachment failures (#1857 I2)
 
 ### What changed

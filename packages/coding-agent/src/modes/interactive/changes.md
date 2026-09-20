@@ -1,3 +1,21 @@
+## 2026-09-20 - Share the ask-user answer-frame parser (#1857 I3)
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/ask-user-answer-chip.ts` re-exports the parser and frame type from the ask-user formatter. The chip's public exports remain unchanged.
+
+### Why
+
+- Restart recovery and transcript rendering must recognize the same frame. Separate copies could drift and cause answered questions to be presented again.
+
+### Why an extension could not handle it
+
+- The host's transcript component imports this parser directly; an external extension cannot change that import.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/interactive/components/ask-user-answer-chip.ts`: parser import and re-export.
+
 ## 2026-09-20 - Restore question drafts after reload (#1857 I1)
 
 ### What changed

@@ -1,6 +1,8 @@
 import type { SessionEntry } from "../../../session-manager.ts";
 import type { ExtensionAPI, ExtensionContext, SessionStartEvent } from "../../types.ts";
 import { TOOL_NAMES } from "./family.ts";
+import { parseAskUserAnswerFrame } from "./format.ts";
+import { ASK_USER_SETTLEMENT_ENTRY } from "./notify.ts";
 import { getPendingQuestions } from "./registry.ts";
 import { type AskUserVariant, DEFAULT_ASK_USER_TIMEOUT_MS, type QuestionRequest, toCanonical } from "./schema.ts";
 import { startQuestion } from "./tool.ts";
@@ -23,18 +25,43 @@ function variantFor(name: string): AskUserVariant | undefined {
 	return undefined;
 }
 
-function findDanglingQuestion(entries: readonly SessionEntry[]): DanglingQuestion | undefined {
+function findDanglingQuestions(entries: readonly SessionEntry[]): DanglingQuestion[] {
 	const results = new Set<string>();
+	const accepted = new Set<string>();
 	const resumed = new Set<string>();
+	const settled = new Set<string>();
 	for (const entry of entries) {
+		if (entry.type === "message" && entry.message.role === "user") {
+			const content = entry.message.content;
+			const texts =
+				typeof content === "string"
+					? [content]
+					: content.flatMap((part) => (part.type === "text" ? [part.text] : []));
+			for (const text of texts) {
+				const frame = parseAskUserAnswerFrame(text);
+				if (frame) settled.add(frame.requestId);
+			}
+		}
 		if (entry.type === "custom" && entry.customType === ASK_USER_RESUMED_ENTRY && isRecord(entry.data)) {
 			const toolCallId = entry.data.toolCallId;
 			if (typeof toolCallId === "string") resumed.add(toolCallId);
 		}
 		if (entry.type === "message" && entry.message.role === "toolResult") {
 			results.add(entry.message.toolCallId);
+			const details = entry.message.details;
+			if (!entry.message.isError && isRecord(details) && details.accepted === true && details.status === "pending") {
+				accepted.add(entry.message.toolCallId);
+			}
 		}
+		if (
+			entry.type === "custom" &&
+			entry.customType === ASK_USER_SETTLEMENT_ENTRY &&
+			isRecord(entry.data) &&
+			typeof entry.data.requestId === "string"
+		)
+			settled.add(entry.data.requestId);
 	}
+	const dangling: DanglingQuestion[] = [];
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index];
 		if (entry?.type !== "message" || entry.message.role !== "assistant") continue;
@@ -43,18 +70,30 @@ function findDanglingQuestion(entries: readonly SessionEntry[]): DanglingQuestio
 			const block = content[blockIndex];
 			if (block?.type !== "toolCall" || block.incomplete === true) continue;
 			const variant = variantFor(block.name);
-			if (!variant || results.has(block.id) || resumed.has(block.id)) continue;
-			return { toolCallId: block.id, variant, args: block.arguments };
+			if (!variant || settled.has(block.id)) continue;
+			const call = { toolCallId: block.id, variant, args: block.arguments };
+			const request = requestFromCall(call, DEFAULT_ASK_USER_TIMEOUT_MS);
+			if (results.has(block.id) && (request.waitForAnswer || !accepted.has(block.id))) continue;
+			if (resumed.has(block.id)) continue;
+			dangling.push(call);
 		}
 	}
-	return undefined;
+	return dangling;
 }
 
 function requestFromCall(dangling: DanglingQuestion, timeoutMs: number): QuestionRequest {
 	try {
-		return toCanonical(dangling.variant, dangling.args, { requestId: dangling.toolCallId, timeoutMs });
+		return toCanonical(dangling.variant, dangling.args, {
+			requestId: dangling.toolCallId,
+			timeoutMs,
+		});
 	} catch {
-		return { requestId: dangling.toolCallId, questions: [], waitForAnswer: false, timeoutMs };
+		return {
+			requestId: dangling.toolCallId,
+			questions: [],
+			waitForAnswer: false,
+			timeoutMs,
+		};
 	}
 }
 
@@ -64,20 +103,18 @@ export async function resumeDanglingQuestion(
 	ctx: ExtensionContext,
 ): Promise<void> {
 	if (event.reason !== "resume" && event.reason !== "reload") return;
-	const dangling = findDanglingQuestion(ctx.sessionManager.getBranch());
-	if (
-		!dangling ||
-		getPendingQuestions(ctx.sessionManager.getSessionId()).some(
-			(entry) => entry.request.requestId === dangling.toolCallId,
-		)
-	)
-		return;
-	pi.appendEntry(ASK_USER_RESUMED_ENTRY, { toolCallId: dangling.toolCallId });
+	const pending = new Set(
+		getPendingQuestions(ctx.sessionManager.getSessionId()).map((entry) => entry.request.requestId),
+	);
 	const timeoutMs = (ctx.getAskUserSettings?.().timeoutMinutes ?? DEFAULT_ASK_USER_TIMEOUT_MS / 60_000) * 60_000;
-	const request = requestFromCall(dangling, timeoutMs);
-	// A dangling disk record creates a new runtime registration. Transport/UI
-	// hydration reuses that registration and never re-enters this lifecycle.
-	await startQuestion(pi, ctx, request, ctx.signal, { timedOut: false, unavailable: false }, dangling.variant, {
-		resuming: true,
-	});
+	for (const dangling of findDanglingQuestions(ctx.sessionManager.getBranch())) {
+		if (pending.has(dangling.toolCallId)) continue;
+		pending.add(dangling.toolCallId);
+		pi.appendEntry(ASK_USER_RESUMED_ENTRY, { toolCallId: dangling.toolCallId });
+		const request = requestFromCall(dangling, timeoutMs);
+		// The runtime registration owns delivery, including after another reload.
+		void startQuestion(pi, ctx, request, ctx.signal, { timedOut: false, unavailable: false }, dangling.variant, {
+			resuming: true,
+		});
+	}
 }
