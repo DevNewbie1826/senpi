@@ -4892,8 +4892,17 @@ export class AgentSession {
 	 * observable on one path and invisible on its sibling.
 	 */
 	private _assertModelUsableForSwitch(model: Model<Api>, liveContextTokens: number): void {
+		const admission = this._modelSwitchAdmission();
 		try {
-			this.assertModelUsable(model, liveContextTokens, { admission: this._modelSwitchAdmission() });
+			// #1873: a live switch only has to fit the next single request. Speculation
+			// runs after the switch is admitted and cannot shrink a transcript it has not
+			// been admitted to yet - the reasoning #1339 applied to resume, which this
+			// extends to the switch path. The cold-start floor (`start`) keeps charging
+			// the lead, because there it is a property of the model, not of a transcript.
+			this.assertModelUsable(model, liveContextTokens, {
+				admission,
+				includeSpeculationLead: admission === "start",
+			});
 		} catch (error) {
 			this._recordRejectedModelChange(model, error);
 			throw error;
