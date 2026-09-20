@@ -1,5 +1,43 @@
 # changes
 
+## 2026-09-20 - Fable 5 ships an Opus-only default fallback chain (senpi#1860)
+
+### What changed
+
+- `retry-fallback/settings.ts`: `DEFAULT_FALLBACK_CHAINS` carries `claude-fable-5-1` and `claude-fable-5`, each
+  `["claude-opus-5:max", "claude-opus-4-8:max", "claude-opus-4-6:max"]`, and `resolveFallbackChains` layers user
+  chains over a clone of that map again instead of returning user configuration alone. A same-named user key still
+  replaces the default outright, an empty array stays the tombstone canonicalization needs, and a malformed map
+  falls back to the defaults.
+- Every rung is `:max` because the catalog publishes only that level for `claude-opus-4-6`
+  (`thinkingLevelMap: {"max": "max"}`); `claude-opus-5` and `claude-opus-4-8` publish it too.
+- `test/suite/retry-fallback-chains.test.ts` pins the shipped ladder, the Anthropic-only rungs, and that an
+  unrelated user key does not delete the defaults. `test/suite/retry-fallback-expansion.test.ts` restores the two
+  tombstone assertions to the per-provider semantics their own test names describe: emptying one canonical key
+  leaves the other provider variant, and an explicit canonical chain overrides only its own provider.
+
+### Why
+
+- `daa81b0ed5` (2026-09-05) emptied the map because the default it removed led with `k3:max` / `kimi-k3:max`: that
+  moved a Claude session onto another vendor as the FIRST hop, and bare-family expansion ranks OAuth lanes first,
+  so the hop could land on a lane guaranteed to refuse (senpi#978). Both problems belong to cross-family leading
+  rungs, not to shipping a default at all.
+- The cost of the empty map is that a fresh install has no escape hatch: a refusal or a 429 on Fable 5 writes
+  `no_chain` to `fallback.log` and ends the turn, while same-family Opus models sit in the same registry.
+- An Anthropic-only step-down keeps the session inside one model family and one tool dialect, so a fallback is a
+  step down in capability instead of a change of vendor. There is still deliberately no wildcard lane.
+
+### Why an extension could not handle it
+
+- Chain resolution runs inside `settings-manager.ts` -> `resolveRetryFallbackSettings` before any extension is
+  bound, and `RetryFallbackController` reads the resolved map directly. No extension hook observes or contributes
+  fallback chains.
+
+### Expected merge conflict zones
+
+- LOW: `DEFAULT_FALLBACK_CHAINS` and `resolveFallbackChains` in
+  `packages/coding-agent/src/core/retry-fallback/settings.ts`.
+
 ## 2026-09-20 - Skill assets embedded in a compiled binary are read without a descriptor (senpi#1852)
 
 ### What changed

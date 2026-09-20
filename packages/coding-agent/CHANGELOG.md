@@ -6,6 +6,8 @@
 
 ### Added
 
+- Fable 5 ships with a fallback chain again. A refusal or a rate limit on `claude-fable-5-1` or `claude-fable-5` used to end the turn with an error unless you had written `retry.fallbackChains` yourself. The session now steps down to Opus 5, then Opus 4.8, then Opus 4.6, each at max thinking, and it never leaves the Anthropic family: the default removed on 2026-09-05 led with Kimi K3 rungs, so a Claude session changed vendor mid-turn. Your own configuration still wins. A chain under the same key replaces the shipped one, an empty array turns it off, and `retry.modelFallback: false` disables fallback entirely. ([#1860](https://github.com/code-yeongyu/senpi/issues/1860))
+
 ### Changed
 
 ### Fixed

@@ -191,7 +191,7 @@ describe("bare-key opt-out tombstones", () => {
 		const resolved = resolveRetryFallbackSettings({ fallbackChains: { [`anthropic/${FABLE}`]: [] } });
 		const chains = canonicalizeFallbackChains(resolved.chains, lookup(sdkAndAnthropic));
 
-		expect(Object.keys(chains).sort()).toEqual([]);
+		expect(Object.keys(chains).sort()).toEqual([`claude-sdk-oauth/${FABLE}`]);
 	});
 
 	it("lets an explicit canonical chain override the expanded default for that provider only", () => {
@@ -201,7 +201,13 @@ describe("bare-key opt-out tombstones", () => {
 		const chains = canonicalizeFallbackChains(resolved.chains, lookup(sdkAndAnthropic));
 
 		expect(chains[`anthropic/${FABLE}`]).toEqual([`anthropic/${OPUS48}:max`]);
-		expect(chains[`claude-sdk-oauth/${FABLE}`]).toBeUndefined();
+		// The other provider variant keeps the shipped ladder, expanded OAuth-tier first.
+		expect(chains[`claude-sdk-oauth/${FABLE}`]).toEqual([
+			`claude-sdk-oauth/${OPUS5}:max`,
+			`anthropic/${OPUS5}:max`,
+			`claude-sdk-oauth/${OPUS48}:max`,
+			`anthropic/${OPUS48}:max`,
+		]);
 	});
 });
 
