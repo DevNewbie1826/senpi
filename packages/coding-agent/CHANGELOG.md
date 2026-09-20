@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- The startup timing table no longer files the help-flags cache write under the stdin read. `PI_TIMING=1` reported that work in a row named `readPipedStdin`, which returns immediately on a terminal; the write is now its own row. Timings only, no behavior change.
+
 - Sending `.` to continue now resumes a blocked goal. Previously, the conversation continued but the goal stayed blocked until you ran `/goal resume`. ([#1871](https://github.com/code-yeongyu/senpi/issues/1871))
 
 - An extension's `import value from "./data.json" with { type: "file" }` returns the file path again. The loader rewrites a static import of a CommonJS-shaped file so that Node's export interop keeps working, and that rewrite rebuilt the statement without the attributes that followed the specifier, so a .json, .toml or .txt asset came back parsed or as text instead of as a path. The attributes now travel with the rewritten import. ([#1864](https://github.com/code-yeongyu/senpi/issues/1864))

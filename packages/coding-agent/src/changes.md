@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-20 - Name what the startup timing table measures before the stdin read (senpi#1868 follow-up)
+
+### What changed
+
+- `packages/coding-agent/src/main.ts`: two `time()` marks around `writeHelpFlagsCache`, so the startup table reports `extensionFlags` and `helpFlagsCache` instead of folding both into the row labelled `readPipedStdin`.
+
+### Why
+
+- `readPipedStdin` returns immediately when stdin is a TTY, yet its row carried 76-172 ms in two profiled interactive launches. The interval belonged to the help-flags cache write, which stats every loaded extension file: a reader chasing that row looked at stdin handling and found nothing. With the marks in place the same launches report `helpFlagsCache` at a 3 ms median (tail 27-118 ms under load) and `readPipedStdin` at 0 ms.
+
+### Why an extension could not handle it
+
+- The marks sit in `main()` between resource loading and the interactive branch, before any extension host exists.
+
+### Expected merge conflict zones
+
+- LOW: the statements around `writeHelpFlagsCache` in `main.ts`.
+
 ## 2026-09-19 - The in-process daemon shares one model runtime across its sessions (senpi#1844)
 
 ### What changed
