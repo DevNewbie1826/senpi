@@ -187,6 +187,20 @@ assert.equal(factory(), realpathSync(join(root, "asset.bin")));
 		);
 	});
 
+	it("preserves import attributes when an extension computes the specifier", () => {
+		// Given: the keyword rewrite keeps attributes on the call, so the runtime import must forward them.
+		const root = fixture('export default (name: string) => import(name, { with: { type: "file" } });');
+		writeFileSync(join(root, "helper.json"), '{"value":41}');
+		// When / Then: the attribute wins over the loader the extension would get by default.
+		run(
+			root,
+			`
+const factory = await createBunExtensionImporter({}).import(entry, { default: true });
+assert.equal((await factory("./helper.json")).default, realpathSync(join(root, "helper.json")));
+`,
+		);
+	});
+
 	it("resolves computed packages from a symlinked extension's nested node_modules chain", () => {
 		// Given: package resolution must use the symlink target, not the caller's cwd.
 		const root = fixture('export { default } from "./linked/nested/extension.ts";');
