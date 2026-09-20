@@ -31,6 +31,14 @@ declare const Bun: {
 	}): void;
 };
 
+// esbuild reads an import() only when its second argument is fully static, and these
+// attributes are whatever the extension wrote. The call stays dynamic either way, so
+// the importer is built at runtime and the bundler never has to read it.
+const importModule = new Function("specifier", "options", "return import(specifier, options)") as (
+	specifier: string,
+	options?: ImportCallOptions,
+) => Promise<unknown>;
+
 export const extensionNamespace = "senpi-extension";
 const RUNTIME_SPECIFIER = "runtime";
 // Inside a `bun build --compile` binary the shim has no on-disk path (import.meta.url is a
@@ -103,7 +111,7 @@ function metadata(generation: string, filename: string) {
 		require,
 		commonJs: (body: CommonJsBody) => graphFor(generation).evaluateCommonJs(filename, body),
 		import: async (specifier: string, options?: ImportCallOptions) =>
-			import(graphFor(generation).resolve(specifier, filename), { ...options }),
+			importModule(graphFor(generation).resolve(specifier, filename), options),
 		resolve: (specifier: string) => {
 			const path = resolvePath(specifier);
 			return path === undefined ? graphFor(generation).resolve(specifier, filename) : pathToFileURL(path).href;

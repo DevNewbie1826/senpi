@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Building the package no longer prints two esbuild warnings. esbuild reads an `import()` only when its attributes are spelled out in the source, and the extension loader forwards whatever attributes an extension passed, so every build reported that call as unrecognized and the noise sat where a real warning would show up. The loader now builds its import function while it runs, which keeps the bundler out of it; extension imports and their attributes behave as before. ([#1862](https://github.com/code-yeongyu/senpi/issues/1862))
+
 - Fixed Ctrl+V silently inserting nothing in the published bundle under Bun. The bundle now resolves the installed native clipboard helper instead of treating the package name as a file path. ([#1848](https://github.com/code-yeongyu/senpi/issues/1848), [#1849](https://github.com/code-yeongyu/senpi/pull/1849) by [@Daiwenxi798673133](https://github.com/Daiwenxi798673133))
 
 - Skills that ship inside the packaged binary load again. Reading only a skill's frontmatter needs a file descriptor, and the filesystem the binary keeps its own files in hands out none, so those skills were dropped on every start and reported as a `Skill conflicts` warning instead - image generation's skill being the one users saw. A skill the binary can read is now read whole when a descriptor is refused. ([#1852](https://github.com/code-yeongyu/senpi/issues/1852))
