@@ -1,5 +1,26 @@
 # Local fork changes
 
+## 2026-09-20 - Boot the senpi command from the bundled entry (senpi#1868)
+
+### What changed
+
+- `packages/coding-agent/package.json`: `bin.senpi` now resolves to `dist/bundle/cli.js`, the same pre-linked tree `bin.pi` already resolved to. The unbundled `dist/` tree is still built and still published.
+- `packages/coding-agent/test/package-distribution.test.ts`: states the contract for every declared executable rather than one assertion per name, and updates the `bin.senpi` pin that held the old target.
+- `scripts/qa/fork-preservation-check.mjs`: the published-identity check expects the new target, so the fork's own bin stays pinned against an upstream merge.
+
+### Why
+
+- The bundle landed with `bin.pi` pointed at it; `senpi`, the name this fork installs and the one its users type, kept evaluating the module graph the bundle exists to replace. Measured on the installed package with a PTY harness whose ready mark is the editor echoing a typed probe: ready 6298 +/- 1192 ms on the unbundled entry against 1151 +/- 422 ms on the bundled one, with `processStart->main` 5284 +/- 1023 ms against 289 +/- 103 ms (n=10 interleaved per arm, every run exit code 0).
+- The two entries are interchangeable at the surface: `--version` matches and `--help` is byte-identical under both Node and Bun, and the bundled entry carries the same launcher work (Bun re-exec, startup compile cache, self-update bootstrap).
+
+### Why an extension could not handle it
+
+- Which file a declared executable resolves to is decided by the package manifest at install time, before any runtime or extension host exists.
+
+### Expected merge conflict zones
+
+- LOW: the `bin` block in `packages/coding-agent/package.json` if upstream renames or adds an executable; the executable assertions in `test/package-distribution.test.ts`; the identity block in `scripts/qa/fork-preservation-check.mjs`, which is fork-only.
+
 ## 2026-09-18 - One reusable live-QA run for the in-process daemon, on real compiled binaries (#1782)
 
 ### What changed

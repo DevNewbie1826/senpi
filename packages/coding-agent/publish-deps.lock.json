@@ -60,7 +60,7 @@
 			},
 			"bin": {
 				"pi": "dist/bundle/cli.js",
-				"senpi": "dist/cli.js"
+				"senpi": "dist/bundle/cli.js"
 			},
 			"engines": {
 				"node": ">=24.0.0"
