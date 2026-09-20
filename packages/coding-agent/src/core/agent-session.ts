@@ -5148,6 +5148,11 @@ export class AgentSession {
 		}
 		const thinking = this._getThinkingForModelSwitch(model, opts.ephemeralThinkingLevel);
 		const liveContextTokens = this._getDownswitchLiveContextTokens(model);
+		// Snapshot before any mutation: the baseline reset below used to run first, so the
+		// "previous" value captured the already-cleared one and a refused switch restored
+		// `undefined` instead of the baseline the session came in with.
+		const previousReasoningBaseline = this.agent.state.reasoningBaseline;
+		const previousAbortServerSideFallback = this.agent.abortServerSideFallback;
 		this.agent.state.model = model;
 		if (!(model.id === "gpt-6-astra" && (model.provider === "openai" || model.provider === "openai-codex"))) {
 			this.agent.state.reasoningBaseline = undefined;
@@ -5157,8 +5162,6 @@ export class AgentSession {
 		const previousFastMode = this.isFastModeActive();
 		const previousThinkingLevel = this.agent.state.thinkingLevel;
 		const previousThinkingSelection = this.agent.state.thinkingSelection;
-		const previousReasoningBaseline = this.agent.state.reasoningBaseline;
-		const previousAbortServerSideFallback = this.agent.abortServerSideFallback;
 		this.agent.abortServerSideFallback =
 			this.settingsManager.getAbortServerSideFallback() && this._retryFallback.hasConfiguredChain();
 		this._currentServiceTier = this._resolveServiceTier(model, scopedMatch?.serviceTier);
@@ -5184,6 +5187,8 @@ export class AgentSession {
 				this.agent.state.systemPrompt = previousSystemPrompt;
 				this.agent.state.thinkingLevel = previousThinkingLevel;
 				this.agent.state.thinkingSelection = previousThinkingSelection;
+				this.agent.state.reasoningBaseline = previousReasoningBaseline;
+				this.agent.abortServerSideFallback = previousAbortServerSideFallback;
 				this._currentServiceTier = previousTier;
 				this._admitSwitchCompactionRequired(model, deferral, opts.persistDefault);
 				return undefined;
@@ -5299,10 +5304,13 @@ export class AgentSession {
 			const alternatives = favoriteModels.filter((entry) => !modelsAreEqual(entry.model, currentModel));
 			const onlyAlternative = alternatives.length === 1 ? alternatives[0] : undefined;
 			if (onlyAlternative) {
-				this._assertModelUsableForSwitch(
-					onlyAlternative.model,
-					this._getDownswitchLiveContextTokens(onlyAlternative.model),
-				);
+				const onlyLiveContextTokens = this._getDownswitchLiveContextTokens(onlyAlternative.model);
+				const onlyDeferral = this._projectSwitchDeferral(onlyAlternative.model, onlyLiveContextTokens);
+				if (onlyDeferral !== undefined) {
+					this._admitSwitchCompactionRequired(onlyAlternative.model, onlyDeferral, true);
+				} else {
+					this._assertModelUsableForSwitch(onlyAlternative.model, onlyLiveContextTokens);
+				}
 			}
 			return {
 				model: currentModel,
@@ -5313,6 +5321,18 @@ export class AgentSession {
 		}
 		const next = favoriteModels[selectedIndex];
 		const liveContextTokens = this._getDownswitchLiveContextTokens(next.model);
+		// #1873: the cycle lands on a candidate one compaction would admit instead of
+		// refusing it. Nothing is mutated yet, so holding here needs no rollback.
+		const cycleDeferral = this._projectSwitchDeferral(next.model, liveContextTokens);
+		if (cycleDeferral !== undefined) {
+			this._admitSwitchCompactionRequired(next.model, cycleDeferral, true);
+			return {
+				model: currentModel,
+				thinkingLevel: this.thinkingLevel,
+				isScoped: true,
+				skippedModels,
+			};
+		}
 		this._assertModelUsableForSwitch(next.model, liveContextTokens);
 		const invalidatesCompaction =
 			this._modelSelectionChangesContext(currentModel, next.model) ||
@@ -5341,6 +5361,21 @@ export class AgentSession {
 			// default - may be written before this guard accepts, or a refused cycle
 			// would resume on a model that never ran (the ordering `_switchActiveModel`
 			// already uses).
+			// #1873: a prompt that only grew past the budget is held, not refused; the
+			// in-memory selection rolls back exactly as the catch below would.
+			const postHookDeferral = this._projectSwitchDeferral(next.model, liveContextTokens);
+			if (postHookDeferral !== undefined) {
+				if (currentModel) this.agent.state.model = currentModel;
+				this.agent.state.systemPrompt = previousSystemPrompt;
+				this._currentServiceTier = previousTier;
+				this._admitSwitchCompactionRequired(next.model, postHookDeferral, true);
+				return {
+					model: currentModel,
+					thinkingLevel: this.thinkingLevel,
+					isScoped: true,
+					skippedModels,
+				};
+			}
 			this._assertModelUsableForSwitch(next.model, liveContextTokens);
 			this.sessionManager.appendModelChange(next.model.provider, next.model.id);
 			this.settingsManager.setDefaultModelAndProvider(next.model.provider, next.model.id);

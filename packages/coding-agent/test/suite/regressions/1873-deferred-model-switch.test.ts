@@ -1,5 +1,6 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { pendingSwitchKeepRecentTokens } from "../../../src/core/extensions/builtin/compaction/switch-admission.ts";
 import { createHarness, type Harness } from "../harness.ts";
 
 function seedLiveContext(harness: Harness, tokens: number): void {
@@ -132,6 +133,121 @@ describe("#1873 deferred model switch", () => {
 		expect(harness.session.model?.id).toBe("372k");
 		expect(harness.session.pendingModelSwitch).toBeUndefined();
 		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "model_change")).toHaveLength(1);
+	});
+
+	it("compacts on the original model, sized for the target's window", async () => {
+		// given a harness that records which model each compaction ran on
+		const keepRecentTargets: Array<number | undefined> = [];
+		const harness = await createHarness({
+			models: [
+				{ id: "million", contextWindow: 1_000_000, maxTokens: 32_000 },
+				{ id: "372k", contextWindow: 372_000, maxTokens: 32_000 },
+			],
+			settings: { compaction: { keepRecentTokens: 1 } },
+			extensionFactories: [
+				(pi) => {
+					// Observe the geometry only; real summarization still runs so the
+					// provider call below records which model was asked for the summary.
+					pi.on("session_before_compact", (event) => {
+						keepRecentTargets.push(event.preparation.settings.keepRecentTokens);
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedLiveContext(harness, 321_000);
+		const target = harness.getModel("372k");
+		if (!target) throw new Error("missing ordering fixture");
+		await harness.session.setModel(target);
+		const pendingKeepRecent = harness.session.pendingModelSwitch
+			? pendingSwitchKeepRecentTokens(harness.session.pendingModelSwitch.projection)
+			: undefined;
+		const requestedOn: string[] = [];
+		harness.setResponses([
+			(_context, _options, _state, model) => {
+				requestedOn.push(model.id);
+				return fauxAssistantMessage("compact summary");
+			},
+			(_context, _options, _state, model) => {
+				requestedOn.push(model.id);
+				return fauxAssistantMessage("answered on the target model");
+			},
+		]);
+
+		// when
+		await harness.session.prompt("continue");
+
+		// then the summary was requested from the model that could still hold the
+		// transcript - not the target, which by definition could not - the turn that
+		// followed ran on the target, and the reduction was sized for the target's
+		// window rather than the current model's.
+		const callLog = harness.faux.getCallLog().map((call) => call.modelId);
+		expect(requestedOn[0]).toBe("million");
+		expect(callLog[0]).toBe("million");
+		// The message that triggered the repair is answered by the model the user
+		// chose, not a turn later.
+		expect(callLog.at(-1)).toBe("372k");
+		expect(keepRecentTargets).toEqual([pendingKeepRecent]);
+		expect(harness.session.model?.id).toBe("372k");
+	});
+
+	it("lets a later successful selection win over a held one", async () => {
+		// given a held switch to a model that needs compaction first
+		const harness = await createHarness({
+			models: [
+				{ id: "million", contextWindow: 1_000_000, maxTokens: 32_000 },
+				{ id: "372k", contextWindow: 372_000, maxTokens: 32_000 },
+				{ id: "900k", contextWindow: 900_000, maxTokens: 32_000 },
+			],
+			settings: { compaction: { keepRecentTokens: 1 } },
+		});
+		harnesses.push(harness);
+		seedLiveContext(harness, 321_000);
+		const held = harness.getModel("372k");
+		const roomy = harness.getModel("900k");
+		if (!held || !roomy) throw new Error("missing supersede fixture");
+		await harness.session.setModel(held);
+		expect(harness.session.pendingModelSwitch?.model.id).toBe("372k");
+
+		// when a model that fits right now is chosen afterwards
+		await harness.session.setModel(roomy);
+		harness.setResponses([fauxAssistantMessage("answered on the roomy model")]);
+		await harness.session.prompt("continue");
+
+		// then the newer choice stands; the stale hold must not reclaim the session
+		expect(harness.session.model?.id).toBe("900k");
+		expect(harness.session.pendingModelSwitch).toBeUndefined();
+		expect(
+			harness.sessionManager
+				.getEntries()
+				.filter((entry) => entry.type === "model_change")
+				.map((entry) => (entry as { modelId: string }).modelId),
+		).toEqual(["900k"]);
+	});
+
+	it("holds a cycle candidate one compaction would admit instead of refusing it", async () => {
+		// given a favourite pair whose other member cannot hold the transcript yet
+		const harness = await createHarness({
+			models: [
+				{ id: "million", contextWindow: 1_000_000, maxTokens: 32_000 },
+				{ id: "372k", contextWindow: 372_000, maxTokens: 32_000 },
+			],
+			settings: { compaction: { keepRecentTokens: 1 } },
+		});
+		harnesses.push(harness);
+		const current = harness.getModel("million");
+		const other = harness.getModel("372k");
+		if (!current || !other) throw new Error("missing cycle fixture");
+		harness.session.setFavoriteModels([{ model: current }, { model: other }]);
+		seedLiveContext(harness, 321_000);
+
+		// when the user cycles onto it
+		await harness.session.cycleModel("forward");
+
+		// then it is held rather than skipped or thrown away (#1378 narrowed by #1873)
+		expect(harness.session.pendingModelSwitch?.model.id).toBe("372k");
+		expect(harness.session.model?.id).toBe("million");
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "model_change")).toEqual([]);
 	});
 
 	it("keeps refusing a model whose fixed overhead leaves no room for any transcript", async () => {
