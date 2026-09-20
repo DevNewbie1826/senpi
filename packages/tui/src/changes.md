@@ -1,5 +1,28 @@
 # TUI delta rendering fork changes
 
+## 2026-09-20 - Keyboard focus never lands on a click decorator (senpi#1882)
+
+### What changed
+
+- `packages/tui/src/tui.ts`: `TuiMouseEventResult.focusTransparent` marks a focus request raised by a decorator; `resolveMouseFocusTarget(component, focusTransparent)` returns `Component | null` and resolves a transparent request that cannot receive keys to the deepest mounted ancestor that can, or to `null`; new `canReceiveKeys()` export and private `findKeyFocusOwner()`.
+- `packages/tui/src/components/mouse-region.ts`: a focus request raised by the region itself is reported as `focusTransparent`.
+- `packages/tui/src/tui-main-screen.ts`: `applyMouseResult` skips a null focus owner, and the release branch only re-applies the click target's focus when the click handler left focus untouched.
+- `packages/tui/src/tui-alt-screen.ts`: same null handling in `applyMouseDispatchResult` (new `applyFocus` parameter) and the same click-handler precedence in `handleMouseEvent`.
+
+### Why
+
+- A clickable row built with `MouseRegion` has no `handleInput`. Focusing it made `handleTerminalInput` drop every later keystroke, so answering an ask-user question with the mouse silently killed typing while output kept flowing.
+- The release branch applied the click target's focus after the click handler ran, so the composer focus restored by an ask-user submit was immediately overwritten.
+
+### Why an extension could not handle it
+
+- Mouse focus ownership is renderer state inside `packages/tui`; an extension cannot reorder focus application around click dispatch.
+
+### Expected merge conflict zones
+
+- `packages/tui/src/tui.ts`: `resolveMouseFocusTarget` signature and the mouse result types.
+- `packages/tui/src/tui-main-screen.ts` and `packages/tui/src/tui-alt-screen.ts`: the click branches of their mouse handlers.
+
 ## 2026-09-20 - Resolve native clipboard helpers in the published bundle (senpi#1848)
 
 ### What changed

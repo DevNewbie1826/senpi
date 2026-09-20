@@ -24,7 +24,12 @@ export class MouseRegion implements Component {
 
 	handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | TuiMouseEventResult | undefined {
 		const childResult = dispatchMouseEvent(this.child, event);
-		return childResult ?? this.onMouse(event);
+		if (childResult) return childResult;
+		const ownResult = this.onMouse(event);
+		// The region decorates a child that only renders, so it can never receive keys itself.
+		// Marking the focus request transparent lets the renderer hand focus to the surrounding
+		// component instead of parking it here, where every keystroke would be dropped.
+		return ownResult?.focus ? { ...ownResult, focusTransparent: true } : ownResult;
 	}
 
 	invalidate(): void {

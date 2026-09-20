@@ -123,6 +123,12 @@ export interface TuiMouseEventResult {
 	 * press, click, drag, and wheel default to true.
 	 */
 	render?: boolean;
+	/**
+	 * Set by decorators that broker a click for the component they wrap (MouseRegion).
+	 * They never own keyboard focus themselves, so the renderer resolves focus to the
+	 * nearest surrounding component that can receive keys instead.
+	 */
+	focusTransparent?: boolean;
 }
 
 /** Internal target metadata used by containers and alternate-screen dispatch. */
@@ -251,6 +257,15 @@ export interface Focusable {
 /** Type guard to check if a component implements Focusable */
 export function isFocusable(component: Component | null): component is Component & Focusable {
 	return component !== null && "focused" in component;
+}
+
+/**
+ * Only a component that can receive keys may own keyboard focus. A wrapper that merely
+ * handles mouse events (MouseRegion and friends) has no handleInput, so focusing it would
+ * silently swallow every later keystroke.
+ */
+export function canReceiveKeys(component: Component | null): boolean {
+	return component !== null && typeof component.handleInput === "function";
 }
 
 /**
@@ -1247,15 +1262,45 @@ export abstract class TuiBase extends Container {
 		);
 	}
 
-	/** Keep overlay containers as keyboard focus owners when a nested control is clicked. */
-	protected resolveMouseFocusTarget(component: Component): Component {
+	/**
+	 * Keyboard focus owner for a clicked component: the overlay that owns it, otherwise the
+	 * component itself. A focus-transparent decorator never owns focus, so its click resolves
+	 * to the nearest surrounding component that can receive keys, or to null when there is
+	 * none - parking focus on a decorator would swallow every later keystroke.
+	 */
+	protected resolveMouseFocusTarget(component: Component, focusTransparent = false): Component | null {
 		for (let index = this.overlayStack.length - 1; index >= 0; index--) {
 			const overlay = this.overlayStack[index]!;
 			if (this.isOverlayVisible(overlay) && this.containsComponent(overlay.component, component)) {
 				return overlay.component;
 			}
 		}
-		return component;
+		if (!focusTransparent || canReceiveKeys(component)) return component;
+		return this.findKeyFocusOwner(component);
+	}
+
+	/** Deepest mounted ancestor of `target` that can receive keys, excluding `target` itself. */
+	private findKeyFocusOwner(target: Component): Component | null {
+		const path: Component[] = [];
+		const walk = (node: Component): boolean => {
+			path.push(node);
+			if (node === target) return true;
+			if (node instanceof Container) {
+				for (const child of node.children) if (walk(child)) return true;
+			}
+			path.pop();
+			return false;
+		};
+		for (const root of this.getMouseLayoutRoots()) {
+			path.length = 0;
+			if (!walk(root)) continue;
+			for (let index = path.length - 2; index >= 0; index--) {
+				const candidate = path[index]!;
+				if (canReceiveKeys(candidate)) return candidate;
+			}
+			return null;
+		}
+		return null;
 	}
 
 	/** Dispatch to the visually topmost overlay under the pointer. */
