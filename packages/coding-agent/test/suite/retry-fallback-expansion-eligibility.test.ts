@@ -21,8 +21,8 @@ function model(provider: string, id: string): Model<Api> {
 const FABLE = "claude-fable-5";
 const OPUS5 = "claude-opus-5";
 
-// No shipped defaults exist (2026-09-05 "require explicit fallback chains"): the
-// bare-key expansion under test is driven by a user-configured bare chain.
+// The shipped defaults are an Opus-only ladder, so the k3 rung under test here can only
+// come from a user-configured bare chain; expansion eligibility is what is being measured.
 const BARE_CHAINS = { [FABLE]: ["k3:max", `${OPUS5}:xhigh`] };
 
 /** Registry stand-in with a deterministic per-provider eligibility gate. */

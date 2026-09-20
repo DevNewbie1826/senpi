@@ -195,12 +195,24 @@ describe("model fallback builtin command", () => {
 		expect(command?.description).toContain("fallback");
 	});
 
-	it("reports empty state when no fallback chains are configured", async () => {
+	it("reports empty state when nothing is configured and no shipped family is served", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "senpi-fallback-command-"));
+		dirs.push(dir);
+		const notices: string[] = [];
+		// The shipped defaults are keyed on the fable family, and canonicalization drops a bare
+		// key no provider serves, so a registry without a fable model renders nothing.
+		const ctx = await context(dir, notices, ["Show chains & live state"], [kimiK3], [kimiK3]);
+
+		await (await harness()).get("fallback")?.handler("", ctx);
+
+		expect(notices.join("\n")).toContain("No fallback chains configured");
+	});
+
+	it("renders the shipped fable chain when the user configured nothing", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "senpi-fallback-command-"));
 		dirs.push(dir);
 		const notices: string[] = [];
 		const catalogOnly = model("github-copilot", "claude-fable-5", true);
-		// No shipped defaults exist anymore: with nothing configured the command says so.
 		const ctx = await context(
 			dir,
 			notices,
@@ -211,7 +223,9 @@ describe("model fallback builtin command", () => {
 
 		await (await harness()).get("fallback")?.handler("", ctx);
 
-		expect(notices.join("\n")).toContain("No fallback chains configured");
+		const rendered = notices.join("\n");
+		expect(rendered).toContain("claude-sdk-oauth/claude-fable-5 ->");
+		expect(rendered).toContain("claude-opus-5");
 	});
 
 	it("lists a configured chain for the provider the user actually pinned", async () => {
