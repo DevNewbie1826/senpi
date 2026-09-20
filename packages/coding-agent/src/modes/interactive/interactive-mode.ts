@@ -5069,6 +5069,11 @@ export class InteractiveMode {
 				);
 				break;
 
+			case "model_change_pending":
+				this.showWarning(event.notice);
+				this.footer.invalidate();
+				break;
+
 			case "high_reasoning_warning":
 				this.showHighReasoningWarning(event);
 				break;
