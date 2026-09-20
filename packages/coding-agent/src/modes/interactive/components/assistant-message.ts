@@ -27,6 +27,7 @@ export class AssistantMessageComponent extends Container {
 	private renderDescriptors: readonly AssistantRenderDescriptor[] = [];
 	private hasToolCalls = false;
 	private expanded = false;
+	private providerErrorOwned = false;
 	private isStreaming = false;
 	private thinkingVisibilityOverrides = new Map<number, boolean>();
 
@@ -79,6 +80,12 @@ export class AssistantMessageComponent extends Container {
 		this.refreshContent();
 	}
 
+	setProviderErrorOwned(owned: boolean): void {
+		if (this.providerErrorOwned === owned) return;
+		this.providerErrorOwned = owned;
+		this.refreshContent();
+	}
+
 	setOutputPad(padding: number): void {
 		this.outputPad = padding;
 		this.renderDescriptors = [];
@@ -118,6 +125,7 @@ export class AssistantMessageComponent extends Container {
 		this.hasToolCalls = message.content.some((content) => content.type === "toolCall");
 		const descriptors = createAssistantRenderDescriptors(message, {
 			expanded: this.expanded,
+			providerErrorOwned: this.providerErrorOwned,
 			hiddenThinkingLabel: this.hiddenThinkingLabel,
 			hideThinkingBlock: this.hideThinkingBlock,
 			thinkingVisibilityOverrides: this.thinkingVisibilityOverrides,

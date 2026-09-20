@@ -20,6 +20,7 @@ export type AssistantRenderDescriptor = {
 
 type AssistantRenderDescriptorOptions = {
 	readonly expanded: boolean;
+	readonly providerErrorOwned?: boolean;
 	readonly hiddenThinkingLabel: string;
 	readonly hideThinkingBlock: boolean;
 	/** Per-run click overrides of `hideThinkingBlock`, keyed by thinking run index. */
@@ -143,6 +144,7 @@ export function createAssistantRenderDescriptors(
 			break;
 		case "aborted": {
 			if (options.hasToolCalls) break;
+			if (options.providerErrorOwned) break;
 			const abortMessage =
 				message.errorMessage && message.errorMessage !== "Request was aborted"
 					? message.errorMessage
@@ -152,6 +154,7 @@ export function createAssistantRenderDescriptors(
 		}
 		case "error": {
 			if (options.hasToolCalls) break;
+			if (options.providerErrorOwned) break;
 			if (message.diagnostics?.some((entry) => entry.type === SERVER_FALLBACK_ABORTED_DIAGNOSTIC)) break;
 			// A provider-stream stall carries the watchdog's own wording so the retry
 			// engine can classify it; the transcript gets the plain-language version,

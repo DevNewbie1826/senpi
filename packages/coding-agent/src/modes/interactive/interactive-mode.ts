@@ -238,6 +238,11 @@ import {
 import { describeLoginFailure, type LoginFailureNotice } from "./login-outcome.ts";
 import { refreshModelCatalogs } from "./model-catalog-refresh.ts";
 import { getModelSearchText } from "./model-search.ts";
+import {
+	isNetworkProviderError,
+	isNetworkProviderMessage,
+	ProviderErrorPresentation,
+} from "./provider-error-presentation.ts";
 import { isRiskyMainModel, RISKY_MAIN_MODEL_WARNING } from "./risky-main-model-warning.ts";
 import { DEFAULT_SMOOTH_FPS, StreamingRevealController } from "./streaming-reveal.ts";
 import {
@@ -1022,6 +1027,7 @@ export class InteractiveMode {
 
 	// Auto-retry state
 	private retryEscapeHandler?: () => void;
+	private providerErrors: ProviderErrorPresentation | undefined;
 	private fallbackAppliedBeforeRetryStart = false;
 	private pendingZeroDelayRetryIndicator: PendingZeroDelayRetryIndicator | undefined = undefined;
 
@@ -5084,6 +5090,7 @@ export class InteractiveMode {
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
 				} else if (event.message.role === "user") {
+					this.getProviderErrors().newTurn();
 					if (!this.optimisticUserEchoes.replaceNext(event.message)) this.addMessageToChat(event.message);
 					this.updatePendingMessagesDisplay();
 					this.ui.requestRender();
@@ -5109,6 +5116,10 @@ export class InteractiveMode {
 
 			case "message_update":
 				if (this.streamingComponent && event.message.role === "assistant") {
+					if (event.message.content.some((part) => part.type === "text" && part.text.trim())) {
+						this.getProviderErrors().clear();
+						this.clearStatusIndicator("retry");
+					}
 					this.streamingMessage = event.message;
 					this.streamingReveal.setTarget(assistantStreamingHeadMessage(event.message));
 
@@ -5153,6 +5164,12 @@ export class InteractiveMode {
 						this.session.retryAttempt,
 						this.session.currentAbortSource,
 					);
+					if (isNetworkProviderMessage(renderedMessage)) {
+						this.getProviderErrors().record(renderedMessage.errorMessage ?? "", this.toolOutputExpanded);
+					} else if (renderedMessage.stopReason === "stop" || renderedMessage.stopReason === "toolUse") {
+						this.getProviderErrors().clear();
+						this.clearStatusIndicator("retry");
+					}
 					let errorMessage = renderedMessage.errorMessage;
 					this.syncTrailingAssistantText(renderedMessage);
 					this.assistantTextSegments.clear();
@@ -5273,6 +5290,7 @@ export class InteractiveMode {
 
 			case "agent_idle":
 				this.agentIdle = true;
+				this.getProviderErrors().finish();
 				if (this.pendingUserInputs.length === 0) {
 					this.clearStatusIndicator("working");
 				}
@@ -5281,6 +5299,13 @@ export class InteractiveMode {
 
 			case "continuation_error":
 				this.showError(sanitizeTerminalLabel(event.errorMessage));
+				break;
+
+			case "session_abort":
+				this.getProviderErrors().clear();
+				this.clearStatusIndicator("retry");
+				this.pendingZeroDelayRetryIndicator = undefined;
+				this.ui.requestRender();
 				break;
 
 			case "compaction_start": {
@@ -5407,7 +5432,9 @@ export class InteractiveMode {
 					this.footer?.setCompactionDelegated?.(false);
 				} else if (event.errorMessage) {
 					const errorMessage = sanitizeTerminalLabel(event.errorMessage);
-					if (event.reason === "manual") {
+					if (isNetworkProviderError(errorMessage)) {
+						this.getProviderErrors().finish(errorMessage);
+					} else if (event.reason === "manual") {
 						this.showError(errorMessage);
 					} else {
 						this.chatContainer.addChild(new Text(theme.fg("error", errorMessage), 1, 0));
@@ -5520,6 +5547,11 @@ export class InteractiveMode {
 				break;
 
 			case "retry_fallback_exhausted":
+				if (isNetworkProviderError(event.lastError)) {
+					this.getProviderErrors().finish(event.lastError);
+					this.setExtensionStatus(FALLBACK_STATUS_KEY, undefined);
+					break;
+				}
 				this.showNoticeBox({
 					title: `✕ Fallback chain exhausted · ${event.chainKey}`,
 					tone: "error",
@@ -5539,6 +5571,9 @@ export class InteractiveMode {
 				break;
 
 			case "auto_retry_start": {
+				if (isNetworkProviderError(event.errorMessage)) {
+					this.getProviderErrors().retrying(event.errorMessage, this.toolOutputExpanded);
+				}
 				// During retry waits, isStreaming flips false between attempts. The main Esc handler
 				// keys off both isStreaming and retryAttempt so we keep the same close-out path here;
 				// no separate retry-only handler is installed (the prior one only called
@@ -5572,7 +5607,11 @@ export class InteractiveMode {
 				}
 				this.clearStatusIndicator("retry");
 				// Show error only on final failure (success shows normal response)
-				if (!event.success) {
+				if (event.success || event.finalError === "Retry cancelled") {
+					this.getProviderErrors().clear();
+				} else if (isNetworkProviderError(event.finalError)) {
+					this.getProviderErrors().finish(event.finalError, event.attempt);
+				} else {
 					this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);
 				}
 				this.ui.requestRender();
@@ -5580,7 +5619,11 @@ export class InteractiveMode {
 			}
 
 			case "summarization_retry_scheduled": {
-				this.showError(event.errorMessage);
+				if (isNetworkProviderError(event.errorMessage)) {
+					this.getProviderErrors().retrying(event.errorMessage, this.toolOutputExpanded);
+				} else {
+					this.showError(event.errorMessage);
+				}
 				this.showSummarizationRetryStatusIndicator(event);
 				break;
 			}
@@ -5597,6 +5640,7 @@ export class InteractiveMode {
 			}
 
 			case "summarization_retry_finished": {
+				this.getProviderErrors().clear();
 				this.clearStatusIndicator("retry");
 				this.ui.requestRender();
 				break;
@@ -5637,7 +5681,12 @@ export class InteractiveMode {
 		this.showRetryStatusIndicatorWithCadence(event);
 	}
 
-	private showRetryStatusIndicatorWithCadence(event: { attempt: number; maxAttempts: number; delayMs: number }): void {
+	private showRetryStatusIndicatorWithCadence(event: {
+		attempt: number;
+		maxAttempts: number;
+		delayMs: number;
+		errorMessage: string;
+	}): void {
 		const refreshIntervalMs = largeSessionWorkingStatusInterval(
 			this.sessionManager.getEntryCount(),
 			DEFAULT_RETRY_STATUS_REFRESH_INTERVAL_MS,
@@ -5646,7 +5695,14 @@ export class InteractiveMode {
 		const indicator =
 			refreshIntervalMs === DEFAULT_RETRY_STATUS_REFRESH_INTERVAL_MS ? undefined : { intervalMs: refreshIntervalMs };
 		this.showStatusIndicator(
-			new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs, indicator),
+			new RetryStatusIndicator(
+				this.ui,
+				event.attempt,
+				event.maxAttempts,
+				event.delayMs,
+				indicator,
+				isNetworkProviderError(event.errorMessage),
+			),
 		);
 		this.ui.requestRender();
 	}
@@ -5764,6 +5820,7 @@ export class InteractiveMode {
 	}
 
 	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {
+		if (message.role === "user") this.getProviderErrors().newTurn();
 		switch (message.role) {
 			case "bashExecution": {
 				const component = new BashExecutionComponent(message.command, this.ui, message.excludeFromContext);
@@ -5851,6 +5908,12 @@ export class InteractiveMode {
 				break;
 			}
 			case "assistant": {
+				if (isNetworkProviderMessage(message)) {
+					this.getProviderErrors().record(message.errorMessage ?? "", this.toolOutputExpanded);
+					this.getProviderErrors().finish();
+				} else if (message.stopReason === "stop" || message.stopReason === "toolUse") {
+					this.getProviderErrors().clear();
+				}
 				const assistantComponent = new AssistantMessageComponent(
 					message,
 					this.hideThinkingBlock,
@@ -5860,6 +5923,7 @@ export class InteractiveMode {
 					this.getMarkdownTransformers(),
 				);
 				assistantComponent.setExpanded(this.toolOutputExpanded);
+				assistantComponent.setProviderErrorOwned(isNetworkProviderMessage(message));
 				this.chatContainer.addChild(assistantComponent);
 				break;
 			}
@@ -5879,6 +5943,7 @@ export class InteractiveMode {
 
 	private syncTrailingAssistantText(message: AssistantMessage): void {
 		if (!this.streamingComponent) return;
+		this.streamingComponent.setProviderErrorOwned(isNetworkProviderMessage(message));
 		const head = assistantStreamingHeadMessage(message);
 		// Single writer: while smooth streaming paces the head (no toolCall block),
 		// streamingReveal owns the streaming component. Overwriting the full head
@@ -5910,6 +5975,7 @@ export class InteractiveMode {
 			const runMessage: AssistantMessage = { ...message, content: runBlocks };
 			const existing = this.assistantTextSegments.get(runStart);
 			if (existing) {
+				existing.setProviderErrorOwned(isNetworkProviderMessage(message));
 				existing.updateContent(runMessage, true);
 				continue;
 			}
@@ -5922,6 +5988,7 @@ export class InteractiveMode {
 				this.getMarkdownTransformers(),
 			);
 			segment.setExpanded(this.toolOutputExpanded);
+			segment.setProviderErrorOwned(isNetworkProviderMessage(message));
 			this.assistantTextSegments.set(runStart, segment);
 			const followingToolCall = content.slice(index).find((block) => block.type === "toolCall");
 			const followingToolCallId = followingToolCall?.type === "toolCall" ? followingToolCall.id : undefined;
@@ -5979,6 +6046,7 @@ export class InteractiveMode {
 		items: readonly RenderSessionItem[],
 		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
+		this.providerErrors = undefined;
 		this.clearPendingTools();
 		// The rebuilt transcript re-derives continuity notices from persisted
 		// messages, so the tracker's suppression state must not survive the
@@ -6744,9 +6812,19 @@ export class InteractiveMode {
 	}
 
 	showError(errorMessage: string): void {
+		if (isNetworkProviderError(errorMessage, true)) {
+			this.getProviderErrors().record(errorMessage, this.toolOutputExpanded);
+			this.ui.requestRender();
+			return;
+		}
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(theme.fg("error", `Error: ${sanitizeTuiErrorMessage(errorMessage)}`), 1, 0));
 		this.ui.requestRender();
+	}
+
+	private getProviderErrors(): ProviderErrorPresentation {
+		this.providerErrors ??= new ProviderErrorPresentation(this.chatContainer);
+		return this.providerErrors;
 	}
 
 	showNoticeBox(spec: NoticeSpec): void {
