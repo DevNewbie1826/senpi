@@ -1,3 +1,23 @@
+## Project a three-tier admission verdict instead of one usable boolean (2026-09-20)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/compaction/model-usability-budget.ts`: the projection now carries `verdict` (`fits-now` / `fits-after-compaction` / `impossible`) plus the two geometries it is derived from, `postCompactionRequiredTokens` (fixed overhead plus the keep-recent floor) and `compactionRequiredTokens` (live context plus the overhead a summarization request itself must carry). Both were already computed inside the resume relaxation branch; they are now computed for every admission and returned, so a caller can tell "needs a smaller transcript" from "this model can never serve this session" without re-deriving the arithmetic.
+- `usable`, `requiredTokens`, and `shortfallTokens` keep their meaning exactly: the relaxation that flips `usable` is still scoped to `admission === "resume"` with the lead excluded and compaction enabled. `verdict` is a capability statement and deliberately does not consult `compaction.enabled`, because whether a session may reduce its transcript (and whether it summarizes or slices) is the caller's policy - the split `sdk.ts` already makes on resume.
+
+### Why
+
+- A switch onto a model that one compaction would make usable is refused outright today, and a Ctrl+P cycle skips it silently (#1378), so the model the user picked is simply not applied. Resume already repairs this case; switch and fallback cannot reach that machinery because it is keyed on the resume admission. Repairing them needs a signal that separates a repairable shortfall from an overhead-bound model, which is what `verdict` provides. This is the first of three stacked changes for #1873; the consumers land next.
+
+### Why an extension could not handle it
+
+- The admission projection is private to the builtin compaction extension and runs inside `AgentSession`'s switch and resume guards. No public hook observes a refused model switch or can contribute a budget verdict to it.
+
+### Expected merge conflict zones
+
+- LOW: `model-usability-budget.ts` around the projection interface and the resume relaxation branch, which was rewritten to reuse the hoisted geometries rather than recompute them.
+- Coverage: `test/suite/model-usability-budget.test.ts` (`classifies admission as fits-now, fits-after-compaction, or impossible`).
+
 ## Retry compaction summarization without the reasoning override after an empty stop (2026-09-17)
 
 ### What changed
