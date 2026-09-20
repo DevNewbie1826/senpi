@@ -817,10 +817,13 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		return undefined;
 	}
 
-	private applyMouseDispatchResult(event: TuiMouseEvent, result: TuiMouseDispatchResult): boolean {
-		const focusTarget = this.resolveMouseFocusTarget(result.focusTarget ?? result.target.component);
-		const focusChanged = result.focus === true && this.getFocusedComponent() !== focusTarget;
-		if (result.focus) this.setFocus(focusTarget);
+	private applyMouseDispatchResult(event: TuiMouseEvent, result: TuiMouseDispatchResult, applyFocus = true): boolean {
+		const focusTarget =
+			applyFocus && result.focus
+				? this.resolveMouseFocusTarget(result.focusTarget ?? result.target.component)
+				: null;
+		const focusChanged = focusTarget !== null && this.getFocusedComponent() !== focusTarget;
+		if (focusTarget) this.setFocus(focusTarget);
 		if (result.capture) this.mouseCapture = result.target;
 		return (
 			result.render ??
@@ -890,8 +893,14 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 					const clickEvent = this.createMouseEvent("click", raw.button, raw.x, raw.y, {
 						clickCount: this.getComponentClickCount(target, raw.x, raw.y),
 					});
+					// A click handler that moves focus owns the outcome; only re-apply the click
+					// target's focus when the handler left focus untouched.
+					const focusBeforeClick = this.getFocusedComponent();
 					const clickResult = this.dispatchMouseToTarget(clickEvent, target);
-					if (clickResult) render = this.applyMouseDispatchResult(clickEvent, clickResult) || render;
+					if (clickResult) {
+						const keepHandlerFocus = this.getFocusedComponent() !== focusBeforeClick;
+						render = this.applyMouseDispatchResult(clickEvent, clickResult, !keepHandlerFocus) || render;
+					}
 				}
 				this.clearComponentMouseGesture();
 			}

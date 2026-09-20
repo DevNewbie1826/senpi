@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Keyboard input no longer dies after clicking a mouse-enabled row such as an ask-user question option or its Submit line. A click decorator that cannot receive keys never becomes the focus owner, and a focus change made by the click handler is no longer overwritten by the mouse focus application.
+
 ### Removed
 
 ## [2026.9.19-2] - 2026-09-19

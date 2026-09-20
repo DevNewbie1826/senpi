@@ -148,3 +148,17 @@ it("ignores descriptions, right clicks, double clicks and press-only selection",
 		h.component.dispose();
 	}
 });
+it("clickable rows keep the question as the keyboard owner instead of claiming focus (#1882)", () => {
+	const h = setup();
+	try {
+		for (const label of ["1. OAuth", "Extras", "Submit"]) {
+			const result = h.component.handleMouse(h.event("press", label));
+			// The clicked row cannot receive keys, so the question component must stay the
+			// keyboard owner; parking focus on the row kills typing after the click.
+			expect(result).toMatchObject({ handled: true, focus: true });
+			expect((result as { focusTarget?: unknown }).focusTarget).toBe(h.component);
+		}
+	} finally {
+		h.component.dispose();
+	}
+});

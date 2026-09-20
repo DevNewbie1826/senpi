@@ -101,7 +101,9 @@ export class TuiMainScreen extends TuiBase {
 	}
 
 	private applyMouseResult(result: TuiMouseDispatchResult | undefined): void {
-		if (result?.focus) this.setFocus(this.resolveMouseFocusTarget(result.focusTarget ?? result.target.component));
+		if (!result?.focus) return;
+		const target = this.resolveMouseFocusTarget(result.focusTarget ?? result.target.component);
+		if (target) this.setFocus(target);
 	}
 
 	private handleMouseInput(data: string): { consume: boolean } {
@@ -155,7 +157,11 @@ export class TuiMainScreen extends TuiBase {
 			const count = this.clicks.release(raw, press.target.component, this.placementEpoch);
 			if (count !== undefined) {
 				const click: TuiMouseEvent = { ...event, type: "click", clickCount: count };
-				this.applyMouseResult(dispatchMouseEvent(press.target.component, retargetMouseEvent(click, press.target)));
+				// A click handler that moves focus (an ask-user submit restoring the composer) owns the
+				// outcome; re-applying the click target afterwards would steal focus back from it.
+				const focusBeforeClick = this.getFocusedComponent();
+				const clickResult = dispatchMouseEvent(press.target.component, retargetMouseEvent(click, press.target));
+				if (this.getFocusedComponent() === focusBeforeClick) this.applyMouseResult(clickResult);
 				this.requestRender();
 			}
 		}

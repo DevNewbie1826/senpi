@@ -254,6 +254,15 @@ export function isFocusable(component: Component | null): component is Component
 }
 
 /**
+ * Only a component that can receive keys may own keyboard focus. A wrapper that merely
+ * handles mouse events (MouseRegion and friends) has no handleInput, so focusing it would
+ * silently swallow every later keystroke.
+ */
+export function canReceiveKeys(component: Component | null): boolean {
+	return component !== null && typeof component.handleInput === "function";
+}
+
+/**
  * Cursor position marker - APC (Application Program Command) sequence.
  * This is a zero-width escape sequence that terminals ignore.
  * Components emit this at the cursor position when focused.
@@ -1247,15 +1256,45 @@ export abstract class TuiBase extends Container {
 		);
 	}
 
-	/** Keep overlay containers as keyboard focus owners when a nested control is clicked. */
-	protected resolveMouseFocusTarget(component: Component): Component {
+	/**
+	 * Keyboard focus owner for a clicked component: the overlay that owns it, else the component
+	 * itself when it can receive keys, else the nearest surrounding component that can. Null when
+	 * nothing in that chain can - a mouse-only control (a clickable row, a tab strip) that owned
+	 * focus would swallow every later keystroke.
+	 */
+	protected resolveMouseFocusTarget(component: Component): Component | null {
 		for (let index = this.overlayStack.length - 1; index >= 0; index--) {
 			const overlay = this.overlayStack[index]!;
 			if (this.isOverlayVisible(overlay) && this.containsComponent(overlay.component, component)) {
 				return overlay.component;
 			}
 		}
-		return component;
+		if (canReceiveKeys(component)) return component;
+		return this.findKeyFocusOwner(component);
+	}
+
+	/** Deepest mounted ancestor of `target` that can receive keys, excluding `target` itself. */
+	private findKeyFocusOwner(target: Component): Component | null {
+		const path: Component[] = [];
+		const walk = (node: Component): boolean => {
+			path.push(node);
+			if (node === target) return true;
+			if (node instanceof Container) {
+				for (const child of node.children) if (walk(child)) return true;
+			}
+			path.pop();
+			return false;
+		};
+		for (const root of this.getMouseLayoutRoots()) {
+			path.length = 0;
+			if (!walk(root)) continue;
+			for (let index = path.length - 2; index >= 0; index--) {
+				const candidate = path[index]!;
+				if (canReceiveKeys(candidate)) return candidate;
+			}
+			return null;
+		}
+		return null;
 	}
 
 	/** Dispatch to the visually topmost overlay under the pointer. */

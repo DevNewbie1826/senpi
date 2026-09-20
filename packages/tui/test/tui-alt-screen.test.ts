@@ -1689,7 +1689,7 @@ describe("TuiAltScreen", () => {
 		tui.stop();
 	});
 
-	it("focuses and captures drag gestures for mouse-aware components", async () => {
+	it("captures drag gestures for mouse-aware components without taking keyboard focus", async () => {
 		const terminal = new VirtualTerminal(20, 2);
 		const tui = new TuiAltScreen(terminal);
 		const events: string[] = [];
@@ -1701,9 +1701,11 @@ describe("TuiAltScreen", () => {
 				return event.type === "press" ? { handled: true, capture: true, focus: true } : { handled: true };
 			},
 		};
+		const keyboardOwner = { render: () => [], invalidate: () => {}, handleInput: () => {} };
 		tui.addChild(component);
 		tui.start();
 		await terminal.waitForRender();
+		tui.setFocus(keyboardOwner);
 
 		terminal.sendInput("\x1b[<0;1;1M");
 		terminal.sendInput("\x1b[<32;5;2M");
@@ -1711,7 +1713,9 @@ describe("TuiAltScreen", () => {
 		await terminal.waitForRender();
 
 		assert.deepStrictEqual(events, ["press", "drag", "release"]);
-		assert.strictEqual(tui.getFocusedComponent(), component);
+		// The control has no handleInput: owning focus would black-hole every later keystroke,
+		// so capture routes drags to it while the keyboard owner keeps focus (senpi#1882).
+		assert.strictEqual(tui.getFocusedComponent(), keyboardOwner);
 		tui.stop();
 	});
 
