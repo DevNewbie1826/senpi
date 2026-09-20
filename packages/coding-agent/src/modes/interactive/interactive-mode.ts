@@ -5096,7 +5096,7 @@ export class InteractiveMode {
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
 				} else if (event.message.role === "user") {
-					this.getProviderErrors().newTurn();
+					this.providerErrors?.newTurn();
 					if (!this.optimisticUserEchoes.replaceNext(event.message)) this.addMessageToChat(event.message);
 					this.updatePendingMessagesDisplay();
 					this.ui.requestRender();
@@ -5123,7 +5123,7 @@ export class InteractiveMode {
 			case "message_update":
 				if (this.streamingComponent && event.message.role === "assistant") {
 					if (event.message.content.some((part) => part.type === "text" && part.text.trim())) {
-						this.getProviderErrors().clear();
+						this.providerErrors?.clear();
 						this.clearStatusIndicator("retry");
 					}
 					this.streamingMessage = event.message;
@@ -5173,7 +5173,7 @@ export class InteractiveMode {
 					if (isNetworkProviderMessage(renderedMessage)) {
 						this.getProviderErrors().record(renderedMessage.errorMessage ?? "", this.toolOutputExpanded);
 					} else if (renderedMessage.stopReason === "stop" || renderedMessage.stopReason === "toolUse") {
-						this.getProviderErrors().clear();
+						this.providerErrors?.clear();
 						this.clearStatusIndicator("retry");
 					}
 					let errorMessage = renderedMessage.errorMessage;
@@ -5296,7 +5296,7 @@ export class InteractiveMode {
 
 			case "agent_idle":
 				this.agentIdle = true;
-				this.getProviderErrors().finish();
+				this.providerErrors?.finish();
 				if (this.pendingUserInputs.length === 0) {
 					this.clearStatusIndicator("working");
 				}
@@ -5308,7 +5308,7 @@ export class InteractiveMode {
 				break;
 
 			case "session_abort":
-				this.getProviderErrors().clear();
+				this.providerErrors?.clear();
 				this.clearStatusIndicator("retry");
 				this.pendingZeroDelayRetryIndicator = undefined;
 				this.ui.requestRender();
@@ -5614,7 +5614,7 @@ export class InteractiveMode {
 				this.clearStatusIndicator("retry");
 				// Show error only on final failure (success shows normal response)
 				if (event.success || event.finalError === "Retry cancelled") {
-					this.getProviderErrors().clear();
+					this.providerErrors?.clear();
 				} else if (isNetworkProviderError(event.finalError)) {
 					this.getProviderErrors().finish(event.finalError, event.attempt);
 				} else {
@@ -5646,7 +5646,7 @@ export class InteractiveMode {
 			}
 
 			case "summarization_retry_finished": {
-				this.getProviderErrors().clear();
+				this.providerErrors?.clear();
 				this.clearStatusIndicator("retry");
 				this.ui.requestRender();
 				break;
@@ -5826,7 +5826,7 @@ export class InteractiveMode {
 	}
 
 	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {
-		if (message.role === "user") this.getProviderErrors().newTurn();
+		if (message.role === "user") this.providerErrors?.newTurn();
 		switch (message.role) {
 			case "bashExecution": {
 				const component = new BashExecutionComponent(message.command, this.ui, message.excludeFromContext);
@@ -5916,9 +5916,9 @@ export class InteractiveMode {
 			case "assistant": {
 				if (isNetworkProviderMessage(message)) {
 					this.getProviderErrors().record(message.errorMessage ?? "", this.toolOutputExpanded);
-					this.getProviderErrors().finish();
+					this.providerErrors?.finish();
 				} else if (message.stopReason === "stop" || message.stopReason === "toolUse") {
-					this.getProviderErrors().clear();
+					this.providerErrors?.clear();
 				}
 				const assistantComponent = new AssistantMessageComponent(
 					message,
