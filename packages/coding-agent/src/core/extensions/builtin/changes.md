@@ -1,22 +1,26 @@
 # Builtin extensions changes
 
-## 2026-09-20 - Register question renderers at extension load (#1857 I4)
+## 2026-09-20 - Serve question card renderers without a registration (#1857 I4)
 
 ### What changed
 
-- `packages/coding-agent/src/core/extensions/builtin/ask-user/extension.ts` registers both question tool definitions at load time instead of in session-start synchronization. Active-tool selection and disable checks remain in synchronization.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/render.ts` exports `askUserRenderers(toolName)`, the renderer pair for both question tool names, independent of whether the tools are registered.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts` gives the first attachment the full idle budget and a re-attachment only what the authoritative timer has left.
+- Registration itself stays inside session-start synchronization: registering at load also activates a directly exposed tool, which would hand a `noTools` session a question tool it never asked for.
 
 ### Why
 
-- A streaming tool card can request its renderer after the reload rebuilds the tool registry but before session-start handlers run. Both definitions must already be available then.
+- A question card can stream while the registry holds no ask-user tools - during a reload, or in a session where ask-user is disabled - and would otherwise render as a raw argument dump. Its renderers do not depend on the registration, so the card no longer does either.
 
 ### Why an extension could not handle it
 
-- This builtin owns the registrations; a second extension cannot reliably repair their absence during a runner replacement.
+- This builtin owns the question tools and their renderers; no other extension can supply them for a card the host is already drawing.
 
 ### Expected merge conflict zones
 
-- `packages/coding-agent/src/core/extensions/builtin/ask-user/extension.ts`: tool registration and sync.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/render.ts`: renderer exports.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts`: attachment options.
+
 
 ## 2026-09-20 - Recover unsettled async questions after restart (#1857 I3)
 

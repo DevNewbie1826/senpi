@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import askUserExtension from "../../src/core/extensions/builtin/ask-user/index.ts";
 import { getPendingQuestions } from "../../src/core/extensions/builtin/ask-user/registry.ts";
+import { askUserRenderers } from "../../src/core/extensions/builtin/ask-user/render.ts";
 import { WAIT_FLAG_STEER_TEXT } from "../../src/core/extensions/builtin/ask-user/schema.ts";
 import { mapSdkToolNameToPi, resolveSdkTools } from "../../src/core/extensions/builtin/claude-sdk-oauth/tools.ts";
 import type { ExtensionAPI, ExtensionContext, QuestionResponse } from "../../src/core/extensions/types.ts";
@@ -82,19 +83,25 @@ describe("ask-user builtin", () => {
 	it.each([
 		[false, false],
 		[true, true],
-	])("keeps renderers registered but tools inactive when disabled (%s, flag %s)", async (enabled, flag) => {
-		const { h, runner, tool, ctx } = await setup(enabled, flag);
-		expect(runner.getFlags().get("no-ask-user")).toMatchObject({ type: "boolean", default: false });
-		expect(
-			h.session.getActiveToolNames().filter((name) => ["ask_user_question", "request_user_input"].includes(name)),
-		).toEqual([]);
-		for (const name of ["ask_user_question", "request_user_input"])
-			expect(h.session.getToolDefinition(name)?.renderCall).toBeTypeOf("function");
-		expect((await required(tool).execute("disabled", args, undefined, undefined, ctx)).details).toMatchObject({
-			status: "unavailable",
-		});
-		expect(ctx.ui.question).not.toHaveBeenCalled();
-	});
+	])(
+		"does not register or activate when disabled, yet still renders its cards (%s, flag %s)",
+		async (enabled, flag) => {
+			const { h, runner, tool, ctx } = await setup(enabled, flag);
+			expect(runner.getFlags().get("no-ask-user")).toMatchObject({ type: "boolean", default: false });
+			expect(
+				runner
+					.getAllRegisteredTools()
+					.filter((t) => ["ask_user_question", "request_user_input"].includes(t.definition.name)),
+			).toEqual([]);
+			expect(
+				h.session.getActiveToolNames().filter((name) => ["ask_user_question", "request_user_input"].includes(name)),
+			).toEqual([]);
+			for (const name of ["ask_user_question", "request_user_input"])
+				expect(askUserRenderers(name)?.renderCall).toBeTypeOf("function");
+			expect(tool).toBeUndefined();
+			expect(ctx.ui.question).not.toHaveBeenCalled();
+		},
+	);
 	it("returns blocking answers through the formatter", async () => {
 		const { tool, ctx, deliveries } = await setup();
 		const result = await required(tool).execute("blocking", args, undefined, undefined, ctx);

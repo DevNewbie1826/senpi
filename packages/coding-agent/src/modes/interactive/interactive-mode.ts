@@ -82,6 +82,7 @@ import { resolveChangelogSource } from "../../core/changelog-source.ts";
 import { collectEntriesForBranchSummary } from "../../core/compaction/branch-summarization.ts";
 import { AssistantEditError, assistantTextEquals } from "../../core/edited-assistant-message.ts";
 import { formatUserMessage } from "../../core/extensions/builtin/ask-user/format.ts";
+import { askUserRenderers } from "../../core/extensions/builtin/ask-user/render.ts";
 import type {
 	AutocompleteProviderFactory,
 	EditorFactory,
@@ -2759,7 +2760,10 @@ export class InteractiveMode {
 	 * whatever this returns, so they never reach into the tool registry themselves.
 	 */
 	private getRegisteredToolDefinition(toolName: string) {
-		return withBuiltInRenderers(toolName, this.session.getToolDefinition(toolName));
+		// A question card can stream while a reload is in flight, when the registry no longer holds the
+		// ask-user tools and session_start has not re-synchronized them yet. Its renderers do not depend
+		// on the registration, so fall back to them instead of dumping the raw arguments.
+		return withBuiltInRenderers(toolName, this.session.getToolDefinition(toolName) ?? askUserRenderers(toolName));
 	}
 
 	private getMarkdownTransformers(): MarkdownTransformer[] {

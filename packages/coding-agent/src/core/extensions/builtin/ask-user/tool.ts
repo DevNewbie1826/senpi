@@ -252,7 +252,9 @@ export function startQuestion(
 				.call(ctx.ui, request, {
 					...opts,
 					signal: controller.signal,
-					timeout: pending.remainingMs(Date.now()),
+					// The first attachment owns the whole budget; a re-attachment inherits what the
+					// authoritative idle timer has left, so a reload cannot hand the question a fresh one.
+					timeout: currentGeneration === 0 ? request.timeoutMs : pending.remainingMs(Date.now()),
 					initialDraft: draft,
 					onProgress: (progress) => {
 						if (attached && generation === currentGeneration) opts.onProgress(progress);
