@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Regenerating the image-model catalog leaves a file that passes `npm run check`. The generator wrote the entries with hand-written tabs and `JSON.stringify`, which spells arrays without a space after the comma and indents nested objects with two spaces, so the file it produced never matched the formatter. The shared `check` script used to rewrite it in place; once that autofix was removed, the release job became the first thing to regenerate the catalog under the strict gate and stopped there. The generator now formats the file before reporting success. ([#1886](https://github.com/code-yeongyu/senpi/issues/1886))
+
 ### Removed
 
 ## [2026.9.19-2] - 2026-09-19

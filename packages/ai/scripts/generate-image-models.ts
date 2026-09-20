@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { writeFileSync } from "fs";
+import { execFileSync } from "child_process";
+import { existsSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import type { ImagesApi, ImagesModel } from "../src/types.ts";
@@ -8,6 +9,7 @@ import type { ImagesApi, ImagesModel } from "../src/types.ts";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const packageRoot = join(__dirname, "..");
+const repositoryRoot = join(packageRoot, "..", "..");
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 function readStrictOption(args: string[]): boolean {
@@ -197,12 +199,28 @@ ${providerEntries}
 `;
 }
 
+/**
+ * Hands the emitted file to Biome so it lands in the repository already
+ * satisfying the read-only `npm run check` gate. The serializer writes tabs by
+ * hand and leans on JSON.stringify for arrays and the cost object, neither of
+ * which matches Biome's own output, so the file used to reach the tree
+ * unformatted and was silently rewritten by the `biome check --write` that the
+ * shared `check` script ran. Once that autofix was removed the drift surfaced
+ * for the first time inside the release job, which regenerates this catalog.
+ */
+function formatGeneratedFile(filePath: string): void {
+	const local = join(repositoryRoot, "node_modules", ".bin", "biome");
+	const biome = existsSync(local) ? local : "biome";
+	execFileSync(biome, ["check", "--write", filePath], { stdio: "inherit" });
+}
+
 async function main(): Promise<void> {
 	const strict = readStrictOption(process.argv.slice(2));
 	const models = await fetchOpenRouterImageModels(strict);
 	const output = generateImageModelsFile(models);
 	const outputPath = join(packageRoot, "src", "image-models.generated.ts");
 	writeFileSync(outputPath, output, "utf-8");
+	formatGeneratedFile(outputPath);
 	console.log(`Generated ${outputPath}`);
 }
 
