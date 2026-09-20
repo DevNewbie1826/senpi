@@ -1,7 +1,6 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import compactionExtension from "../../src/core/extensions/builtin/compaction/index.ts";
-import { ModelUsabilityBudgetError } from "../../src/core/extensions/builtin/compaction/model-usability-budget.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
@@ -61,9 +60,13 @@ describe("explicit compaction recovers a rejected model downswitch", () => {
 			timestamp: 3,
 		});
 		harness.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
-		await expect(harness.session.setModel(target)).rejects.toMatchObject({
-			name: ModelUsabilityBudgetError.name,
-			projection: { usable: false, contextWindow: 272_000 },
+		// #1873: the downswitch is held rather than refused, on the same projection the
+		// refusal used to carry. Explicit compaction is still the recovery this covers,
+		// and the session must not move onto the target until it can serve.
+		await harness.session.setModel(target);
+		expect(harness.session.pendingModelSwitch?.projection).toMatchObject({
+			usable: false,
+			contextWindow: 272_000,
 		});
 		expect(harness.session.model?.id).toBe("million");
 		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "model_change")).toEqual([]);
@@ -97,6 +100,8 @@ describe("explicit compaction recovers a rejected model downswitch", () => {
 		]);
 		await harness.session.setModel(target);
 		expect(harness.session.model?.id).toBe("target");
+		// The switch that landed supersedes the hold, so nothing is left to re-apply.
+		expect(harness.session.pendingModelSwitch).toBeUndefined();
 		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "model_change")).toEqual([
 			expect.objectContaining({ provider, modelId: "target" }),
 		]);

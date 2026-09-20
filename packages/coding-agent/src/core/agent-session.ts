@@ -5199,6 +5199,11 @@ export class AgentSession {
 				);
 			}
 			if (opts.persistDefault) this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+			// A switch that actually landed supersedes anything still being held (#1873).
+			// Without this a held switch survives its own resolution - an explicit
+			// /compact followed by a manual retry applies the switch here, and the stale
+			// hold would compact and re-switch again on the next message.
+			this._pendingModelSwitch = undefined;
 			// Emit only after all admission hooks have accepted the candidate.
 			this._emit({
 				type: "model_changed",
