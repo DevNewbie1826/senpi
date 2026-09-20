@@ -348,6 +348,8 @@
 
 ### Fixed
 
+- An automatic fallback no longer gives up on a model just because the conversation is currently too long for it. The chain reduces the conversation first, without asking any provider, and then hands the turn to that model. A conversation with no earlier turn to drop still fails the rung, and nothing is reduced when auto-compaction is off ([#1873](https://github.com/code-yeongyu/senpi/issues/1873)).
+
 - Picking a model that cannot hold the conversation yet no longer throws the choice away. The switch is held, your next message compacts the conversation first - summarized by the model that can still read all of it, sized for the window it is moving into - and the new model takes over from there. Ctrl+P now only passes over a model that could never serve the session, instead of skipping anything that does not fit right now. Nothing is written down while a switch is held, so a session that ends before the next message is still on the model it was using ([#1873](https://github.com/code-yeongyu/senpi/issues/1873)).
 
 - Switching models no longer fails because of headroom the switch does not need. Admission used to charge the speculation lead - the margin the background compactor works inside - against a transcript that had not been admitted yet, so a model the session would have fit onto was refused with a token shortfall smaller than the lead itself. A live switch is now admitted on whether the next request fits, which is the same reasoning already applied to resume. Starting a session on a model still charges the lead, because at that point the margin describes the model itself ([#1873](https://github.com/code-yeongyu/senpi/issues/1873)).
