@@ -14,6 +14,7 @@ import type {
 	QuestionResponse,
 	ToolDefinition,
 } from "../../../src/core/extensions/types.ts";
+import { createTestExtensionsResult, createTestResourceLoader } from "../../utilities.ts";
 import { createHarness, type Harness } from "../harness.ts";
 
 type QuestionBridge = NonNullable<ExtensionContext["ui"]["question"]>;
@@ -44,16 +45,27 @@ export async function createAskUserDelivery(timeoutMinutes = 30): Promise<AskUse
 	const deliveries: DeliveredMessage[] = [];
 	const wakeEvents: unknown[] = [];
 	let api: ExtensionAPI | undefined;
-	const harness = await createHarness({
-		extensionFactories: [
-			{
-				factory: (pi) => {
-					api = pi;
-					pi.events.on("wake_source_state", (event) => wakeEvents.push(event));
-					askUserExtension(pi);
-				},
+	const factories = [
+		{
+			factory: (pi: ExtensionAPI) => {
+				api = pi;
+				pi.sendUserMessage = (content, options) => {
+					deliveries.push({ content, options });
+				};
+				pi.events.on("wake_source_state", (event) => wakeEvents.push(event));
+				askUserExtension(pi);
 			},
-		],
+		},
+	];
+	let extensionsResult = await createTestExtensionsResult(factories);
+	const harness = await createHarness({
+		resourceLoader: {
+			...createTestResourceLoader(),
+			getExtensions: () => extensionsResult,
+			reload: async () => {
+				extensionsResult = await createTestExtensionsResult(factories);
+			},
+		},
 		settings: { askUser: { enabled: true, timeoutMinutes } },
 	});
 	await harness.session.bindExtensions({});

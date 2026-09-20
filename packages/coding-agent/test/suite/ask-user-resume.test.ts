@@ -115,7 +115,8 @@ function install(sessionManager: SessionManager) {
 function ctx(sessionManager: SessionManager, question?: ExtensionContext["ui"]["question"]): ExtensionContext {
 	return {
 		sessionManager,
-		ui: question ? { question } : {},
+		ui: question ? { question, notify: vi.fn() } : { notify: vi.fn() },
+		isIdle: () => true,
 		getAskUserSettings: () => ({ enabled: true, timeoutMinutes: 30 }),
 		mode: "tui",
 		hasUI: question !== undefined,

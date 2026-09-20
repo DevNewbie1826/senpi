@@ -841,6 +841,7 @@ type HostUiCapableRuntime = {
 type QuestionOverlayOptions = ExtensionUIDialogOptions & {
 	onProgress?: (draft: QuestionDraft) => void;
 	getDeadlineAtMs?: () => number;
+	initialDraft?: QuestionDraft;
 	notifyArrival?: boolean;
 };
 
@@ -3887,6 +3888,7 @@ export class InteractiveMode {
 				tui: this.ui,
 				timeoutMs: opts?.timeout ?? request.timeoutMs,
 				getDeadlineAtMs: opts?.getDeadlineAtMs,
+				initialDraft: opts?.initialDraft,
 				onProgress: opts?.onProgress,
 			});
 			this.disposeActiveSelector();
@@ -3931,7 +3933,7 @@ export class InteractiveMode {
 			completion: completion.promise,
 			getDeadlineAtMs: opts?.getDeadlineAtMs,
 			onProgress: opts?.onProgress,
-			draft: { answers: {} },
+			draft: opts?.initialDraft ?? { answers: {} },
 			finish: (response) => {
 				if (this.pendingQuestions.get(request.requestId) !== state) return;
 				this.pendingQuestions.delete(request.requestId);

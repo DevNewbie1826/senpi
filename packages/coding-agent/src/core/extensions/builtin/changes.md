@@ -1,5 +1,32 @@
 # Builtin extensions changes
 
+## 2026-09-20 - Preserve pending questions across reload (#1857 I1)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/extension.ts` detaches pending UI bridges on reload and reattaches them on session start.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/registry.ts` retains the reattachment operations and draft options.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts` preserves the pending object, deadline, draft, and request ID while replacing the runner used for delivery. Old bridge responses cannot settle the replacement.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/notify.ts` declares a terminal settlement entry. The lifecycle records async outcomes, including silent cancellations, for restart recovery.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/resume.ts` leaves delivery to the pending lifecycle and avoids a second delivery subscription for a live request.
+- A request that expires without a bound runner becomes terminal immediately, resolves its completion, leaves the pending registry, and notifies the live UI. Its outcome waits in memory for the next bound runner rather than using a torn-down API.
+
+### Why
+
+- Reload is a UI ownership change, not a dismissal. Recreating a pending question would reset its timeout and duplicate its arrival metadata.
+
+### Why an extension could not handle it
+
+- This is the builtin extension that owns the pending registry and answer delivery; an external extension cannot transfer that ownership.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/extension.ts`: lifecycle handlers.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/registry.ts`: pending entry interface.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/tool.ts`: startQuestion bridge and completion ownership.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/notify.ts`: settlement entry export.
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/resume.ts`: single-owner delivery.
+
 ## 2026-09-13 - Retain question headers for transcript replay (senpi#1645)
 
 ### What changed
