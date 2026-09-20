@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Skills that ship inside the packaged binary load again. Reading only a skill's frontmatter needs a file descriptor, and the filesystem the binary keeps its own files in hands out none, so those skills were dropped on every start and reported as a `Skill conflicts` warning instead - image generation's skill being the one users saw. A skill the binary can read is now read whole when a descriptor is refused. ([#1852](https://github.com/code-yeongyu/senpi/issues/1852))
+
 - Reopening a session file no longer splits it in two. A session started without a file path created one but never claimed it, so opening that same file afterwards started a second session on top of the first and both wrote to it. The file is now claimed as soon as the session has one, and opening it again joins the session that already has it.
 
 - The shared host opens sessions faster still. Every session it opened was rediscovering the same installed packages; the host now resolves them once and reuses the answer until its settings change. Measured on the daemon over its socket: eight sessions opened at once finish about 30% sooner than the previous release, and a single open about 25% sooner. ([#1844](https://github.com/code-yeongyu/senpi/issues/1844))

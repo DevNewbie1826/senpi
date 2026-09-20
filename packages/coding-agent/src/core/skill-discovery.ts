@@ -91,7 +91,16 @@ function decodeFrontmatterSource(buf: Buffer): string {
  * Falls back to the rest of the file when the delimiter is not in the prefix.
  */
 export function readSkillMarkdownSource(filePath: string): string {
-	const fd = openSync(filePath, "r");
+	let fd: number;
+	try {
+		fd = openSync(filePath, "r");
+	} catch {
+		// A Bun single-file executable serves embedded assets from a virtual filesystem that answers
+		// existsSync, statSync and readFileSync but hands out no descriptors, so openSync fails on a path
+		// the resource loader has already accepted. Read the asset whole instead; a file that is genuinely
+		// missing or unreadable throws here too, which keeps the loader's diagnostics truthful.
+		return decodeFrontmatterSource(readFileSync(filePath));
+	}
 	try {
 		const prefix = Buffer.allocUnsafe(SKILL_FRONTMATTER_PREFIX_BYTES);
 		const bytesRead = readSync(fd, prefix, 0, SKILL_FRONTMATTER_PREFIX_BYTES, 0);
