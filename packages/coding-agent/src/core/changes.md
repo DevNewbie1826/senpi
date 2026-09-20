@@ -1,5 +1,30 @@
 # changes
 
+## 2026-09-20 - Skill assets embedded in a compiled binary are read without a descriptor (senpi#1852)
+
+### What changed
+
+- `skill-discovery.ts` `readSkillMarkdownSource` now falls back to `readFileSync` when `openSync` refuses the
+  path, and keeps the bounded 8 KiB prefix read for every file that does open. The frontmatter slicing is
+  shared, so both paths return the same source.
+
+### Why
+
+- A Bun single-file executable serves embedded assets from a virtual filesystem that answers `existsSync`,
+  `statSync` and `readFileSync` but hands out no file descriptors. `loadSkills` accepts such a path through
+  its `existsSync` + `statSync` guards and then failed inside the reader with `ENOENT ... open`, so every
+  skill contributed as an embedded asset - the builtin `imagegen` skill today - was dropped and reported as a
+  `Skill conflicts` warning on every start of a compiled build. The descriptor read arrived with the
+  2026-09-17 frontmatter-prefix change (senpi#1781); before it, `readFileSync` loaded those skills fine.
+
+### Why an extension could not handle it
+
+- Skill discovery and frontmatter parsing run in the host resource loader before any extension is bound.
+
+### Expected merge conflict zones
+
+- LOW: the head of `readSkillMarkdownSource` in `packages/coding-agent/src/core/skill-discovery.ts`.
+
 ## 2026-09-19 - Package resolution is memoized per host, keyed on its real inputs (senpi#1844)
 
 ### What changed
