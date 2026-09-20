@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Provider network failures now update one retry status instead of filling the transcript with repeated error payloads. Recovery clears the status, cancellation no longer reports a failed retry, and exhausted retries leave one notice with a next step. Partial answers and stored error details remain available, including when reopening a session. ([#1874](https://github.com/code-yeongyu/senpi/issues/1874))
+
 - The startup timing table no longer files the help-flags cache write under the stdin read. `PI_TIMING=1` reported that work in a row named `readPipedStdin`, which returns immediately on a terminal; the write is now its own row. Timings only, no behavior change.
 
 - Sending `.` to continue now resumes a blocked goal. Previously, the conversation continued but the goal stayed blocked until you ran `/goal resume`. ([#1871](https://github.com/code-yeongyu/senpi/issues/1871))

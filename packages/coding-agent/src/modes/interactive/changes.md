@@ -1290,3 +1290,29 @@
 - HIGH: `components/tool-execution.ts` and `components/assistant-message.ts` render paths; `components/status-indicator.ts` class set.
 - MEDIUM: `theme/theme.ts` validator and built-in theme loading; `components/scoped-models-selector.ts` toggle logic.
 - LOW: `chat-viewport.ts` options; `tui-renderer.ts` terminal construction; `components/index.ts` export list; `components/custom-editor.ts` padding overrides; `components/thinking-selector.ts` label text.
+
+## 2026-09-20 - Coalesce provider network failures (senpi#1874)
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` routes live errors, summary retries, cancellation, and replay through `provider-error-presentation.ts`, which owns the displayed failure episode without changing stored messages.
+- `packages/coding-agent/src/modes/interactive/components/assistant-render-descriptors.ts` keeps network diagnostics in expanded output rather than printing a raw envelope by default.
+- `packages/coding-agent/src/modes/interactive/components/assistant-message.ts` marks errors owned by the grouped notice so expansion does not repeat them on every failed assistant message.
+- `packages/coding-agent/src/modes/interactive/components/status-indicator.ts` adds a plain-language network retry status with the existing attempt count and countdown.
+
+### Why
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` appended each summary error and each plain provider envelope; its message-end handler also rendered raw errors before retry-start arrived.
+- `packages/coding-agent/src/modes/interactive/components/assistant-render-descriptors.ts` replayed those same envelopes in full.
+- `packages/coding-agent/src/modes/interactive/components/assistant-message.ts` otherwise expanded all 17 failed messages even after their errors had been grouped.
+- `packages/coding-agent/src/modes/interactive/components/status-indicator.ts` already owned retry timing, so it remains the single transient status surface.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`, `packages/coding-agent/src/modes/interactive/components/assistant-message.ts`, `packages/coding-agent/src/modes/interactive/components/assistant-render-descriptors.ts`, and `packages/coding-agent/src/modes/interactive/components/status-indicator.ts` own the built-in event-to-render path before an extension can replace its transcript output.
+
+### Expected merge conflict zones
+
+- MEDIUM: event cases and replay in `packages/coding-agent/src/modes/interactive/interactive-mode.ts`.
+- LOW: error descriptors in `packages/coding-agent/src/modes/interactive/components/assistant-render-descriptors.ts` and retry wording in `packages/coding-agent/src/modes/interactive/components/status-indicator.ts`.
+- LOW: display ownership in `packages/coding-agent/src/modes/interactive/components/assistant-message.ts`.

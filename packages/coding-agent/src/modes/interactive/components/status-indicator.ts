@@ -61,10 +61,22 @@ export class WorkingStatusIndicator extends StatusIndicator {
 
 export class RetryStatusIndicator extends StatusIndicator {
 	private countdown: CountdownTimer | undefined;
+	private compactMessage: string | undefined;
 
-	constructor(ui: TUI, attempt: number, maxAttempts: number, delayMs: number, indicator?: LoaderIndicatorOptions) {
+	constructor(
+		ui: TUI,
+		attempt: number,
+		maxAttempts: number,
+		delayMs: number,
+		indicator?: LoaderIndicatorOptions,
+		providerTrouble = false,
+	) {
 		const retryMessage = (seconds: number) =>
-			`Retrying (${attempt}/${maxAttempts}) in ${seconds}s... (${keyText("app.interrupt")} to cancel)`;
+			providerTrouble
+				? `The model provider may be having trouble. Retrying... (${attempt}/${maxAttempts}, ${seconds > 0 ? `in ${seconds}s` : "now"}; ${keyText("app.interrupt")} to cancel)`
+				: `Retrying (${attempt}/${maxAttempts}) in ${seconds}s... (${keyText("app.interrupt")} to cancel)`;
+		const compactMessage = (seconds: number) =>
+			`Retrying ${attempt}/${maxAttempts} ${seconds > 0 ? `in ${seconds}s` : "now"} (${keyText("app.interrupt")} cancel)`;
 		const retryIndicator =
 			indicator === undefined
 				? undefined
@@ -80,16 +92,25 @@ export class RetryStatusIndicator extends StatusIndicator {
 			retryMessage(Math.ceil(delayMs / 1000)),
 			retryIndicator,
 		);
+		if (providerTrouble) this.compactMessage = compactMessage(Math.ceil(delayMs / 1000));
 		this.countdown = new CountdownTimer(
 			delayMs,
 			ui,
 			(seconds) => {
+				if (providerTrouble) this.compactMessage = compactMessage(seconds);
 				this.setMessage(retryMessage(seconds));
 			},
 			() => {
 				this.countdown = undefined;
 			},
 		);
+	}
+
+	override renderInBorder(width: number): string {
+		if (this.compactMessage && super.render(width + 2).length > 2) {
+			return truncateToWidth(`${this.getRenderedIndicator()} ${theme.fg("muted", this.compactMessage)}`, width, "");
+		}
+		return super.renderInBorder(width);
 	}
 
 	override dispose(): void {
