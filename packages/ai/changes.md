@@ -1,3 +1,34 @@
+## 2026-09-20 - The image-model generator formats what it writes (senpi#1886)
+
+### What changed
+
+- `packages/ai/scripts/generate-image-models.ts` hands the file it just wrote to Biome
+  (`biome check --write`) before reporting success, resolving the binary from the
+  repository's own `node_modules/.bin` and falling back to `biome` on PATH.
+
+### Why
+
+- The serializer writes tabs by hand and uses `JSON.stringify` for `input`, `output` and
+  `cost`, which emits `["text","image"]`, quoted keys and two-space indentation. Biome wants
+  `["text", "image"]`, unquoted keys and tabs, so the emitted file never satisfied
+  `npm run check`. The shared `check` script used to run `biome check --write`, which
+  rewrote the file silently; #1443 made that gate read-only, and the release job is the first
+  thing that regenerates the catalog under the strict gate. Run 35520504862 failed at
+  `[release] error: npm run check failed` with the version already applied to 10 manifests,
+  so no release can complete until the generator's output is clean on its own.
+- Formatting through Biome rather than hand-matching its current style keeps a future Biome
+  upgrade from reintroducing the same drift.
+
+### Why an extension could not handle it
+
+- This is a build-time code generator invoked by `scripts/release-artifacts.mjs`; it runs
+  before any session exists and no extension surface participates in catalog generation.
+
+### Expected merge conflict zones
+
+- `packages/ai/scripts/generate-image-models.ts`: the import block and `main()`. Upstream
+  edits to this generator touch the same `writeFileSync` tail.
+
 ## 2026-09-18 - The catalog check tolerates a shard the aggregator no longer lists
 
 ### What changed
