@@ -22,6 +22,20 @@ const MODEL_SAFETY_MARGIN_PROFILES: readonly ModelSafetyMarginProfile[] = [
 
 export type ModelUsabilityAdmission = "start" | "resume" | "switch";
 
+/**
+ * Whether a model can serve this session, and at what cost (#1873).
+ *
+ * - `fits-now` — the assembled budget already fits the window.
+ * - `fits-after-compaction` — it does not fit now, but the window can hold the
+ *   fixed overhead plus a reduced transcript, so reducing the transcript makes
+ *   the model usable. This is a capability statement, not a permission: whether
+ *   the session may reduce (and whether it summarizes or slices) stays with the
+ *   caller, which is the split `sdk.ts` already makes on resume.
+ * - `impossible` — the fixed overhead leaves no room for any transcript, so no
+ *   amount of reduction helps and refusing is the only correct answer.
+ */
+export type ModelUsabilityVerdict = "fits-now" | "fits-after-compaction" | "impossible";
+
 export interface ModelUsabilityBudgetProjection {
 	readonly model: string;
 	readonly contextWindow: number;
@@ -37,6 +51,11 @@ export interface ModelUsabilityBudgetProjection {
 	readonly shortfallTokens: number;
 	readonly usable: boolean;
 	readonly admission: ModelUsabilityAdmission;
+	readonly verdict: ModelUsabilityVerdict;
+	/** Overhead plus the post-compaction keep-recent floor; the `impossible` boundary. */
+	readonly postCompactionRequiredTokens: number;
+	/** Live context plus the overhead a summarization request itself must carry. */
+	readonly compactionRequiredTokens: number;
 }
 
 export interface ModelUsabilityBudgetInput<TApi extends Api> {
@@ -101,25 +120,30 @@ export function projectModelUsabilityBudget<TApi extends Api>(
 	const uncompactedRequiredTokens = liveContextTokens + baseRequiredTokens;
 	const admission = input.admission ?? (liveContextTokens > 0 ? "switch" : "start");
 
+	// #1873: both reduction geometries are projected for every admission, so a
+	// caller can tell "needs a smaller transcript" from "can never serve" without
+	// re-deriving the arithmetic. Only the `usable` relaxation below stays scoped
+	// to resume, keeping the admission contract other callers already depend on.
+	const compactionRequiredTokens =
+		liveContextTokens + systemPromptTokens + activeToolSchemaTokens + compactionReserveTokens + safetyMargin.tokens;
+	const keepRecentSetting = input.compaction.keepRecentTokens ?? DEFAULT_COMPACTION_SETTINGS.keepRecentTokens;
+	const effectiveKeepRecentTokens = computeEffectiveKeepRecentTokens(
+		keepRecentSetting,
+		input.model.contextWindow,
+		baseThresholdRatioForWindow(input.model.contextWindow),
+	);
+	const postCompactionRequiredTokens = effectiveKeepRecentTokens + baseRequiredTokens;
+
 	let requiredTokens = uncompactedRequiredTokens;
 	let shortfallTokens = Math.max(0, requiredTokens - input.model.contextWindow);
 	let usable = shortfallTokens === 0;
+	const verdict: ModelUsabilityVerdict = usable
+		? "fits-now"
+		: postCompactionRequiredTokens <= input.model.contextWindow
+			? "fits-after-compaction"
+			: "impossible";
 
 	if (!usable && admission === "resume" && input.compaction.enabled && !includeSpeculationLead) {
-		const compactionRequiredTokens =
-			liveContextTokens +
-			systemPromptTokens +
-			activeToolSchemaTokens +
-			compactionReserveTokens +
-			safetyMargin.tokens;
-		const keepRecentSetting = input.compaction.keepRecentTokens ?? DEFAULT_COMPACTION_SETTINGS.keepRecentTokens;
-		const effectiveKeepRecentTokens = computeEffectiveKeepRecentTokens(
-			keepRecentSetting,
-			input.model.contextWindow,
-			baseThresholdRatioForWindow(input.model.contextWindow),
-		);
-		const postCompactionRequiredTokens = effectiveKeepRecentTokens + baseRequiredTokens;
-
 		if (
 			compactionRequiredTokens <= input.model.contextWindow &&
 			postCompactionRequiredTokens <= input.model.contextWindow
@@ -145,6 +169,9 @@ export function projectModelUsabilityBudget<TApi extends Api>(
 		shortfallTokens,
 		usable: shortfallTokens === 0,
 		admission,
+		verdict,
+		postCompactionRequiredTokens,
+		compactionRequiredTokens,
 	};
 }
 
