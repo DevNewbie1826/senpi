@@ -1,3 +1,21 @@
+## 2026-09-21 - Start a generation beside a stranded foreign one (#1936)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/host-ensure.ts`: in the `start` branch of `ensureHostLocked`, a record written by another process refuses `foreign_writer` only while something still ACCEPTS connections at the public path (`publicEndpointAccepts`: a missing entry and an entry nobody listens behind both read as free; win32 named pipes, abstract sockets and an entry that cannot be stat'ed always read as owned; an accepted-but-silent socket is owned, exactly as `host_busy` treats it). A live foreign generation whose endpoint accepts nothing is left running and `startHost` binds a new generation numbered after it: `startHost` takes a `generation` argument that flows into the daemon settings, the registration and `SENPI_RPC_HOST_GENERATION`, and appends to the daemon stderr log instead of truncating the file the stranded generation still writes. Own-writer behaviour (`host_busy`, stop-and-restart) is unchanged.
+
+### Why
+
+- `packages/coding-agent/src/modes/rpc/host-ensure.ts`: a supervisor that sees another entry over its path drains and exits only when its last session settles (#1893). Once that replacement exited and unlinked, every ensure met a silent probe, a live pid and a writer that was the ephemeral `senpi host ensure` child, and refused - one desktop lost its host for 75 minutes while nothing served the path.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/rpc/host-ensure.ts` is the daemon ensure itself; extensions run inside sessions the host serves and cannot decide whether a host may be bound.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/host-ensure.ts`: the `start` branch of `ensureHostLocked`, the `startHost` signature and `hostEnv`. Upstream has no shared daemon, so any conflict is structural.
+
 ## 2026-09-21 - Correct the legacy navigation selection comment (#1892 follow-up)
 
 ### What changed

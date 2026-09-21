@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- `senpi host ensure` no longer refuses `foreign_writer` forever when the registered generation is still alive but nothing accepts connections at its public socket path - the entry is gone, or a dead listener left it behind. Nothing serves that path, so a fresh generation is started beside the stranded one, which is never signalled and keeps its registration until it exits. Before, a superseded host draining its last session locked every other client out of the endpoint until it happened to end. ([#1936](https://github.com/code-yeongyu/senpi/issues/1936))
+
 ### Removed
 
 ## [2026.9.21-2] - 2026-09-21
