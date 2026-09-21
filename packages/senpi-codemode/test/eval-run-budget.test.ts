@@ -71,7 +71,8 @@ describe("eval run budget on detached cells", () => {
 		const manager = new EvalDetachedCellManager({ runBudgetSeconds: 2, hardLimitSeconds: 100 });
 		const kernel = new FakeKernel([]);
 		const cell = manager.create("runaway-cell", input());
-		manager.markRunning(cell, kernel, liveResultFor("still computing"));
+		manager.bindKernel(cell, kernel, liveResultFor("still computing"));
+		manager.markRunning(cell);
 		manager.detach(cell);
 
 		await vi.advanceTimersByTimeAsync(1_999);
@@ -84,7 +85,7 @@ describe("eval run budget on detached cells", () => {
 		expect(kernel.interrupts[0]).toContain("run budget");
 		expect(manager.peek("runaway-cell")).toMatchObject({ state: "cancelled", runBudgetSeconds: 2 });
 		expect(manager.peek("runaway-cell").hardLimitSeconds).toBeUndefined();
-		expect(manager.busyFor("js")).toBeUndefined();
+		expect(manager.liveCells("js")).toEqual([]);
 	});
 
 	it("tells the main agent the detached cell exhausted its run budget", async () => {
@@ -93,7 +94,8 @@ describe("eval run budget on detached cells", () => {
 		const manager = new EvalDetachedCellManager({ runBudgetSeconds: 2, hardLimitSeconds: 100, notifier: recorder });
 		const kernel = new FakeKernel([]);
 		const cell = manager.create("notified-cell", input());
-		manager.markRunning(cell, kernel, liveResultFor("buffered print"));
+		manager.bindKernel(cell, kernel, liveResultFor("buffered print"));
+		manager.markRunning(cell);
 		manager.detach(cell);
 
 		await vi.advanceTimersByTimeAsync(2_000);
@@ -109,7 +111,8 @@ describe("eval run budget on detached cells", () => {
 		const manager = new EvalDetachedCellManager({ runBudgetSeconds: 2, hardLimitSeconds: 100 });
 		const kernel = new FakeKernel([]);
 		const cell = manager.create("parked-cell", input());
-		manager.markRunning(cell, kernel, liveResultFor("waiting on agent()"));
+		manager.bindKernel(cell, kernel, liveResultFor("waiting on agent()"));
+		manager.markRunning(cell);
 		manager.detach(cell);
 
 		await vi.advanceTimersByTimeAsync(1_000);
@@ -129,7 +132,8 @@ describe("eval run budget on detached cells", () => {
 		const manager = new EvalDetachedCellManager({ runBudgetSeconds: 50, hardLimitSeconds: 2 });
 		const kernel = new FakeKernel([]);
 		const cell = manager.create("parked-forever", input());
-		manager.markRunning(cell, kernel, liveResultFor("waiting"));
+		manager.bindKernel(cell, kernel, liveResultFor("waiting"));
+		manager.markRunning(cell);
 		manager.detach(cell);
 		manager.pause(cell);
 
@@ -144,7 +148,8 @@ describe("eval run budget on detached cells", () => {
 		const manager = new EvalDetachedCellManager({ runBudgetSeconds: 2, hardLimitSeconds: 100 });
 		const kernel = new FakeKernel([]);
 		const cell = manager.create("fast-cell", input());
-		manager.markRunning(cell, kernel, liveResultFor("done"));
+		manager.bindKernel(cell, kernel, liveResultFor("done"));
+		manager.markRunning(cell);
 		manager.detach(cell);
 		manager.complete(cell, liveResultFor("done")());
 
@@ -160,11 +165,13 @@ describe("eval run budget on detached cells", () => {
 		const manager = new EvalDetachedCellManager({ runBudgetSeconds: 10, hardLimitSeconds: 100 });
 		const shortKernel = new FakeKernel([]);
 		const short = manager.create("short-budget", input({ timeout: 1 }));
-		manager.markRunning(short, shortKernel, liveResultFor("short"));
+		manager.bindKernel(short, shortKernel, liveResultFor("short"));
+		manager.markRunning(short);
 		manager.detach(short);
 		const longKernel = new FakeKernel([]);
 		const long = manager.create("long-budget", { ...input({ timeout: 20 }), language: "js" });
-		manager.markRunning(long, longKernel, liveResultFor("long"));
+		manager.bindKernel(long, longKernel, liveResultFor("long"));
+		manager.markRunning(long);
 
 		await vi.advanceTimersByTimeAsync(1_000);
 		expect(manager.peek("short-budget")).toMatchObject({ state: "cancelled", runBudgetSeconds: 1 });
@@ -251,7 +258,7 @@ describe("eval run budget through the tool path", () => {
 		expect(result.reason?.message).toContain("2s run budget");
 	});
 
-	it("still ends a print-mode call whose kernel is booting when the budget expires", async () => {
+	it("pauses the run budget during kernel boot but still ends the call at its hard limit", async () => {
 		vi.useFakeTimers();
 		const manager = new EvalDetachedCellManager({ runBudgetSeconds: 1, hardLimitSeconds: 100 });
 		const tool = createEvalTool({
@@ -270,9 +277,12 @@ describe("eval run budget through the tool path", () => {
 
 		await vi.advanceTimersByTimeAsync(1_000);
 
+		expect(settledResult).toBeUndefined();
+		expect(manager.peek("booting-cell").state).toBe("queued");
+		await vi.advanceTimersByTimeAsync(99_000);
 		expect(settledResult?.status).toBe("rejected");
 		expect(settledResult?.reason?.name).toBe("TimeoutError");
-		expect(settledResult?.reason?.message).toContain("1s run budget");
+		expect(settledResult?.reason?.message).toContain("100s hard limit");
 		expect(manager.peek("booting-cell").state).toBe("cancelled");
 	});
 

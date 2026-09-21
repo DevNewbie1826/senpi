@@ -59,12 +59,10 @@ export class FakeKernel implements EvalKernel {
 		this.onMessage?.(message);
 	}
 
-	async run(input: {
-		cellId: string;
-		code: string;
-		timeoutMs?: number;
-	}): Promise<Extract<KernelToHostMessage, { type: "result" }>> {
+	async run(input: EvalKernelRunInput): Promise<Extract<KernelToHostMessage, { type: "result" }>> {
 		this.runs.push(input);
+		input.onStarted?.();
+		if (input.onMessage) this.onMessage = input.onMessage;
 		for (const message of this.messages) {
 			if (message.type !== "result") this.onMessage?.(message);
 		}
@@ -97,6 +95,14 @@ export class FakeKernel implements EvalKernel {
 
 	deliverToolReply(message: unknown): void {
 		this.replies.push(message);
+	}
+
+	cancelQueued(_cellId: string, _reason: string): boolean {
+		return false;
+	}
+
+	queueSnapshot(): ReturnType<EvalKernel["queueSnapshot"]> {
+		return { activeCellId: this.deferredRun ? (this.runs.at(-1)?.cellId ?? null) : null, queuedCellIds: [] };
 	}
 
 	async reset(): Promise<void> {
@@ -151,10 +157,17 @@ export class PendingInterruptKernel implements EvalKernel {
 	readonly interruptStarted = new Deferred<void>();
 	readonly interruptResult = new Deferred<void>();
 	readonly interrupts: Array<string | undefined> = [];
+	private activeCellId: string | null = null;
 
-	async run(): Promise<KernelResult> {
+	async run(input: EvalKernelRunInput): Promise<KernelResult> {
+		this.activeCellId = input.cellId;
+		input.onStarted?.();
 		this.runStarted.resolve(undefined);
-		return await this.runResult.promise;
+		try {
+			return await this.runResult.promise;
+		} finally {
+			this.activeCellId = null;
+		}
 	}
 
 	async interrupt(reason?: string): Promise<KernelInterruptHandle> {
@@ -166,6 +179,14 @@ export class PendingInterruptKernel implements EvalKernel {
 
 	deliverToolReply(): void {}
 
+	cancelQueued(): boolean {
+		return false;
+	}
+
+	queueSnapshot() {
+		return { activeCellId: this.activeCellId, queuedCellIds: [] };
+	}
+
 	async reset(): Promise<void> {}
 
 	async close(): Promise<void> {}
@@ -174,13 +195,17 @@ export class PendingInterruptKernel implements EvalKernel {
 export class KernelOwnedTimeoutKernel implements EvalKernel {
 	readonly runStarted = new Deferred<void>();
 	readonly interrupts: Array<string | undefined> = [];
+	private activeCellId: string | null = null;
 
 	async run(input: EvalKernelRunInput): Promise<KernelResult> {
 		const timeoutMs = input.timeoutMs;
 		if (timeoutMs === undefined) throw new Error("expected a kernel timeout");
+		this.activeCellId = input.cellId;
+		input.onStarted?.();
 		this.runStarted.resolve(undefined);
 		return await new Promise<KernelResult>((resolve) => {
 			setTimeout(() => {
+				this.activeCellId = null;
 				resolve({
 					type: "result",
 					cellId: input.cellId,
@@ -198,6 +223,14 @@ export class KernelOwnedTimeoutKernel implements EvalKernel {
 	}
 
 	deliverToolReply(): void {}
+
+	cancelQueued(): boolean {
+		return false;
+	}
+
+	queueSnapshot() {
+		return { activeCellId: this.activeCellId, queuedCellIds: [] };
+	}
 
 	async reset(): Promise<void> {}
 

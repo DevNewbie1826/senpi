@@ -1,4 +1,5 @@
 import type { BridgeConnectionConfig, KernelToHostMessage } from "../../bridge/protocol.ts";
+import type { EvalKernelRunInput } from "../../tool/types.ts";
 import type { SessionEnvironment } from "../session-env.ts";
 import type { KernelSpawnProcess } from "./process.ts";
 import type { PythonTransportResult } from "./transport.ts";
@@ -16,11 +17,7 @@ export interface PythonKernelStartOptions {
 	readonly spawnProcess?: KernelSpawnProcess;
 }
 
-export interface PythonKernelRunOptions {
-	readonly cellId: string;
-	readonly code: string;
-	readonly timeoutMs?: number;
-}
+export type PythonKernelRunOptions = EvalKernelRunInput;
 
 export type ResultMessage = PythonTransportResult;
 

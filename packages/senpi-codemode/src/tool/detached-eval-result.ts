@@ -5,27 +5,87 @@ import type {
 	EvalDetachedCellState,
 } from "./detached-cell-manager.ts";
 import { interruptionStateNote } from "./interrupt-note.ts";
-import type { EvalCellResult, EvalControlInput, EvalLanguage, EvalToolDetails, EvalToolInput } from "./types.ts";
+import type {
+	EvalCellResult,
+	EvalControlInput,
+	EvalListDetails,
+	EvalListedCell,
+	EvalResultDetails,
+	EvalToolDetails,
+	EvalToolInput,
+} from "./types.ts";
+
+export class EvalBackgroundCapacityError extends Error {
+	readonly code = "eval_background_capacity_reached";
+	readonly name = "EvalBackgroundCapacityError";
+
+	constructor(cap: number, cellId: string, foregroundMs: number, liveCellIds: readonly string[]) {
+		super(
+			`Background capacity (${cap}) reached: cell ${cellId} ran ${Math.floor(foregroundMs / 1_000)}s in the foreground and was cancelled when the foreground window elapsed. Live cells: ${liveCellIds.join(", ")}. Stop one with eval({ action: "stop", cell_id }) or wait for a notification, then re-run this step.`,
+		);
+	}
+}
 
 export async function executeEvalControl(
 	cellManager: EvalDetachedCellManager,
 	request: EvalControlInput,
-): Promise<AgentToolResult<EvalToolDetails>> {
+): Promise<AgentToolResult<EvalResultDetails>> {
+	if (request.action === "list") return createEvalListResult(cellManager);
 	const snapshot =
 		request.action === "stop" ? await cellManager.stop(request.cell_id) : cellManager.peek(request.cell_id);
 	return createDetachedControlResult(snapshot);
 }
 
+function createEvalListResult(cellManager: EvalDetachedCellManager): AgentToolResult<EvalListDetails> {
+	const { live, recent } = cellManager.list();
+	const snapshots = [...live, ...recent];
+	const cells: EvalListedCell[] = snapshots.map((snapshot) => {
+		const summary = snapshot.result.details.summary;
+		return {
+			cellId: snapshot.cellId,
+			language: snapshot.language,
+			state: snapshot.state,
+			startedAtMs: snapshot.startedAtMs,
+			...(snapshot.queuedBehind === undefined || snapshot.queuedBehind.length === 0
+				? {}
+				: { queuedBehind: [...snapshot.queuedBehind] }),
+			...(summary ? { summary } : {}),
+		};
+	});
+	const text = snapshots
+		.map((snapshot, index) => {
+			const cell = cells[index];
+			const preview = (cell.summary || snapshot.result.details.cells?.[0]?.code?.slice(0, 60) || "").replace(
+				/\s+/gu,
+				" ",
+			);
+			const elapsed = Math.floor(snapshot.result.details.durationMs / 1000);
+			const queued = cell.queuedBehind === undefined ? "" : ` queued behind ${cell.queuedBehind.join(", ")}`;
+			return `${cell.cellId} ${cell.language} ${cell.state} ${elapsed}s${queued} - ${preview}`;
+		})
+		.join("\n");
+	return {
+		content: [{ type: "text", text: text || "No eval cells are live; recent: none" }],
+		details: { action: "list", cells },
+	};
+}
+
 export function resultAfterDetach(
 	snapshot: EvalDetachedCellSnapshot,
 	input: EvalToolInput,
+	otherLiveCells: number,
 ): AgentToolResult<EvalToolDetails> {
 	if (snapshot.state !== "detached" && snapshot.state !== "running") return createDetachedControlResult(snapshot);
+	const predecessors = snapshot.queuedBehind?.join(", ");
+	const text =
+		predecessors === undefined
+			? `Eval cell ${snapshot.cellId} detached and is running in the ${input.language} kernel (${otherLiveCells} other live cells). Completion arrives as a notification; do not re-run it. eval({ action: "peek" | "stop", cell_id }) or eval({ action: "list" }).`
+			: `Eval cell ${snapshot.cellId} is queued behind ${predecessors} in the ${input.language} kernel and detached; it runs after ${predecessors} and completes as one notification. peek/stop/list with eval({ action, cell_id })`;
 	return {
 		content: [
 			{
 				type: "text",
-				text: `Eval cell ${snapshot.cellId} detached and is still running in the ${input.language} kernel. Completion will arrive as a notification. Use eval({ action: "peek", cell_id: "${snapshot.cellId}" }) or eval({ action: "stop", cell_id: "${snapshot.cellId}" }).`,
+				text,
 			},
 		],
 		details: snapshot.result.details,
@@ -55,21 +115,23 @@ export function resultForDetachedState(
 	result: AgentToolResult<EvalToolDetails>,
 	state: EvalDetachedCellState,
 	durationMs: number,
+	queuedBehind?: readonly string[],
 ): AgentToolResult<EvalToolDetails> {
 	const details = result.details;
 	const cells = details.cells ?? [];
 	const nextCells =
 		cells.length === 0
 			? []
-			: cells.map((cell, index) =>
-					index === 0
-						? {
-								...cell,
-								durationMs: terminalDuration(cell, state, durationMs),
-								status: cellStatus(state),
-							}
-						: { ...cell },
-				);
+			: cells.map((cell, index) => {
+					if (index !== 0) return { ...cell };
+					const { queuedBehind: _previousQueue, ...current } = cell;
+					return {
+						...current,
+						durationMs: terminalDuration(cell, state, durationMs),
+						status: state === "detached" && queuedBehind !== undefined ? "queued" : cellStatus(state),
+						...(queuedBehind === undefined ? {} : { queuedBehind }),
+					};
+				});
 	return {
 		content: result.content.map((part) => ({ ...part })),
 		details: {
@@ -102,19 +164,6 @@ export function resultForDetachedState(
 	};
 }
 
-export function detachedKernelBusyError(
-	snapshot: EvalDetachedCellSnapshot,
-	idleLanguages: readonly EvalLanguage[] = [],
-): Error {
-	const tail = snapshot.outputTail.length === 0 ? "(no output yet)" : snapshot.outputTail;
-	const peek = `eval({ action: "peek", cell_id: "${snapshot.cellId}" })`;
-	const idleHint =
-		idleLanguages.length === 0 ? "" : ` or continue this step in an idle kernel: ${idleLanguages.join(", ")}`;
-	return new Error(
-		`The ${snapshot.language} eval kernel is busy running detached cell ${snapshot.cellId} - peek with ${peek}${idleHint}. Do not re-run the busy cell. Current output tail:\n${tail}`,
-	);
-}
-
 function textContent(result: AgentToolResult<EvalToolDetails>): string {
 	return result.content
 		.filter((part) => part.type === "text")
@@ -133,6 +182,8 @@ function terminalDuration(
 
 function cellStatus(state: EvalDetachedCellState): EvalCellResult["status"] {
 	switch (state) {
+		case "queued":
+			return "queued";
 		case "running":
 			return "running";
 		case "detached":

@@ -56,11 +56,31 @@ export class PythonKernel {
 		});
 	}
 
-	async interrupt(reason = "interrupted"): Promise<KernelInterruptHandle> {
+	cancelQueued(cellId: string, reason: string): boolean {
+		const pending = this.#queue.find((run) => run.input.cellId === cellId);
+		if (!pending) return false;
+		this.#settleRun(pending, failedPythonResult(cellId, reason));
+		return true;
+	}
+
+	queueSnapshot(): { activeCellId: string | null; queuedCellIds: readonly string[] } {
+		return {
+			activeCellId: this.#active?.input.cellId ?? null,
+			queuedCellIds: this.#queue.map((run) => run.input.cellId),
+		};
+	}
+
+	async interrupt(reason = "interrupted", cellId?: string): Promise<KernelInterruptHandle> {
 		if (this.#failure) throw this.#failure;
-		for (const pending of [...this.#queue]) {
-			pending.interruptReason = reason;
-			this.#settleRun(pending, failedPythonResult(pending.input.cellId, "Eval interrupted"));
+		if (cellId !== undefined && this.#active?.input.cellId !== cellId) {
+			const cancelled = this.cancelQueued(cellId, reason);
+			return { stateRetained: Promise.resolve(true), ...(cancelled ? {} : { note: "cell not found" }) };
+		}
+		if (cellId === undefined) {
+			for (const pending of [...this.#queue]) {
+				pending.interruptReason = reason;
+				this.#settleRun(pending, failedPythonResult(pending.input.cellId, "Eval interrupted"));
+			}
 		}
 		const active = this.#active;
 		const transport = this.#transport;
@@ -155,6 +175,7 @@ export class PythonKernel {
 		if (!pending || !this.#pending.has(pending.input.cellId)) return;
 		this.#active = pending;
 		pending.startedAt = performance.now();
+		pending.input.onStarted?.();
 		const timeoutMs = pending.input.timeoutMs;
 		if (timeoutMs !== undefined)
 			pending.timeoutTimer = setTimeout(() => this.#timeoutRun(pending, timeoutMs), timeoutMs);
@@ -191,6 +212,14 @@ export class PythonKernel {
 		if (this.#closed || generation !== this.#generation) throw new Error("Python kernel startup was superseded");
 		this.#transport = await PythonKernelTransport.start({
 			...this.#options,
+			onMessage: (message) => {
+				if (message.type === "result") return;
+				const callback =
+					message.type === "ready" || message.type === "init-failed" || message.type === "closed"
+						? this.#options.onMessage
+						: (this.#active?.input.onMessage ?? this.#options.onMessage);
+				callback?.(message);
+			},
 			startupTimeoutMs: this.#options.startupTimeoutMs ?? startupTimeoutMs,
 			isOwned: () => !this.#closed && generation === this.#generation,
 			onRetirementFailure: (transport, error) => {
@@ -206,7 +235,10 @@ export class PythonKernel {
 	#onResult(transport: PythonKernelTransport, result: ResultMessage): void {
 		if (this.#transport !== transport) return;
 		const pending = this.#pending.get(result.cellId);
-		if (pending) this.#settleRun(pending, result);
+		if (pending) {
+			(pending.input.onMessage ?? this.#options.onMessage)?.(result);
+			this.#settleRun(pending, result);
+		}
 		// A result frame from the live runner proves the process survived the interrupt.
 		if (pending?.resolveStateRetained) pending.resolveStateRetained(true);
 	}

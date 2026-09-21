@@ -7,6 +7,7 @@ import {
 	defaultCodemodeSettings,
 	resolveForegroundWindowSeconds,
 	resolveHardLimitSeconds,
+	resolveMaxDetachedCells,
 	resolveRunBudgetSeconds,
 } from "./config/settings.ts";
 import { EvalNotifier } from "./extension/eval-notifier.ts";
@@ -181,6 +182,7 @@ export default function senpiCodemode(pi: CodemodeExtensionAPI, options: SenpiCo
 			settings: defaultCodemodeSettings,
 			cellManager: new EvalDetachedCellManager({
 				notifier,
+				maxDetachedCells: resolveMaxDetachedCells(defaultCodemodeSettings),
 				hardLimitSeconds: resolveHardLimitSeconds(defaultCodemodeSettings),
 				runBudgetSeconds: resolveRunBudgetSeconds(defaultCodemodeSettings),
 				onStatusChange: showDetachedCells,
@@ -219,6 +221,7 @@ export default function senpiCodemode(pi: CodemodeExtensionAPI, options: SenpiCo
 		const cellManager = new EvalDetachedCellManager({
 			artifactsDir: runtime.artifactsDir,
 			notifier,
+			maxDetachedCells: resolveMaxDetachedCells(runtime.settings),
 			hardLimitSeconds: resolveHardLimitSeconds(runtime.settings),
 			runBudgetSeconds: resolveRunBudgetSeconds(runtime.settings),
 			onStatusChange: showDetachedCells,

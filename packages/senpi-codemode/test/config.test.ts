@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	defaultCodemodeSettings,
 	loadCodemodeSettings,
@@ -10,8 +10,98 @@ import {
 	resolveHardLimitSeconds,
 	resolveRunBudgetSeconds,
 } from "../src/config/settings.ts";
+import { EvalDetachedCellManager } from "../src/tool/detached-cell-manager.ts";
+import { createEvalTool } from "../src/tool/eval-tool.ts";
+import { FakeManager, fakeExtensionContext, result } from "./eval/fakes.ts";
+import { QueuedFakeKernel } from "./eval/queued-fake.ts";
 
 describe("codemode settings", () => {
+	it.each([
+		{ name: "default cap", file: {}, env: undefined, capacity: 15 },
+		{ name: "file cap", file: { maxDetachedCells: 4 }, env: undefined, capacity: 4 },
+		{ name: "environment cap", file: { maxDetachedCells: 4 }, env: "2", capacity: 2 },
+		{ name: "invalid environment cap", file: { maxDetachedCells: 4 }, env: "0", capacity: 4 },
+		{ name: "malformed environment cap", file: { maxDetachedCells: 4 }, env: "bad", capacity: 4 },
+	])("enforces the $name through the tool's detached manager", async ({ file, env, capacity }) => {
+		// Given resolved file settings and the real tool/manager with an event-gated kernel.
+		const root = await mkdtemp(join(tmpdir(), "senpi-codemode-cap-"));
+		const kernel = new QueuedFakeKernel();
+		const pending: Promise<unknown>[] = [];
+		vi.stubEnv("SENPI_CODEMODE_MAX_DETACHED_CELLS", env);
+		try {
+			await mkdir(join(root, ".senpi"));
+			await writeFile(join(root, ".senpi", "codemode.json"), JSON.stringify(file));
+			const loaded = await loadCodemodeSettings({ cwd: root, homeDir: root });
+			expect(loaded.warnings).toEqual([]);
+			vi.useFakeTimers();
+			const detach = vi.spyOn(EvalDetachedCellManager.prototype, "detach");
+			const tool = createEvalTool({
+				enabledLanguages: loaded.settings.languages,
+				settings: loaded.settings,
+				kernelManager: new FakeManager([["js", kernel]]),
+				cellTimeoutSeconds: 1,
+				executeTool: async () => {
+					throw new Error("No host tool is expected");
+				},
+			});
+			// When one more cell than the resolved capacity asks to detach.
+			for (let index = 0; index <= capacity; index++) {
+				const id = `cap-${index}`;
+				const admitted = kernel.admitted(id);
+				pending.push(
+					tool.execute(id, { language: "js", code: id, summary: id }, undefined, undefined, {
+						...fakeExtensionContext(),
+						mode: "tui",
+					}),
+				);
+				await admitted;
+				await vi.advanceTimersByTimeAsync(1000);
+			}
+			// Then the manager admits exactly the cap and refuses the next detach.
+			expect(detach.mock.results.map((entry) => entry.value)).toEqual([
+				...Array.from({ length: capacity }, () => true),
+				false,
+			]);
+		} finally {
+			while (kernel.queueSnapshot().activeCellId !== null) {
+				const active = kernel.queueSnapshot().activeCellId;
+				if (active !== null) kernel.completeDeferredRun(result(active, "finished"));
+			}
+			await Promise.all(pending);
+			await vi.runOnlyPendingTimersAsync();
+			vi.restoreAllMocks();
+			vi.unstubAllEnvs();
+			vi.useRealTimers();
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it.each([0, -1])("rejects maxDetachedCells %s with a settings warning", async (maxDetachedCells) => {
+		const root = await mkdtemp(join(tmpdir(), "senpi-codemode-cap-"));
+		try {
+			await mkdir(join(root, ".senpi"));
+			await writeFile(join(root, ".senpi", "codemode.json"), JSON.stringify({ maxDetachedCells }));
+			const loaded = await loadCodemodeSettings({ cwd: root, homeDir: root });
+			expect(loaded.warnings).toHaveLength(1);
+			expect(loaded.settings.maxDetachedCells).toBe(15);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it("accepts a positive numeric maxDetachedCells setting", async () => {
+		const root = await mkdtemp(join(tmpdir(), "senpi-codemode-cap-"));
+		try {
+			await mkdir(join(root, ".senpi"));
+			await writeFile(join(root, ".senpi", "codemode.json"), JSON.stringify({ maxDetachedCells: 2.5 }));
+			const loaded = await loadCodemodeSettings({ cwd: root, homeDir: root });
+			expect(loaded.warnings).toEqual([]);
+			expect(loaded.settings.maxDetachedCells).toBe(2.5);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	it("uses project config before global config before defaults", async () => {
 		const root = await mkdtemp(join(tmpdir(), "senpi-codemode-config-"));
 		try {
@@ -21,7 +111,7 @@ describe("codemode settings", () => {
 			await mkdir(join(homeDir, ".senpi", "agent"), { recursive: true });
 			await writeFile(
 				join(projectDir, ".senpi", "codemode.json"),
-				JSON.stringify({ languages: { py: false, rb: true }, parallelPoolWidth: 9 }),
+				JSON.stringify({ languages: { py: false, rb: true }, parallelPoolWidth: 9, maxDetachedCells: 2 }),
 			);
 			await writeFile(
 				join(homeDir, ".senpi", "agent", "codemode.json"),
@@ -40,6 +130,7 @@ describe("codemode settings", () => {
 				runBudgetSeconds: 300,
 				hardLimitSeconds: 1800,
 				parallelPoolWidth: 9,
+				maxDetachedCells: 2,
 				taskTools: { task: "task", output: "task_output" },
 				outputSink: { headBytes: 20480, maxColumns: 768 },
 				statusEvents: true,
@@ -71,6 +162,7 @@ describe("codemode settings", () => {
 				runBudgetSeconds: 300,
 				hardLimitSeconds: 1800,
 				parallelPoolWidth: 4,
+				maxDetachedCells: 15,
 				taskTools: { task: "task", output: "task_output" },
 				outputSink: { headBytes: 20480, maxColumns: 768 },
 				statusEvents: true,

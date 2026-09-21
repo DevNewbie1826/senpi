@@ -2,12 +2,14 @@ import type { AgentToolResult } from "@code-yeongyu/senpi";
 import type { WakeSourceState } from "../extension/wake-source-state.ts";
 import type { EvalLanguage, EvalToolDetails } from "./types.ts";
 
-export type EvalDetachedCellState = "running" | "detached" | "completed" | "failed" | "cancelled";
+export type EvalDetachedCellState = "queued" | "running" | "detached" | "completed" | "failed" | "cancelled";
 
 export interface EvalDetachedCellSnapshot {
 	readonly cellId: string;
 	readonly language: EvalLanguage;
+	readonly startedAtMs: number;
 	readonly state: EvalDetachedCellState;
+	readonly queuedBehind?: readonly string[];
 	readonly outputTail: string;
 	readonly result: AgentToolResult<EvalToolDetails>;
 	readonly stateRetained: boolean | undefined;
@@ -33,6 +35,7 @@ export interface EvalDetachedCellStatusEntry {
 	readonly language: EvalLanguage;
 	readonly summary?: string;
 	readonly startedAtMs: number;
+	readonly queuedBehind?: readonly string[];
 }
 
 export interface EvalDetachedCellManagerOptions {
@@ -42,6 +45,8 @@ export interface EvalDetachedCellManagerOptions {
 	readonly hardLimitSeconds?: number;
 	/** Kill deadline for a cell's own execution time in seconds; a per-call `timeout` replaces it. Defaults to 300s. */
 	readonly runBudgetSeconds?: number;
+	/** Global detached-cell capacity; defaults to 15. Full capacity keeps new cells foreground. */
+	readonly maxDetachedCells?: number;
 	readonly onStatusChange?: (entries: readonly EvalDetachedCellStatusEntry[]) => void;
 	/** Receives a full per-source liveness snapshot on every detached-cell transition; used by the goal builtin. */
 	readonly onWakeSourceState?: (state: WakeSourceState) => void;

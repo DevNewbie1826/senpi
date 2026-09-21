@@ -20,6 +20,44 @@
 
 - `parseArguments` and the run loop in `run-workspaces.mjs`; the `spawnPackageManager` signature in `package-manager.mjs`.
 
+## 2026-09-21 - Real-session multi-job eval QA (senpi#1908)
+
+### What changed
+
+- `scripts/qa/eval-multi-job.ts` drives sequential eval calls through an AgentSession and real JS/Python kernels, using externally released files instead of timing barriers. It captures request/response pairs, completion notifications, typed reset refusal, queued cancellation and verified teardown.
+- A read-only `--codemode-root` selects the pre-adoption implementation for the expected busy-error baseline; `--out` selects the evidence file.
+
+### Why
+
+- Unit admission tests cannot prove that queued cells, cross-language work and session notification wiring agree in a live kernel.
+
+### Why an extension could not handle it
+
+- This is repository-owned verification of the shipped extension.
+
+### Expected merge conflict zones
+
+- LOW: the new QA driver.
+
+## 2026-09-21 - Queued eval admission QA (senpi#1908)
+
+### What changed
+
+- `scripts/qa/omp-item8.ts` asserts queued admission and targeted dequeue instead of the removed per-language busy error.
+- `scripts/qa/omp-item8-fixture.ts` observes per-run callbacks and forwards cell ids when instrumenting interrupts. Its foreground bridge result assertion now narrows run details explicitly, since list controls return cross-language cell metadata instead.
+
+### Why
+
+- The steering QA must exercise the same queue and callback contract as the shipped eval tool.
+
+### Why an extension could not handle it
+
+- These are repository-owned executable QA scenarios, not extension behavior.
+
+### Expected merge conflict zones
+
+- LOW: the steering QA scenario and its fixture.
+
 ## 2026-09-21 - The lock generators allowlist the bumped @google/genai (senpi#1895)
 
 ### What changed

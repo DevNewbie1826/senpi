@@ -39,6 +39,7 @@ class FakeKernel implements EvalKernel {
 		readonly ok: true;
 		readonly durationMs: number;
 	}> {
+		input.onStarted?.();
 		return { type: "result", cellId: input.cellId, ok: true, durationMs: 0 };
 	}
 
@@ -47,6 +48,14 @@ class FakeKernel implements EvalKernel {
 	}
 
 	deliverToolReply(): void {}
+
+	cancelQueued(): boolean {
+		return false;
+	}
+
+	queueSnapshot() {
+		return { activeCellId: null, queuedCellIds: [] };
+	}
 
 	async reset(): Promise<void> {}
 

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CellExecution } from "../src/tool/cell-execution.ts";
 import { EvalDetachedCellManager } from "../src/tool/detached-cell-manager.ts";
-import { detachedKernelBusyError } from "../src/tool/detached-eval-result.ts";
 import type { EvalExecutionEventPayload } from "../src/tool/eval-execution-event.ts";
 import { createEvalTool } from "../src/tool/eval-tool.ts";
 import type { EvalToolInput } from "../src/tool/types.ts";
@@ -13,7 +12,7 @@ function fixture() {
 	const caller = new AbortController();
 	const kernel = new FakeKernel([]);
 	const started = kernel.deferNextRun();
-	const manager = new EvalDetachedCellManager();
+	const manager = new EvalDetachedCellManager({ maxDetachedCells: 1 });
 	const settled = vi.fn<(payload: EvalExecutionEventPayload) => void>();
 	const tool = createEvalTool({
 		enabledLanguages: { js: true, py: true, rb: false, jl: false },
@@ -47,9 +46,7 @@ describe("foreground eval steering", () => {
 			expect(f.settled).not.toHaveBeenCalled();
 			expect(cancel).not.toHaveBeenCalled();
 			expect(f.kernel.interrupts).toEqual([]);
-			await expect(f.tool.execute("busy", input, undefined, undefined, f.context)).rejects.toEqual(
-				detachedKernelBusyError(f.manager.peek("cell"), ["py"]),
-			);
+			expect(f.manager.liveCells("js")).toMatchObject([{ cellId: "cell", state: "detached" }]);
 			const other = await f.tool.execute("other", { ...input, language: "py" }, undefined, undefined, f.context);
 			expect(other.details.isError).not.toBe(true);
 		} finally {
@@ -59,12 +56,19 @@ describe("foreground eval steering", () => {
 			await f.manager.dispose();
 		}
 		expect(f.settled.mock.calls.filter(([event]) => event.cellId === "cell")).toHaveLength(1);
-		expect(f.manager.busyFor("js")).toBeUndefined();
+		expect(f.manager.liveCells("js")).toEqual([]);
 	});
 
-	it("keeps waiting with zero cancel calls when the steering detach attempt loses admission", async () => {
+	it("keeps waiting with zero cancel calls when the global detached cap is reached", async () => {
 		const f = fixture();
-		const detach = vi.spyOn(f.manager, "detach").mockReturnValue(false);
+		const owner = f.manager.create("owner", { ...input, language: "py" });
+		f.manager.bindKernel(owner, new FakeKernel([]), () => ({
+			content: [],
+			details: { language: "py", durationMs: 0, toolCalls: [], truncated: false },
+		}));
+		f.manager.markRunning(owner);
+		expect(f.manager.detach(owner)).toBe(true);
+		const detach = vi.spyOn(f.manager, "detach");
 		const cancel = vi.spyOn(CellExecution.prototype, "cancel");
 		const execution = f.tool.execute("cell", input, undefined, undefined, f.context);
 		await f.started;
@@ -77,7 +81,10 @@ describe("foreground eval steering", () => {
 			expect(f.settled).not.toHaveBeenCalled();
 		} finally {
 			f.kernel.completeDeferredRun(result("cell", "42"));
-			await execution;
+			const completed = await execution;
+			expect(completed.details.cells?.[0]?.status).toBe("complete");
+			expect(completed.details.isError).not.toBe(true);
+			expect(cancel).not.toHaveBeenCalled();
 			await f.manager.dispose();
 		}
 		expect(f.settled).toHaveBeenCalledOnce();
@@ -168,8 +175,8 @@ describe("foreground eval steering", () => {
 		}
 	});
 
-	it("enforces real single-slot admission without replacing the existing owner", async () => {
-		const manager = new EvalDetachedCellManager();
+	it("enforces the global cap without replacing the existing detached owner", async () => {
+		const manager = new EvalDetachedCellManager({ maxDetachedCells: 1 });
 		const kernel = new FakeKernel([]);
 		const first = manager.create("first", input);
 		const second = manager.create("second", input);
@@ -177,12 +184,17 @@ describe("foreground eval steering", () => {
 			content: [],
 			details: { language: "js" as const, durationMs: 0, toolCalls: [], truncated: false },
 		});
-		manager.markRunning(first, kernel, live);
-		manager.markRunning(second, kernel, live);
+		manager.bindKernel(first, kernel, live);
+		manager.markRunning(first);
+		manager.bindKernel(second, kernel, live);
+		manager.markRunning(second);
 		try {
 			expect(manager.detach(first)).toBe(true);
 			expect(manager.detach(second)).toBe(false);
-			expect(manager.busyFor("js")?.cellId).toBe("first");
+			expect(manager.liveCells("js")).toMatchObject([
+				{ cellId: "first", state: "detached" },
+				{ cellId: "second", state: "running" },
+			]);
 			expect(manager.peek("second").state).toBe("running");
 		} finally {
 			manager.complete(first, live());

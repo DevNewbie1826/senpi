@@ -25,13 +25,14 @@ import type {
 	EvalCellResult,
 	EvalInputSchema,
 	EvalLanguage,
+	EvalResultDetails,
 	EvalStatusEvent,
 	EvalToolDetails,
 	EvalToolInput,
 	EvalToolRequest,
 } from "./types.ts";
 
-type EvalToolDefinition = ToolDefinition<EvalInputSchema, EvalToolDetails>;
+type EvalToolDefinition = ToolDefinition<EvalInputSchema, EvalResultDetails>;
 type RenderContext = Parameters<NonNullable<EvalToolDefinition["renderCall"]>>[2];
 type ResultRenderContext = Parameters<NonNullable<EvalToolDefinition["renderResult"]>>[3];
 type CollapsibleKind = "code" | "output";
@@ -301,6 +302,8 @@ function cellPresentation(status: CellStatus, spinnerFrame: number | undefined):
 	switch (status) {
 		case "pending":
 			return { label: "pending", icon: "○", color: "muted" };
+		case "queued":
+			return { label: "queued", icon: "○", color: "muted" };
 		case "running":
 			return { label: "running", icon: spinner(spinnerFrame), color: "warning" };
 		case "detached":
@@ -337,6 +340,8 @@ function cellHeader(cell: EvalCellResult, environment: RenderEnvironment, badges
 	const presentation = cellPresentation(cell.status, environment.spinnerFrame);
 	const runtimeBadge = cell.runtime === undefined ? "" : ` (${formatRuntimeBadge(cell.language, cell.runtime)})`;
 	let header = `eval ${cell.language}${runtimeBadge} ${presentation.label} ${presentation.icon}`;
+	if (cell.queuedBehind !== undefined && cell.queuedBehind.length > 0)
+		header += ` · queued behind ${cell.queuedBehind.map(sanitizeTerminalLabel).join(", ")}`;
 	const throughputBadge = badges.throughput === undefined ? undefined : formatThroughputBadge(badges.throughput);
 	if (throughputBadge !== undefined) header += ` · ${throughputBadge}`;
 	const elapsedMs = badges.throughput?.wallDurationMs ?? cellElapsedMs(cell, environment);
@@ -706,7 +711,7 @@ function renderJsonOutputs(values: readonly unknown[], environment: RenderEnviro
 
 function renderDetailedLines(
 	details: EvalToolDetails,
-	result: AgentToolResult<EvalToolDetails>,
+	result: AgentToolResult<EvalResultDetails>,
 	context: DetailedRenderContext,
 ): string[] {
 	const lines: string[] = [];
@@ -765,7 +770,7 @@ function renderDetailedLines(
 	return lines;
 }
 
-function textOutput(result: AgentToolResult<EvalToolDetails>, showImageFallback: boolean): string {
+function textOutput(result: AgentToolResult<EvalResultDetails>, showImageFallback: boolean): string {
 	const lines: string[] = [];
 	for (const part of result.content) {
 		if (part.type === "text") lines.push(part.text);
@@ -777,7 +782,7 @@ function textOutput(result: AgentToolResult<EvalToolDetails>, showImageFallback:
 }
 
 function isEvalRunInput(args: EvalToolRequest): args is EvalToolInput {
-	return args.action !== "peek" && args.action !== "stop";
+	return args.action === undefined || args.action === "run";
 }
 
 function toolCallRows(details: EvalToolDetails | undefined): ToolCallRow[] {
@@ -891,7 +896,8 @@ export function renderEvalCall(
 		return component;
 	}
 	if (!isEvalRunInput(args)) {
-		component.setBlocks([{ kind: "text", text: style(theme, "toolTitle", `eval ${args.action} ${args.cell_id}`) }]);
+		const title = args.action === "list" ? "eval list" : `eval ${args.action} ${args.cell_id}`;
+		component.setBlocks([{ kind: "text", text: style(theme, "toolTitle", title) }]);
 		return component;
 	}
 	if (theme === undefined && context.spinnerFrame === undefined) {
@@ -942,13 +948,21 @@ export function renderEvalCall(
 }
 
 export function renderEvalResult(
-	result: AgentToolResult<EvalToolDetails>,
+	result: AgentToolResult<EvalResultDetails>,
 	options: ToolRenderResultOptions,
 	theme: Theme | undefined,
 	context: ResultRenderContext,
 ): EvalRenderComponent {
 	const component = componentFor(context);
 	const details = result.details;
+	if (details && "action" in details) {
+		component.syncLiveTicker(false, context.invalidate);
+		component.setBlocks([
+			{ kind: "text", text: style(theme, "toolTitle", "eval list") },
+			{ kind: "text", text: style(theme, "toolOutput", textOutput(result, false)) },
+		]);
+		return component;
+	}
 	const expanded = options.expanded || context.expanded;
 	const imageProtocol = context.imageProtocol ?? null;
 	component.syncLiveTicker(hasLiveCell(details), context.invalidate);

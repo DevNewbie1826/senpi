@@ -12,6 +12,8 @@ export interface CellState {
 	readonly input: EvalToolInput;
 	readonly runtime?: EvalRuntimeInfo;
 	readonly startedAt: number;
+	runStartedAt?: number | undefined;
+	queuedBehind?: readonly string[] | undefined;
 	readonly signal: AbortSignal;
 	readonly onUpdate: AgentToolUpdateCallback<EvalToolDetails> | undefined;
 	readonly toolCalls: ToolCall[];
@@ -23,7 +25,7 @@ export interface CellState {
 	phase: string | undefined;
 	error: string | undefined;
 	durationMs: number;
-	status: "pending" | "running" | "complete" | "error";
+	status: "pending" | "queued" | "running" | "complete" | "error";
 }
 
 export interface CellResultBuilderOptions {
@@ -52,7 +54,7 @@ export class CellResultBuilder {
 				this.emitUpdate(false);
 			},
 		});
-		options.state.status = "running";
+		if (options.state.status !== "queued") options.state.status = "running";
 		this.emitUpdate(false);
 	}
 
@@ -145,7 +147,10 @@ export class CellResultBuilder {
 					output: this.#state.output,
 					status: this.#state.status,
 					durationMs: this.#state.durationMs,
-					startedAt: this.#state.startedAt,
+					...(this.#state.status === "queued"
+						? {}
+						: { startedAt: this.#state.runStartedAt ?? this.#state.startedAt }),
+					...(this.#state.queuedBehind === undefined ? {} : { queuedBehind: this.#state.queuedBehind }),
 					...(statusEvents === undefined ? {} : { statusEvents }),
 					...(output?.hasMarkdown ? { hasMarkdown: true } : {}),
 				},
@@ -158,6 +163,9 @@ export class CellResultBuilder {
 	}
 
 	#liveUpdateText(): string {
+		if (this.#state.status === "queued" && this.#state.queuedBehind?.length) {
+			return `queued behind ${this.#state.queuedBehind.join(", ")} in the ${this.#state.input.language} kernel`;
+		}
 		const summary = this.#state.input.summary === undefined ? "" : ` ${this.#state.input.summary}`;
 		const aggregateOutput = this.#output.aggregateText();
 		const outputLines = aggregateOutput.split("\n");

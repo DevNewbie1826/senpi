@@ -11,6 +11,7 @@ import type {
 	EnabledEvalLanguages,
 	EvalInputSchema,
 	EvalKernelManager,
+	EvalResultDetails,
 	EvalRuntimes,
 	EvalToolDetails,
 	EvalToolInput,
@@ -34,6 +35,7 @@ export interface CreateEvalToolOptions {
 	 * replaces it. Rendered into the tool schema and description; also seeds a self-created manager.
 	 */
 	readonly runBudgetSeconds?: number;
+	readonly maxDetachedCells?: number;
 	readonly executeTool: ExecuteTool;
 	readonly listTools?: () => readonly EvalSchemaToolInfo[];
 	readonly complete?: (request: CompletionRequest, ctx: ExtensionContext) => Promise<CompletionResult>;
@@ -45,7 +47,7 @@ export interface CreateEvalToolOptions {
 	readonly onCellSettled?: (payload: EvalExecutionEventPayload) => void;
 	readonly timeoutFactory?: EvalTimeoutFactory;
 	readonly proxyExecutor?: (params: EvalToolInput, signal?: AbortSignal) => Promise<AgentToolResult<EvalToolDetails>>;
-	readonly renderers?: Pick<ToolDefinition<EvalInputSchema, EvalToolDetails>, "renderCall" | "renderResult">;
+	readonly renderers?: Pick<ToolDefinition<EvalInputSchema, EvalResultDetails>, "renderCall" | "renderResult">;
 	readonly spawns?: boolean;
 	/** Whether the session registry exposes the monitor tool through eval. */
 	readonly monitor?: boolean;

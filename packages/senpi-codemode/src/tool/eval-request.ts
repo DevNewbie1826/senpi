@@ -18,6 +18,7 @@ export function clampEvalSummary(value: unknown): string | undefined {
 
 export function parseEvalRequest(params: unknown): EvalToolRequest {
 	if (!isRecord(params)) throw new TypeError("eval parameters must be an object");
+	if (params.action === "list") return { action: "list" };
 	if (params.action === "peek" || params.action === "stop") {
 		if (typeof params.cell_id !== "string" || params.cell_id.length === 0)
 			throw new TypeError(`eval action "${params.action}" requires cell_id`);
@@ -46,7 +47,7 @@ export function parseEvalRequest(params: unknown): EvalToolRequest {
 }
 
 export function isEvalControlRequest(request: EvalToolRequest): request is EvalControlInput {
-	return request.action === "peek" || request.action === "stop";
+	return request.action === "peek" || request.action === "stop" || request.action === "list";
 }
 
 export function evalTimeoutBehavior(input: EvalToolInput, ctx: ExtensionContext): "detach" | "error" {

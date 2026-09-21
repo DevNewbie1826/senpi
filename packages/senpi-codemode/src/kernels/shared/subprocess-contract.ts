@@ -1,12 +1,9 @@
 import type { BridgeConnectionConfig, KernelToHostMessage } from "../../bridge/protocol.ts";
+import type { EvalKernelRunInput } from "../../tool/types.ts";
 import type { SessionEnvironment } from "../session-env.ts";
 import type { SubprocessSpawn } from "./subprocess-process.ts";
 
-export interface KernelRunInput {
-	readonly cellId: string;
-	readonly code: string;
-	readonly timeoutMs?: number;
-}
+export type KernelRunInput = EvalKernelRunInput;
 
 export type KernelResult = Extract<KernelToHostMessage, { type: "result" }>;
 export type ToolCallMessage = Extract<KernelToHostMessage, { type: "tool-call" }>;

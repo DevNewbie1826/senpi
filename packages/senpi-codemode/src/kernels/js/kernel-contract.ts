@@ -1,4 +1,5 @@
 import type { KernelToHostMessage } from "../../bridge/protocol.ts";
+import type { EvalKernelRunInput } from "../../tool/types.ts";
 import type { SessionEnvironment } from "../session-env.ts";
 
 export type ResultMessage = Extract<KernelToHostMessage, { type: "result" }>;
@@ -28,12 +29,7 @@ export interface JavaScriptKernelOptions {
 	readonly foreignLanguageNames?: KernelToolNameSource;
 }
 
-export interface JavaScriptRunInput {
-	readonly cellId: string;
-	readonly code: string;
-	readonly timeoutMs?: number;
-	readonly onMessage?: (message: KernelToHostMessage) => void;
-}
+export type JavaScriptRunInput = EvalKernelRunInput;
 
 export type KernelOperation = "run" | "reset" | "interrupt";
 export type LifecycleState = "open" | "closing" | "closed";

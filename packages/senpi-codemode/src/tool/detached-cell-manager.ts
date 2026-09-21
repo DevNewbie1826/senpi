@@ -1,5 +1,9 @@
 import type { AgentToolResult } from "@code-yeongyu/senpi";
-import { DEFAULT_HARD_LIMIT_SECONDS, DEFAULT_RUN_BUDGET_SECONDS } from "../config/settings.ts";
+import {
+	DEFAULT_HARD_LIMIT_SECONDS,
+	DEFAULT_MAX_DETACHED_CELLS,
+	DEFAULT_RUN_BUDGET_SECONDS,
+} from "../config/settings.ts";
 import type { WakeSourceState } from "../extension/wake-source-state.ts";
 import type { CellDeadlineExpiry } from "./cell-deadlines.ts";
 import type {
@@ -33,12 +37,13 @@ export class EvalDetachedCellManager {
 	readonly #onStatusChange: ((entries: readonly EvalDetachedCellStatusEntry[]) => void) | undefined;
 	readonly #onWakeSourceState: ((state: WakeSourceState) => void) | undefined;
 	readonly #cells = new Map<string, ManagedCell>();
-	readonly #detachedByLanguage = new Map<EvalLanguage, ManagedCell>();
+	readonly #detached = new Map<string, ManagedCell>();
 	readonly #terminalSnapshots = new TerminalSnapshotStore();
 	readonly #notificationQueue: DetachedNotificationQueue;
 	readonly #now: () => number;
 	readonly #hardLimitSeconds: number;
 	readonly #runBudgetSeconds: number;
+	readonly #maxDetachedCells: number;
 
 	constructor(options: EvalDetachedCellManagerOptions = {}) {
 		this.#artifactsDir = options.artifactsDir;
@@ -48,6 +53,11 @@ export class EvalDetachedCellManager {
 		this.#now = options.now ?? Date.now;
 		this.#hardLimitSeconds = options.hardLimitSeconds ?? DEFAULT_HARD_LIMIT_SECONDS;
 		this.#runBudgetSeconds = options.runBudgetSeconds ?? DEFAULT_RUN_BUDGET_SECONDS;
+		this.#maxDetachedCells = options.maxDetachedCells ?? DEFAULT_MAX_DETACHED_CELLS;
+	}
+
+	get maxDetachedCells(): number {
+		return this.#maxDetachedCells;
 	}
 
 	create(cellId: string, input: EvalToolInput, onKill?: (error: Error) => void): ManagedCell {
@@ -74,17 +84,25 @@ export class EvalDetachedCellManager {
 		return cell;
 	}
 
-	markRunning(
+	bindKernel(
 		cell: ManagedCell,
 		kernel: EvalKernel,
 		liveResult: LiveResultProvider,
 		onKill?: (error: Error) => void,
 	): void {
-		if (cell.state !== "running") return;
+		if (!detachedCellIsActive(cell.state)) return;
 		cell.onKill = onKill ?? cell.onKill;
 		cell.kernel = kernel;
 		cell.liveResult = liveResult;
 		cell.canDetach = true;
+	}
+
+	markRunning(cell: ManagedCell): void {
+		if (!allowsDetachedCellTransition(cell.state, "running")) return;
+		cell.state = "running";
+		cell.runStartedAtMs = this.#now();
+		cell.deadlines.resume();
+		if (cell.detached) this.#emitStatus();
 	}
 
 	/** A host bridge call is in flight for this cell; its run budget stops charging until {@link resume}. */
@@ -99,19 +117,26 @@ export class EvalDetachedCellManager {
 	detach(cell: ManagedCell): boolean {
 		if (
 			!cell.canDetach ||
-			!allowsDetachedCellTransition(cell.state, "detached") ||
-			this.#detachedByLanguage.has(cell.input.language)
+			!detachedCellIsActive(cell.state) ||
+			cell.detached ||
+			!(this.#detached.size < this.#maxDetachedCells)
 		)
 			return false;
-		cell.state = "detached";
+		cell.detached = true;
 		cell.wasDetached = true;
-		this.#detachedByLanguage.set(cell.input.language, cell);
+		this.#detached.set(cell.cellId, cell);
 		this.#emitStatus();
 		return true;
 	}
 
 	complete(cell: ManagedCell, result: AgentToolResult<EvalToolDetails>): boolean {
-		return this.#settle(cell, result.details.isError === true ? "failed" : "completed", result);
+		const state =
+			result.details.cells?.[0]?.status === "cancelled"
+				? "cancelled"
+				: result.details.isError === true
+					? "failed"
+					: "completed";
+		return this.#settle(cell, state, result);
 	}
 
 	fail(cell: ManagedCell, error: Error): boolean {
@@ -121,7 +146,8 @@ export class EvalDetachedCellManager {
 	async stop(cellId: string, reason = "Stopped detached eval cell"): Promise<EvalDetachedCellSnapshot> {
 		const live = this.#cells.get(cellId);
 		if (live === undefined) return this.#terminal(cellId);
-		if (live.state === "detached") await this.#cancel(live, reason);
+		if (live.state === "queued") this.#cancelQueued(live, reason);
+		else if (live.detached) await this.#cancel(live, reason);
 		return this.#snapshot(live);
 	}
 
@@ -130,9 +156,20 @@ export class EvalDetachedCellManager {
 		return live === undefined ? this.#terminal(cellId) : this.#snapshot(live);
 	}
 
-	busyFor(language: EvalLanguage): EvalDetachedCellSnapshot | undefined {
-		const cell = this.#detachedByLanguage.get(language);
-		return cell === undefined ? undefined : this.#snapshot(cell);
+	liveCells(language?: EvalLanguage, opts?: { except?: string }): readonly EvalDetachedCellSnapshot[] {
+		return [...this.#cells.values()]
+			.filter(
+				(cell) =>
+					detachedCellIsActive(cell.state) &&
+					(language === undefined || cell.input.language === language) &&
+					cell.cellId !== opts?.except,
+			)
+			.sort((a, b) => a.startedAtMs - b.startedAtMs)
+			.map((cell) => this.#snapshot(cell));
+	}
+
+	list(): { live: readonly EvalDetachedCellSnapshot[]; recent: readonly EvalDetachedCellSnapshot[] } {
+		return { live: this.liveCells(), recent: this.#terminalSnapshots.list() };
 	}
 
 	async waitForTerminal(cellId: string): Promise<EvalDetachedCellSnapshot> {
@@ -141,7 +178,11 @@ export class EvalDetachedCellManager {
 	}
 
 	async dispose(): Promise<void> {
-		const detached = [...this.#detachedByLanguage.values()];
+		const detached = [...this.#detached.values()];
+		// Dequeue first: interrupting an active run can synchronously start its next waiter.
+		for (const cell of detached) {
+			if (cell.state === "queued") this.#cancelQueued(cell, "Session ended; detached eval cell cancelled");
+		}
 		await Promise.allSettled(
 			detached.map(async (cell) => await this.stop(cell.cellId, "Session ended; detached eval cell cancelled")),
 		);
@@ -157,7 +198,7 @@ export class EvalDetachedCellManager {
 
 	/** Re-publish the current snapshot; consumers reset their per-source counts at session_start. */
 	publishWakeSourceState(): void {
-		this.#emitWakeSourceState([...this.#detachedByLanguage.values()]);
+		this.#emitWakeSourceState([...this.#detached.values()]);
 	}
 
 	#settle(
@@ -174,8 +215,7 @@ export class EvalDetachedCellManager {
 		this.#cells.delete(cell.cellId);
 		this.#refreshTerminalSnapshot(cell);
 		if (cell.wasDetached) {
-			if (this.#detachedByLanguage.get(cell.input.language) === cell)
-				this.#detachedByLanguage.delete(cell.input.language);
+			this.#detached.delete(cell.cellId);
 			this.#emitStatus();
 			if (!cell.notificationQueued) {
 				cell.notificationQueued = true;
@@ -197,9 +237,13 @@ export class EvalDetachedCellManager {
 	 */
 	async #expireDeadline(cell: ManagedCell, expiry: CellDeadlineExpiry): Promise<void> {
 		if (!detachedCellIsActive(cell.state)) return;
-		const foreground = cell.state === "running" && cell.onKill !== undefined;
+		const foreground = !cell.detached && cell.onKill !== undefined;
 		cell.hardLimited = expiry.kind === "hard-limit";
 		cell.runBudgetExhausted = expiry.kind === "run-budget";
+		if (cell.state === "queued") {
+			this.#cancelQueued(cell, expiry.error.message, expiry.error);
+			return;
+		}
 		if (foreground) {
 			if (this.#settle(cell, "cancelled", currentDetachedResult(cell))) cell.onKill?.(expiry.error);
 			return;
@@ -207,12 +251,20 @@ export class EvalDetachedCellManager {
 		await this.#cancel(cell, expiry.error.message);
 	}
 
+	#cancelQueued(cell: ManagedCell, reason: string, error = new Error(reason)): void {
+		const dequeued = cell.kernel?.cancelQueued(cell.cellId, reason) ?? false;
+		cell.stateRetained = true;
+		this.#settle(cell, "cancelled", currentDetachedResult(cell));
+		// Acquisition/reset has no queue promise yet; its execution has no interrupt target either.
+		if (!dequeued) cell.onKill?.(error);
+	}
+
 	async #cancel(cell: ManagedCell, reason: string): Promise<void> {
 		const outcome = Promise.withResolvers<void>();
 		cell.interruptOutcome = outcome;
 		try {
 			if (!this.#settle(cell, "cancelled", currentDetachedResult(cell)) || cell.kernel === undefined) return;
-			const handle = await cell.kernel.interrupt(reason);
+			const handle = await cell.kernel.interrupt(reason, cell.cellId);
 			cell.interruptNote = handle.note;
 			cell.stateRetained = await handle.stateRetained;
 		} finally {
@@ -226,7 +278,7 @@ export class EvalDetachedCellManager {
 	}
 
 	#emitStatus(): void {
-		const liveCells = [...this.#detachedByLanguage.values()];
+		const liveCells = [...this.#detached.values()];
 		this.#onStatusChange?.(detachedStatusEntries(liveCells));
 		this.#emitWakeSourceState(liveCells);
 	}
