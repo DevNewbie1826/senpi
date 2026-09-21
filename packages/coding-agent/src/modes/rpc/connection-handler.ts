@@ -1394,13 +1394,31 @@ export function createRpcConnectionHandler(
 			// =================================================================
 
 			case "navigate_tree": {
+				// Addressing refusals. The command type forbids both spellings at once and neither of
+				// them, so TypeScript narrows these branches to `never` - they exist for the inbound
+				// JSON no type can police, which is why the command name is written out here.
+				if (command.entryId !== undefined && command.targetId !== undefined) {
+					return error(id, "navigate_tree", "navigate_tree takes either entryId or targetId, not both");
+				}
+				if (command.entryId === undefined && command.targetId === undefined) {
+					return error(id, "navigate_tree", "navigate_tree requires entryId or targetId");
+				}
+				if (command.targetId === undefined) {
+					// PLACEHOLDER: `entryId` addressing carries the docs/sessions.md selection rule (a
+					// user or custom target selects its PARENT and answers `editorText`; the root user
+					// message resets the leaf to an empty conversation). That resolution is a separate
+					// piece of work; the protocol types land first so clients can compile against them.
+					// Replace this branch with the dispatch - the two refusals above stay.
+					return error(id, command.type, "navigate_tree entryId addressing is not dispatched yet");
+				}
 				const result = await session.navigateTree(command.targetId, {
 					summarize: command.summarize,
 					customInstructions: command.customInstructions,
 					replaceInstructions: command.replaceInstructions,
 					label: command.label,
 				});
-				return success(id, "navigate_tree", result);
+				// The leaf the navigation left the session on, so one round trip resynchronizes a client.
+				return success(id, "navigate_tree", { ...result, leafId: session.sessionManager.getLeafId() });
 			}
 
 			case "record_bash_result":

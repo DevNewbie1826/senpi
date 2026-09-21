@@ -109,15 +109,37 @@ type RpcSessionCommand =
 	| { id?: string; type: "abort_bash" }
 	| { id?: string; type: "cleanup_bash_output"; path: string }
 	| { id?: string; type: "set_label"; entryId: string; label?: string }
-	| {
+	| ({
 			id?: string;
 			type: "navigate_tree";
-			targetId: string;
+			/** Leaf the client last observed; the navigation is refused with `stale_leaf` when the session moved on. */
+			expectedLeafId?: string;
 			summarize?: boolean;
 			customInstructions?: string;
 			replaceInstructions?: boolean;
 			label?: string;
-	  }
+	  } & (
+			| {
+					/**
+					 * Entry to select, with the `/tree` selection rule of `docs/sessions.md` applied by the
+					 * host: a user or custom target moves the leaf to that entry's PARENT and returns its
+					 * text as `editorText`; any other kind moves the leaf TO the entry with no `editorText`;
+					 * the root user message resets the leaf to an empty conversation (`leafId: null`). A
+					 * client therefore never computes a parent id. Answers `NavigateTreeResult`.
+					 */
+					entryId: string;
+					targetId?: never;
+			  }
+			| {
+					/**
+					 * Node to move the leaf to, verbatim - no selection rule is applied. The original
+					 * spelling, kept for the TUI and every shipped client; answers the legacy
+					 * `{ cancelled, editorText? }` payload. New clients address `entryId`.
+					 */
+					targetId: string;
+					entryId?: never;
+			  }
+	  ))
 
 	// Session
 	| { id?: string; type: "get_session_stats" }
@@ -128,6 +150,16 @@ type RpcSessionCommand =
 	| {
 			id?: string;
 			type: "edit_assistant_message";
+			entryId: string;
+			text: string;
+			/** Leaf the client last observed; the edit is refused with `stale_leaf` when the session moved on. */
+			expectedLeafId?: string;
+			summarize?: boolean;
+			customInstructions?: string;
+	  }
+	| {
+			id?: string;
+			type: "edit_user_message";
 			entryId: string;
 			text: string;
 			/** Leaf the client last observed; the edit is refused with `stale_leaf` when the session moved on. */
@@ -196,10 +228,14 @@ export const RPC_ERROR_INVALID_LAUNCH_PROFILE = "invalid_launch_profile";
  * to a live path and interactive opens are never refused for memory.
  */
 export const RPC_ERROR_HOST_MEMORY_PRESSURE = "host_memory_pressure";
-// edit_assistant_message failures (mirror AssistantEditError.code / SessionStreamingError.code)
+// Message-edit and tree-navigation failures (mirror AssistantEditError.code / UserEditError.code /
+// SessionStreamingError.code). Every code lives in the one shared RpcErrorCode union below: the
+// failure response is a single catch-all member, so a command's codes are a documented SUBSET
+// rather than a per-command type.
 export const RPC_ERROR_STREAMING = "streaming";
 export const RPC_ERROR_ENTRY_NOT_FOUND = "not_found";
 export const RPC_ERROR_NOT_ASSISTANT = "not_assistant";
+export const RPC_ERROR_NOT_USER = "not_user";
 export const RPC_ERROR_EMPTY_TEXT = "empty";
 export const RPC_ERROR_STALE_LEAF = "stale_leaf";
 
@@ -220,6 +256,7 @@ export type RpcErrorCode =
 	| typeof RPC_ERROR_STREAMING
 	| typeof RPC_ERROR_ENTRY_NOT_FOUND
 	| typeof RPC_ERROR_NOT_ASSISTANT
+	| typeof RPC_ERROR_NOT_USER
 	| typeof RPC_ERROR_EMPTY_TEXT
 	| typeof RPC_ERROR_STALE_LEAF;
 
@@ -604,7 +641,20 @@ export type RpcResponse =
 			type: "response";
 			command: "navigate_tree";
 			success: true;
-			data: { cancelled: boolean; editorText?: string; aborted?: boolean; summaryEntry?: unknown };
+			/**
+			 * `NavigateTreeResult` answers an `entryId` navigation; the shipped shape answers a
+			 * `targetId` one. Both report `leafId` - the leaf the session was left on, `null` for an
+			 * empty conversation - so a client resynchronizes in one round trip on either spelling.
+			 */
+			data:
+				| NavigateTreeResult
+				| {
+						cancelled: boolean;
+						leafId: string | null;
+						editorText?: string;
+						aborted?: boolean;
+						summaryEntry?: unknown;
+				  };
 	  }
 	| { id?: string; type: "response"; command: "abort_bash"; success: true }
 
@@ -620,6 +670,13 @@ export type RpcResponse =
 			command: "edit_assistant_message";
 			success: true;
 			data: EditAssistantMessageResult;
+	  }
+	| {
+			id?: string;
+			type: "response";
+			command: "edit_user_message";
+			success: true;
+			data: EditUserMessageResult;
 	  }
 	| { id?: string; type: "response"; command: "clone"; success: true; data: { cancelled: boolean } }
 	| {
@@ -725,6 +782,26 @@ export type RpcResponse =
 export type EditAssistantMessageResult =
 	| { outcome: "edited"; entry: SessionMessageEntry; leafId: string; summaryEntryId?: string }
 	| { outcome: "unchanged"; leafId: string | null }
+	| { outcome: "cancelled"; leafId: string | null; aborted?: boolean };
+
+/**
+ * Success payload of `edit_user_message`, mirroring `EditAssistantMessageResult`. `leafId` is the
+ * session leaf after the call and is reported on EVERY outcome so a client resynchronizes in one
+ * round trip; it is `null` when the call left the session on an empty conversation.
+ */
+export type EditUserMessageResult =
+	| { outcome: "edited"; entry: SessionMessageEntry; leafId: string; summaryEntryId?: string }
+	| { outcome: "unchanged"; leafId: string | null }
+	| { outcome: "cancelled"; leafId: string | null; aborted?: boolean };
+
+/**
+ * Success payload of an `entryId`-addressed `navigate_tree`. `editorText` is present when the
+ * target is a user or custom message - the text the TUI would put back in the editor - and absent
+ * for every other entry kind. `leafId` is `null` when the navigation reset the session to an empty
+ * conversation, which is what selecting the root user message does.
+ */
+export type NavigateTreeResult =
+	| { outcome: "navigated"; leafId: string | null; editorText?: string; summaryEntryId?: string }
 	| { outcome: "cancelled"; leafId: string | null; aborted?: boolean };
 
 // ============================================================================
