@@ -70,7 +70,7 @@ async function createHost(directories: string[]): Promise<Host> {
 	);
 	const router = new SessionCommandRouter(registry, writer, { cwd: dir }, async () => ({
 		handle: async () => {},
-		dispose: () => {},
+		dispose: async () => {},
 	}));
 	let rssBytes = 0;
 	const sampler = new HostMemorySampler({
