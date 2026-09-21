@@ -1,5 +1,23 @@
 # prompt-preset Extension Changes
 
+## 2026-09-21 - Route file edits through active tools (#1891)
+
+### What changed
+
+- `file-operations.ts`: the shared GPT instruction requires `apply_patch` when active and otherwise routes to available `edit`/`write` tools.
+
+### Why
+
+- The #1891 reproduction showed an unconditional patch-only instruction could demand an inactive tool. Unsupported APIs and custom ids must retain their available editing surface.
+
+### Why an extension could not handle it
+
+- The instruction is produced inside this builtin's shared preset helper.
+
+### Expected merge conflict zones
+
+- LOW: `file-operations.ts` file-mutation instruction.
+
 ## Kimi K2.8 Preview preset + Kimi Code rolling-id routing (2026-09-18)
 
 ### What changed

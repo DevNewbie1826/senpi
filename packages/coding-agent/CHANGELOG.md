@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Fixed `apply_patch` activation for provider-prefixed GPT model IDs and kept file-editing guidance consistent with the active tool set ([#1891](https://github.com/code-yeongyu/senpi/issues/1891)).
+
 ### Removed
 
 ## [2026.9.21] - 2026-09-21
