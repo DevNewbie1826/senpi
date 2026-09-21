@@ -21,6 +21,7 @@ export type {
 	OpenAISettings,
 	PromptCacheKeepAliveSettings,
 	PromptCacheSettings,
+	ProviderConcurrencySettings,
 	ThinkingBudgetsSettings,
 } from "./settings-shapes.ts";
 export type { BranchSummarySettings, TerminalSettings } from "./terminal-settings.ts";

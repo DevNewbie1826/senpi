@@ -365,6 +365,19 @@ When unset, senpi leaves provider payloads unchanged. This setting currently app
 |---------|------|---------|-------------|
 | `claudeSdkOauthProvider.enabled` | boolean | `false` | Enable the ambient (host-CLI-derived) lane of `claude-sdk-oauth`. Env override: `SENPI_CLAUDE_SDK_OAUTH_ENABLED`. Explicit senpi-side logins (stored OAuth accounts in `auth.json`, `CLAUDE_CODE_OAUTH_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN_<n>` env accounts) keep the provider available with this unset |
 | `cursorCliOauthProvider.enabled` | boolean | `false` | Enable the `cursor-cli-oauth` fallback lane and automatic native credential bootstrap. Env override: `SENPI_CURSOR_CLI_OAUTH_ENABLED` |
+| `providers.<id>.maxConcurrency` | number | unlimited | Cap the streaming requests senpi keeps in flight against one provider, keyed by registry provider id (`anthropic`, `openai`, ...). `0`, a negative value, a fraction, or an absent key all mean unlimited |
+
+`providers.<id>.maxConcurrency` queues further requests to that provider in arrival order and starts each one as soon as an in-flight response finishes. The slot covers the provider request alone, never a whole agent turn, so a parent session releases it before its tools run and a spawn tree deeper than the cap cannot deadlock behind itself. Providers stay unlimited until you set a positive integer, and changing the cap takes effect immediately, including for requests already queued. A malformed value is reported as a startup warning and read as unlimited.
+
+```json
+{
+  "providers": {
+    "anthropic": {
+      "maxConcurrency": 4
+    }
+  }
+}
+```
 
 Both ambient-auth providers are explicit opt-in: a vendor CLI being logged in on the machine is not consent to spend that subscription. Before these gates existed, a logged-in Claude Code or `cursor-agent` CLI made the lane available with no senpi-side action, so subscription usage could flow through a provider you never configured. Env overrides follow the usual precedence (`env > project settings > global settings > default`). See [providers.md](providers.md) for the full lane documentation.
 

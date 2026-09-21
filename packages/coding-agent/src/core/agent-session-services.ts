@@ -185,6 +185,7 @@ export async function createAgentSessionServices(
 		resourceLoader.reload(options.resourceLoaderReloadOptions),
 	);
 	const modelRegistry = new ModelRegistry(modelRuntime, authStorage);
+	modelRuntime.setSettingsManager(settingsManager);
 
 	const diagnostics: AgentSessionRuntimeDiagnostic[] = [];
 	const extensionsResult = resourceLoader.getExtensions();

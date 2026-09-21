@@ -244,6 +244,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const modelRegistry = options.modelRegistry ?? new ModelRegistry(modelRuntime, authStorage);
 
 	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
+	modelRuntime.setSettingsManager(settingsManager);
 	const sessionManager = options.sessionManager ?? SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir));
 	const scopedModels =
 		options.scopedModels ??
