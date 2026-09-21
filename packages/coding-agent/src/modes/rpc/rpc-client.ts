@@ -768,6 +768,7 @@ export class RpcClient {
 	async navigateTree(
 		targetId: string,
 		options?: {
+			intent?: "select" | "resume";
 			summarize?: boolean;
 			customInstructions?: string;
 			replaceInstructions?: boolean;

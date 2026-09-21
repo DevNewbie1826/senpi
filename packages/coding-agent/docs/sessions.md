@@ -115,7 +115,7 @@ Selecting an assistant, tool, compaction, or other non-user entry:
 
 Selecting the root user message resets the leaf to an empty conversation and places the original prompt in the editor.
 
-RPC clients get the same rule without an interactive picker. `navigate_tree` with `entryId` applies this selection behavior on the host and returns the text that would have gone to the editor as `editorText`; `edit_user_message` goes one step further and writes the edited prompt into the session as a new branch. Both are described in [RPC](rpc.md#navigate_tree).
+RPC clients get the same rule without an interactive picker. `navigate_tree` with `entryId` applies this selection behavior by default on the host and returns the text that would have gone to the editor as `editorText`; `edit_user_message` goes one step further and writes the edited prompt into the session as a new branch. To resume an existing branch at its exact entry instead (including an unanswered edited user message), use `navigate_tree` with `intent: "resume"`: the requested entry stays the leaf and no editor text is returned. Both intents are described in [RPC](rpc.md#navigate_tree).
 
 ## `/tree`, `/fork`, and `/clone`
 

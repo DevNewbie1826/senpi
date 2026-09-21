@@ -18,6 +18,24 @@
 
 - `packages/coding-agent/src/core/agent-session.ts`: the missing-target guard in `_navigateTree`. Selection, guard ordering, summaries, and edit behavior are unchanged.
 
+## 2026-09-21 - Exact-leaf navigation intent (#1926)
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session.ts`: `TreeNavigationOptions.intent` adds `select | resume`. `_navigateTree` keeps retry selection as default and handles exact resumption in its existing target-position branch, suppressing editor text for every target role. Shared summary/label generation still records metadata, then restores the requested resume leaf before context restoration and lifecycle notification. If lifecycle handlers append further metadata, the same core navigation restores the exact leaf and context again before returning; real CLI QA exposed this builtin behavior and a real-handler regression covers it. Message replacements keep their existing behavior.
+
+### Why
+
+- `packages/coding-agent/src/core/agent-session.ts`: a branch ending in an edited user message needs resumption on that prompt, not selection of its parent for retry. Exact leaf identity also excludes newly generated summary/label metadata from the active tail; summaries remain in the tree and response, outside resumed context.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/core/agent-session.ts`: leaf selection, guards, cancellation, summaries, agent-message restoration and revision bookkeeping belong to the shared core mutation. A handler/extension leaf rewrite would bypass that lifecycle and risk changing released callers.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/agent-session.ts`: `TreeNavigationOptions`, `_navigateTree` target positioning, post-label context restoration and post-lifecycle exact-leaf finalization. Existing selection and replacement branches remain unchanged.
+
 ## 2026-09-21 - Per-provider streaming concurrency cap (senpi#1909)
 
 ### What changed

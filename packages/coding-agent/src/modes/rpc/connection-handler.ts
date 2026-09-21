@@ -1421,10 +1421,14 @@ export function createRpcConnectionHandler(
 				if (typeof targetId !== "string" || targetId.length === 0) {
 					return error(id, command.type, "navigate_tree requires a non-empty entryId or targetId");
 				}
+				if (command.intent !== undefined && command.intent !== "select" && command.intent !== "resume") {
+					return error(id, command.type, "navigate_tree intent must be select or resume");
+				}
 				try {
-					// Core owns the TUI selection rule, summaries, cancellation, and root reset.
-					// Pass the selected entry itself, not a client- or handler-computed parent.
+					// Core owns selection/resumption, summaries, cancellation, and root reset.
+					// Pass the requested entry itself, not a client- or handler-computed parent.
 					const result = await session.navigateTree(targetId, {
+						...(command.intent !== undefined ? { intent: command.intent } : {}),
 						summarize: command.summarize,
 						customInstructions: command.customInstructions,
 						replaceInstructions: command.replaceInstructions,
