@@ -117,7 +117,7 @@
 		"node": ">=24.0.0"
 	},
 	"devDependencies": {
-		"@types/node": "26.2.0",
+		"@types/node": "26.6.2",
 		"canvas": "3.2.3",
 		"vitest": "4.1.11"
 	},
