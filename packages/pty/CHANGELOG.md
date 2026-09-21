@@ -13,3 +13,7 @@
 - `TerminalSession.kill()` no longer swallows an escalation: repeating the last delivered signal stays idempotent, but a different signal (notably `SIGKILL` after an ignored `SIGTERM`) now reaches the backend.
 - `SessionRegistry.stop()` escalates to `SIGKILL` when a session outlives the stop grace and reports `stopping` only if the process survives that too; `teardown()` escalates a still-live entry before dropping it instead of abandoning the process.
 - Detached-child cleanup now SIGKILLs children still alive after the SIGTERM grace, through both the tracked `kill` callback and the process-group/pid path.
+
+### Changed
+
+- Updated the development dependencies: @types/node 26.2.0 -> 26.6.2. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))

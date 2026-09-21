@@ -8,6 +8,8 @@
 
 ### Changed
 
+- Updated the bundled dependencies: @anthropic-ai/sdk 0.123.0 -> 0.127.0, @anthropic-ai/claude-agent-sdk 0.3.259 -> 0.3.278, @aws-sdk/client-bedrock-runtime 3.1127.0 -> 3.1136.0, @bufbuild/protobuf 2.14.0 -> 2.15.0, @smithy/types 4.17.2 -> 4.18.0, zod 4.4.3 -> 4.6.5, typebox 1.3.27 -> 1.3.34, ignore 7.0.8 -> 7.0.9, linkedom 0.18.12 -> 0.18.13, marked 18.0.11 -> 18.0.13, picomatch 4.0.5 -> 4.0.7, yaml 2.9.0 -> 2.9.1 and get-east-asian-width 1.6.0 -> 1.7.0. The transitive copies of fast-uri, hono, ip-address, qs, express-rate-limit, brace-expansion and undici carrying published advisories are pinned past them, so `npm audit` and `bun audit` both report nothing. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
+
 ### Fixed
 
 - Extensions that touch the theme load again on the shared socket host. A refactor had moved the theme bootstrap into the per-session workers, which left the in-process runtime (what a `--listen` socket host runs by default) without an initialized theme: every theme-touching extension failed to load with "Theme not initialized. Call initTheme() first." and embedder sessions logged the message as runtime warnings. The host initializes the theme before serving its first session, on both session runtimes. ([#1894](https://github.com/code-yeongyu/senpi/issues/1894))

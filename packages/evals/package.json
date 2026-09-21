@@ -11,10 +11,10 @@
 	"devDependencies": {
 		"@earendil-works/pi-ai": "^2026.9.20",
 		"@code-yeongyu/senpi": "^2026.9.20",
-		"@types/node": "26.2.0",
+		"@types/node": "26.6.2",
 		"shx": "0.4.0",
 		"typescript": "7.0.2",
-		"vitest-evals": "0.16.1",
+		"vitest-evals": "0.17.0",
 		"vitest": "4.1.11"
 	}
 }

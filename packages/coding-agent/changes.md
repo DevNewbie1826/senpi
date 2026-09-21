@@ -1,5 +1,23 @@
 # Local fork changes
 
+## 2026-09-21 - Refresh the CLI dependency pins (senpi#1895)
+
+### What changed
+
+- `packages/coding-agent/package.json`: `@anthropic-ai/sdk` 0.123.0 -> 0.127.0, `@anthropic-ai/claude-agent-sdk` 0.3.259 -> 0.3.278, `@aws-sdk/client-bedrock-runtime` 3.1127.0 -> 3.1136.0, `@bufbuild/protobuf` 2.14.0 -> 2.15.0, `@smithy/types` 4.17.2 -> 4.18.0, `zod` 4.4.3 -> 4.6.5, `typebox` 1.3.27 -> 1.3.34, `ignore` 7.0.8 -> 7.0.9, `linkedom` 0.18.12 -> 0.18.13, `marked` 18.0.11 -> 18.0.13, `picomatch` 4.0.5 -> 4.0.7, `yaml` 2.9.0 -> 2.9.1, `get-east-asian-width` 1.6.0 -> 1.7.0 and `@types/node` 26.2.0 -> 26.6.2.
+
+### Why
+
+- These are the fork's exact runtime pins for the published CLI, refreshed to the newest release in the same minor that satisfies `min-release-age=2`. The eight `@anthropic-ai/claude-agent-sdk` platform packages are relocked with it, so `scripts/generate-claude-agent-sdk-platform-lock.mjs --check` still passes.
+
+### Why an extension could not handle it
+
+- The published tarball's dependency closure is resolved by the package manager and the publish pipeline, never by the runtime extension system.
+
+### Expected merge conflict zones
+
+- LOW: the dependency version block, on every upstream release bump.
+
 ## 2026-09-20 - Boot the senpi command from the bundled entry (senpi#1868)
 
 ### What changed

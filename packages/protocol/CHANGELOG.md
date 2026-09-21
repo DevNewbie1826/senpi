@@ -14,4 +14,6 @@
 
 ### Changed
 
+- Updated the bundled dependencies: typebox 1.3.27 -> 1.3.34. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
+
 - Updated the shared TypeBox runtime to 1.3.18, keeping RPC schemas aligned with all runtime consumers.
