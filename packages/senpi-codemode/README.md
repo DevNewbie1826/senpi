@@ -111,10 +111,10 @@ Configuration is loaded in this order:
 | --- | --- | --- |
 | `languages` | `py`/`js` enabled; `rb`/`jl` disabled | Selects desired languages before interpreter detection. |
 | `cellTimeoutSeconds` | `30` | Idle time an interactive call blocks the turn before the cell detaches. Print/json calls never detach. |
-| `foregroundWindowSeconds` | `60` | Caps `cellTimeoutSeconds` and the grace a bridge-parked cell gets before it detaches, when detached capacity is available. Env override: `SENPI_CODEMODE_FOREGROUND_SECONDS`. |
+| `foregroundWindowSeconds` | `60` | Submission-based foreground limit, including queue and bridge pauses. The cell detaches if capacity is available; otherwise it is cancelled with `eval_background_capacity_reached`. Env override: `SENPI_CODEMODE_FOREGROUND_SECONDS`. |
 | `runBudgetSeconds` | `300` | Kill deadline for a cell's own execution time - child processes, network, timers, CPU. Time queued or parked in host tool calls (`agent()`, `tool.*`) is not charged, and the budget keeps counting after the cell detaches. A per-call `timeout` replaces it for that cell. Env override: `SENPI_CODEMODE_RUN_BUDGET_SECONDS`. |
 | `hardLimitSeconds` | `1800` | Wall-clock kill deadline from submission, including queue and parked time; a per-call `timeout` above it raises it. Env override: `SENPI_CODEMODE_HARD_LIMIT_SECONDS`. |
-| `maxDetachedCells` | `15` | Global detached-cell capacity across all kernels. At capacity, new cells stay foreground until settlement or a kill deadline. |
+| `maxDetachedCells` | `15` | Global detached-cell capacity across all kernels. At capacity, interactive cells stay foreground until completion or the foreground window elapses; shorter cells finish normally. |
 | `parallelPoolWidth` | `4` | Maximum concurrent `parallel()` thunks. |
 | `taskTools.task` | `"task"` | Registered tool name used by `agent()`. |
 | `taskTools.output` | `"task_output"` | Registered tool name used by `output()`. |
@@ -219,8 +219,13 @@ interactive TUI, RPC, and app-server sessions; print and JSON one-shot runs
 default to `"error"` so their result is never silently detached. A detached
 cell keeps only its own language kernel busy. New same-language cells are admitted
 into its FIFO queue; calls in other languages continue normally. Queued cells may
-also detach, within the global `maxDetachedCells` cap. At capacity, cells remain
-foreground rather than being cancelled. Do not re-run a detached cell.
+also detach, within the global `maxDetachedCells` cap. At capacity, the first idle
+detach attempt leaves the cell foreground and re-arms one wait for the remaining
+submission-based foreground window. At the window, it detaches if a slot is now
+free; otherwise it settles `cancelled` with `eval_background_capacity_reached`,
+listing the live cells and a stop-or-wait remedy. Cells that complete inside the
+window return normally. Cancelling a queued cell never interrupts its predecessor.
+Do not re-run a detached or queued cell; each detached cell completes as one notification.
 
 Queued steering also detaches an eligible interactive foreground call, including
 one paused in a host tool bridge, without cancelling its computation. If the
@@ -242,7 +247,8 @@ never changes the idle detach deadline: that is `cellTimeoutSeconds` capped by
 While any cell is detached, the interactive footer shows a highlighted
 `↗ <language> · <summary>` status on the extension status line (the cell id
 when the call had no summary), clearing as soon as the last detached cell settles.
-Queued entries are labelled `queued`; elapsed time counts only from execution start.
+Queued entries are labelled `queued`; an all-queued footer shows `(queued)` instead
+of an elapsed duration. Elapsed time counts only from execution start.
 
 Use `eval({ action: "peek", cell_id })` for its state and buffered output, or
 `eval({ action: "stop", cell_id })` to cancel it. Stopping a queued cell removes it

@@ -41,7 +41,8 @@ export class CellExecution {
 	readonly #onAbort: (error: Error) => void;
 	readonly #abortPromise: Promise<never>;
 	readonly #detachedPromise: Promise<void>;
-	readonly #watchdog: TimeoutPauseHandle & { dispose(): void };
+	readonly #timeoutFactory: EvalTimeoutFactory;
+	#watchdog: TimeoutPauseHandle & { dispose(): void };
 	#rejectAbort: ((reason?: unknown) => void) | undefined;
 	#resolveDetached: (() => void) | undefined;
 	#kernel: EvalKernel | undefined;
@@ -49,6 +50,7 @@ export class CellExecution {
 	#active = true;
 
 	constructor(options: CellExecutionOptions) {
+		this.#timeoutFactory = options.timeoutFactory;
 		this.#callerSignal = options.callerSignal;
 		this.#cellId = options.cellId;
 		this.#onAbort = options.onAbort;
@@ -66,6 +68,7 @@ export class CellExecution {
 						cellId: options.cellId,
 						timeoutMs: idle.timeoutMs,
 						maxPauseGraceMs: idle.maxPauseGraceMs,
+						deadlineMs: Date.now() + idle.maxPauseGraceMs,
 						onTimeout: ({ error }) => idle.onTimeout(error),
 					});
 		this.#callerSignal.addEventListener("abort", this.#handleCallerAbort, {
@@ -83,6 +86,18 @@ export class CellExecution {
 
 	resume(): void {
 		this.#watchdog.resume();
+	}
+
+	/** One final submission-window wait after background admission was refused; pauses cannot extend it. */
+	rearmIdle(timeoutMs: number, onTimeout: () => void): void {
+		this.#watchdog.dispose();
+		this.#watchdog = this.#timeoutFactory.create({
+			cellId: this.#cellId,
+			timeoutMs,
+			maxPauseGraceMs: timeoutMs,
+			deadlineMs: Date.now() + timeoutMs,
+			onTimeout,
+		});
 	}
 
 	setKernel(kernel: EvalKernel): void {

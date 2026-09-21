@@ -209,6 +209,8 @@ export interface EvalToolDetails {
 	readonly toolCalls: readonly EvalToolCallSummary[];
 	readonly truncated: boolean;
 	readonly isError?: boolean;
+	/** Machine-readable reason for a tool-boundary cancellation. */
+	readonly code?: string;
 	readonly phase?: string;
 	readonly cells?: readonly EvalCellResult[];
 	readonly statusEvents?: readonly EvalStatusEvent[];

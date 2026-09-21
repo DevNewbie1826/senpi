@@ -70,7 +70,9 @@ export function formatEvalCellStatus(
 ): string | undefined {
 	const first = entries[0];
 	if (first === undefined) return undefined;
-	const suffix = ` (${formatElapsedSeconds(evalCellElapsedSeconds(entries, nowMs))})`;
+	const suffix = entries.every((entry) => entry.queuedBehind !== undefined)
+		? " (queued)"
+		: ` (${formatElapsedSeconds(evalCellElapsedSeconds(entries, nowMs))})`;
 	if (entries.length === 1) {
 		const head = `${DETACHED_GLYPH} ${first.language} · `;
 		return head + truncateEnd(labelOf(first), MAX_STATUS_LENGTH - head.length - suffix.length) + suffix;

@@ -61,6 +61,27 @@ The host pid must be present in the kernel's environment at spawn time and the w
 
 - LOW: agent option/result mapping, reserved dispatch catalog forwarding, and the four language helper adapters and docs.
 
+## 2026-09-21 - Foreground capacity window and queued eval guidance (senpi#1908)
+
+### What changed
+
+- `src/tool/run-eval-cell.ts`, `cell-execution.ts`, and `src/timeouts/idle-timeout.ts` re-arm one submission-bound foreground wait after a refused detach. Bridge pauses cannot extend that deadline; shorter at-cap cells complete normally.
+- `src/tool/detached-eval-result.ts`, `detached-cell-manager.ts`, and `types.ts` return a typed capacity cancellation, preserve queued-detached status, and report live-cell counts and queue predecessors. `cell-runtime.ts` emits queued progress.
+- `src/tool/eval-tool.ts`, `src/prompt/{eval-prompt,eval-prompt-template}.ts`, and `src/extension/eval-status.ts` thread the configured cap into model guidance and show a queued marker rather than a fabricated elapsed time. README and the eval prompt snapshot follow the new contract.
+- `test/eval-detach.test.ts`, `eval-steering-detach.test.ts`, and `eval-status-queued.test.ts` cover FIFO notifications, the 30/45/60-second cap window, targeted cancellation, bridge pauses, acquisition, and steering without cancellation.
+
+### Why
+
+- Reaching background capacity must neither reject short work nor block the turn beyond its foreground window. Queued work needs clear non-retry guidance and must not look like executing work.
+
+### Why an extension could not handle it
+
+- This extension owns foreground execution, watchdog cleanup, detached settlement, and the model-facing tool contract.
+
+### Expected merge conflict zones
+
+- MEDIUM: run-eval-cell, CellExecution watchdog, detached result conversion, eval prompt sentence and snapshot.
+
 ## 2026-09-21 - Capped detached set and queued kernel admission (senpi#1908)
 
 ### What changed

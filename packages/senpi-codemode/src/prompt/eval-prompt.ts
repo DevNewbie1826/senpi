@@ -1,4 +1,4 @@
-import { DEFAULT_RUN_BUDGET_SECONDS } from "../config/settings.ts";
+import { DEFAULT_MAX_DETACHED_CELLS, DEFAULT_RUN_BUDGET_SECONDS } from "../config/settings.ts";
 import type { EvalRuntimeInfo } from "../tool/types.ts";
 import { EVAL_PROMPT_TEMPLATE } from "./eval-prompt-template.ts";
 
@@ -30,6 +30,8 @@ export interface EvalPromptOptions {
 	readonly bunSkillPath?: string;
 	/** Kill deadline for a cell's own execution time, as configured; the description states it. */
 	readonly runBudgetSeconds?: number;
+	/** Global background capacity advertised to the model. */
+	readonly maxDetachedCells?: number;
 }
 
 /** Prompt dialect for the eval-first batching emphasis. */
@@ -96,6 +98,7 @@ export function buildEvalPrompt(
 		jsVersion: options.jsRuntime?.version ?? "",
 		bunSkillPath: options.bunSkillPath ?? "",
 		runBudgetSeconds: String(options.runBudgetSeconds ?? DEFAULT_RUN_BUDGET_SECONDS),
+		maxDetachedCells: String(options.maxDetachedCells ?? DEFAULT_MAX_DETACHED_CELLS),
 	};
 	const description = renderTemplate(EVAL_PROMPT_TEMPLATE, context)
 		.replace(/\n{3,}/g, "\n\n")

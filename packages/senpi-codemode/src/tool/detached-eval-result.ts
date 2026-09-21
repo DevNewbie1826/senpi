@@ -7,6 +7,17 @@ import type {
 import { interruptionStateNote } from "./interrupt-note.ts";
 import type { EvalCellResult, EvalControlInput, EvalToolDetails, EvalToolInput } from "./types.ts";
 
+export class EvalBackgroundCapacityError extends Error {
+	readonly code = "eval_background_capacity_reached";
+	readonly name = "EvalBackgroundCapacityError";
+
+	constructor(cap: number, cellId: string, foregroundMs: number, liveCellIds: readonly string[]) {
+		super(
+			`Background capacity (${cap}) reached: cell ${cellId} ran ${Math.floor(foregroundMs / 1_000)}s in the foreground and was cancelled when the foreground window elapsed. Live cells: ${liveCellIds.join(", ")}. Stop one with eval({ action: "stop", cell_id }) or wait for a notification, then re-run this step.`,
+		);
+	}
+}
+
 export async function executeEvalControl(
 	cellManager: EvalDetachedCellManager,
 	request: EvalControlInput,
@@ -19,13 +30,19 @@ export async function executeEvalControl(
 export function resultAfterDetach(
 	snapshot: EvalDetachedCellSnapshot,
 	input: EvalToolInput,
+	otherLiveCells: number,
 ): AgentToolResult<EvalToolDetails> {
 	if (snapshot.state !== "detached" && snapshot.state !== "running") return createDetachedControlResult(snapshot);
+	const predecessors = snapshot.queuedBehind?.join(", ");
+	const text =
+		predecessors === undefined
+			? `Eval cell ${snapshot.cellId} detached and is running in the ${input.language} kernel (${otherLiveCells} other live cells). Completion arrives as a notification; do not re-run it. eval({ action: "peek" | "stop", cell_id }) or eval({ action: "list" }).`
+			: `Eval cell ${snapshot.cellId} is queued behind ${predecessors} in the ${input.language} kernel and detached; it runs after ${predecessors} and completes as one notification. peek/stop/list with eval({ action, cell_id })`;
 	return {
 		content: [
 			{
 				type: "text",
-				text: `Eval cell ${snapshot.cellId} detached and is still running in the ${input.language} kernel. Completion will arrive as a notification. Use eval({ action: "peek", cell_id: "${snapshot.cellId}" }) or eval({ action: "stop", cell_id: "${snapshot.cellId}" }).`,
+				text,
 			},
 		],
 		details: snapshot.result.details,
@@ -68,7 +85,7 @@ export function resultForDetachedState(
 					return {
 						...current,
 						durationMs: terminalDuration(cell, state, durationMs),
-						status: cellStatus(state),
+						status: state === "detached" && queuedBehind !== undefined ? "queued" : cellStatus(state),
 						...(queuedBehind === undefined ? {} : { queuedBehind }),
 					};
 				});

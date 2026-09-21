@@ -56,6 +56,10 @@ export class EvalDetachedCellManager {
 		this.#maxDetachedCells = options.maxDetachedCells ?? DEFAULT_MAX_DETACHED_CELLS;
 	}
 
+	get maxDetachedCells(): number {
+		return this.#maxDetachedCells;
+	}
+
 	create(cellId: string, input: EvalToolInput, onKill?: (error: Error) => void): ManagedCell {
 		const existing = this.#cells.get(cellId);
 		if (existing !== undefined) {
@@ -126,7 +130,13 @@ export class EvalDetachedCellManager {
 	}
 
 	complete(cell: ManagedCell, result: AgentToolResult<EvalToolDetails>): boolean {
-		return this.#settle(cell, result.details.isError === true ? "failed" : "completed", result);
+		const state =
+			result.details.cells?.[0]?.status === "cancelled"
+				? "cancelled"
+				: result.details.isError === true
+					? "failed"
+					: "completed";
+		return this.#settle(cell, state, result);
 	}
 
 	fail(cell: ManagedCell, error: Error): boolean {

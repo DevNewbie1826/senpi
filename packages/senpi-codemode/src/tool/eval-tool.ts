@@ -21,6 +21,11 @@ export type { EnabledEvalLanguages, EvalKernel, EvalKernelManager } from "./type
 
 export function createEvalTool(options: CreateEvalToolOptions): ToolDefinition<EvalInputSchema, EvalToolDetails> {
 	const foregroundWindowSeconds = options.foregroundWindowSeconds ?? DEFAULT_FOREGROUND_WINDOW_SECONDS;
+	const maxDetachedCells =
+		options.cellManager?.maxDetachedCells ??
+		options.maxDetachedCells ??
+		options.settings?.maxDetachedCells ??
+		DEFAULT_MAX_DETACHED_CELLS;
 	const deadlines = {
 		runBudgetSeconds: options.runBudgetSeconds ?? defaultEvalDeadlineSeconds.runBudgetSeconds,
 		detachAfterSeconds: Math.min(options.cellTimeoutSeconds, foregroundWindowSeconds),
@@ -31,6 +36,7 @@ export function createEvalTool(options: CreateEvalToolOptions): ToolDefinition<E
 	const prompt = buildEvalPrompt(options.enabledLanguages, {
 		spawns: options.spawns ?? false,
 		monitor: options.monitor,
+		maxDetachedCells,
 		runBudgetSeconds: deadlines.runBudgetSeconds,
 		...(options.spawnDefaultAgent === undefined ? {} : { spawnDefaultAgent: options.spawnDefaultAgent }),
 		...(options.modelId === undefined ? {} : { modelId: options.modelId }),
@@ -42,7 +48,7 @@ export function createEvalTool(options: CreateEvalToolOptions): ToolDefinition<E
 	const cellManager =
 		options.cellManager ??
 		new EvalDetachedCellManager({
-			maxDetachedCells: options.maxDetachedCells ?? options.settings?.maxDetachedCells ?? DEFAULT_MAX_DETACHED_CELLS,
+			maxDetachedCells,
 			...(options.artifactsDir === undefined ? {} : { artifactsDir: options.artifactsDir }),
 			...(options.hardLimitSeconds === undefined ? {} : { hardLimitSeconds: options.hardLimitSeconds }),
 			...(options.runBudgetSeconds === undefined ? {} : { runBudgetSeconds: options.runBudgetSeconds }),

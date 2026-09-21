@@ -81,7 +81,10 @@ describe("foreground eval steering", () => {
 			expect(f.settled).not.toHaveBeenCalled();
 		} finally {
 			f.kernel.completeDeferredRun(result("cell", "42"));
-			await execution;
+			const completed = await execution;
+			expect(completed.details.cells?.[0]?.status).toBe("complete");
+			expect(completed.details.isError).not.toBe(true);
+			expect(cancel).not.toHaveBeenCalled();
 			await f.manager.dispose();
 		}
 		expect(f.settled).toHaveBeenCalledOnce();

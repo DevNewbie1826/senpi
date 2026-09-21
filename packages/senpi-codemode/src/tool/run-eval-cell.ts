@@ -17,7 +17,7 @@ import { TIMEOUT_PAUSE_OP, TIMEOUT_RESUME_OP } from "../timeouts/bridge-timeout.
 import { abortError, CellExecution, defaultTimeoutFactory } from "./cell-execution.ts";
 import { CellHandler, type CellState } from "./cell-handler.ts";
 import type { EvalDetachedCellManager } from "./detached-cell-manager.ts";
-import { resultAfterDetach } from "./detached-eval-result.ts";
+import { EvalBackgroundCapacityError, resultAfterDetach, resultForDetachedState } from "./detached-eval-result.ts";
 import { buildEvalExecutionEventPayload, type EvalExecutionSettleOutcome } from "./eval-execution-event.ts";
 import { evalTimeoutBehavior } from "./eval-request.ts";
 import type { CreateEvalToolOptions, EvalCellInvocation } from "./eval-tool-options.ts";
@@ -66,6 +66,24 @@ export async function runEvalCell(
 		execution.detach();
 		return true;
 	};
+	const cancelAtCapacity = (idleError: Error): void => {
+		const liveCells = cellManager.liveCells(undefined, { except: invocation.cellId });
+		if (
+			!cell.canDetach &&
+			liveCells.filter((live) => live.state === "detached").length < cellManager.maxDetachedCells
+		) {
+			execution.cancel(idleError);
+			return;
+		}
+		execution.cancel(
+			new EvalBackgroundCapacityError(
+				cellManager.maxDetachedCells,
+				invocation.cellId,
+				Date.now() - state.startedAt,
+				liveCells.map((live) => live.cellId),
+			),
+		);
+	};
 	execution = new CellExecution({
 		callerSignal: invocation.signal,
 		cellId: invocation.cellId,
@@ -75,7 +93,13 @@ export async function runEvalCell(
 						timeoutMs: detachAfterMs,
 						maxPauseGraceMs: foregroundWindowMs,
 						onTimeout: (error: Error) => {
-							if (!detach() && !cell.canDetach) execution.cancel(error);
+							if (detach()) return;
+							const remainingMs = foregroundWindowMs - (Date.now() - state.startedAt);
+							if (remainingMs <= 0) cancelAtCapacity(error);
+							else
+								execution.rearmIdle(remainingMs, () => {
+									if (!detach()) cancelAtCapacity(error);
+								});
 						},
 					},
 				}
@@ -139,7 +163,12 @@ export async function runEvalCell(
 			finalized.then((result) => ({ kind: "result" as const, result })),
 			execution.detached.then(() => ({ kind: "detached" as const })),
 		]);
-		if (outcome.kind === "detached") return resultAfterDetach(cellManager.peek(invocation.cellId), invocation.input);
+		if (outcome.kind === "detached")
+			return resultAfterDetach(
+				cellManager.peek(invocation.cellId),
+				invocation.input,
+				cellManager.liveCells(undefined, { except: invocation.cellId }).length,
+			);
 		return outcome.result;
 	} finally {
 		steeringSignal?.removeEventListener("abort", onSteering);
@@ -229,6 +258,16 @@ async function executeCell(
 		};
 		return kernelTools ? await kernelToolsStorage.run(kernelTools, runBound) : await runBound();
 	} catch (error) {
+		if (error instanceof EvalBackgroundCapacityError) {
+			const final = handler
+				? await handler.finalizeCancellation(error)
+				: {
+						content: [{ type: "text" as const, text: error.message }],
+						details: cellManager.peek(invocation.cellId).result.details,
+					};
+			const result = resultForDetachedState(final, "cancelled", state.durationMs);
+			return { ...result, details: { ...result.details, isError: true, code: error.code } };
+		}
 		if (handler && error instanceof Error && error.name === "CodemodeSessionDisposedError")
 			return await handler.finalizeCancellation(error);
 		if (error instanceof Error && error.name === "TimeoutError") throw await describeTimeoutState(error, execution);

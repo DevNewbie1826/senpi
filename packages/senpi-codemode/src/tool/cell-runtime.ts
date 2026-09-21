@@ -163,6 +163,9 @@ export class CellResultBuilder {
 	}
 
 	#liveUpdateText(): string {
+		if (this.#state.status === "queued" && this.#state.queuedBehind?.length) {
+			return `queued behind ${this.#state.queuedBehind.join(", ")} in the ${this.#state.input.language} kernel`;
+		}
 		const summary = this.#state.input.summary === undefined ? "" : ` ${this.#state.input.summary}`;
 		const aggregateOutput = this.#output.aggregateText();
 		const outputLines = aggregateOutput.split("\n");
