@@ -24,6 +24,24 @@
 
 - The root development dependencies and generated dependency locks.
 
+## Run the two dev lanes through run-workspaces --parallel and drop concurrently (2026-09-21)
+
+### What changed
+
+- `package.json`: the root `dev` script is `node scripts/run-workspaces.mjs --parallel --workspace packages/ai --workspace packages/coding-agent dev`; the `concurrently` devDependency is removed and `shell-quote` 1.10.0 is declared as a root devDependency — three repository scripts import it directly but it only reached `node_modules` as `concurrently`'s transitive dependency (its version was already pinned by the root override). `package-lock.json` / `bun.lock` are regenerated the repository way (`bun.lock` stays `configVersion: 0`).
+
+### Why
+
+- `concurrently` was the last root script that bypassed the package-manager-agnostic runner from #1447; `npm run dev`, `bun run dev` and `pnpm run dev` now all start both lanes through the same driver, with prefixed output and one Ctrl-C reaching every lane (senpi#1895).
+
+### Why an extension could not handle it
+
+- Root scripts and the dependency closure are resolved by the package manager before any extension loads.
+
+### Expected merge conflict zones
+
+- The root `scripts.dev` line and the root devDependency block, on every upstream tooling bump.
+
 ## Refresh the dependency pins and pin past the reachable advisories (2026-09-21)
 
 ### What changed

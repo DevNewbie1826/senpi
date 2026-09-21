@@ -15,9 +15,11 @@
 // the root manifest, and reports one PASS / SKIP / FAIL summary.
 //
 // Usage:
-//   node scripts/run-workspaces.mjs [--if-present] [--workspace <name|path>]... <script> [-- <args>]
+//   node scripts/run-workspaces.mjs [--if-present] [--parallel] [--workspace <name|path>]... <script> [-- <args>]
 //
 //   --if-present            skip workspaces that do not define <script> instead of failing
+//   --parallel              start every selected workspace at once; each output line is prefixed
+//                           with the workspace directory name and one Ctrl-C reaches every lane
 //   --workspace <selector>  run only that workspace (package name or repo-relative path); repeatable
 //   -- <args>               forwarded verbatim to every workspace script
 //
@@ -27,16 +29,22 @@
 // the script name because package managers append caller arguments after it.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanEnv, detectPackageManager, runScriptArguments, spawnPackageManager } from "./package-manager.mjs";
+import {
+	cleanEnv,
+	createSignalFanout,
+	detectPackageManager,
+	runScriptArguments,
+	spawnPackageManager,
+} from "./package-manager.mjs";
 
 const LABEL = "run-workspaces";
 
 export class UsageError extends Error {}
 
 export function parseArguments(argv) {
-	const parsed = { script: undefined, ifPresent: false, workspaces: [], forwarded: [] };
+	const parsed = { script: undefined, ifPresent: false, parallel: false, workspaces: [], forwarded: [] };
 	for (let index = 0; index < argv.length; index++) {
 		const argument = argv[index];
 		if (argument === "--") {
@@ -45,6 +53,10 @@ export function parseArguments(argv) {
 		}
 		if (argument === "--if-present") {
 			parsed.ifPresent = true;
+			continue;
+		}
+		if (argument === "--parallel") {
+			parsed.parallel = true;
 			continue;
 		}
 		if (argument === "--workspace") {
@@ -147,8 +159,38 @@ function describe(workspace) {
 	return `${workspace.relativePath} (${workspace.name})`;
 }
 
+/**
+ * Runs `<pm> run <script>` in every selected workspace at once. Each line of
+ * output carries the workspace's directory name (`[ai]`, `[coding-agent]`) so
+ * interleaved lanes stay attributable, one shared handler set forwards
+ * termination signals to every lane, and the signal is re-raised only after
+ * every lane has closed. Results keep the selection order.
+ */
+async function runInParallel(pm, pmArgs, workspaces, childEnv) {
+	const fanout = createSignalFanout();
+	try {
+		for (const workspace of workspaces) {
+			console.log(`[${LABEL}] > ${describe(workspace)}: ${pm.cmd} ${pmArgs.join(" ")}`);
+		}
+		return await Promise.all(
+			workspaces.map((workspace) =>
+				spawnPackageManager(pm, pmArgs, {
+					cwd: workspace.directory,
+					env: childEnv,
+					label: LABEL,
+					prefix: basename(workspace.directory),
+					fanout,
+				}),
+			),
+		);
+	} finally {
+		const forwarded = fanout.release();
+		if (forwarded) process.kill(process.pid, forwarded);
+	}
+}
+
 export async function runWorkspaces(argv, { rootDirectory = process.cwd(), env = process.env } = {}) {
-	const { script, ifPresent, workspaces: selectors, forwarded } = parseArguments(argv);
+	const { script, ifPresent, parallel, workspaces: selectors, forwarded } = parseArguments(argv);
 	const selected = selectWorkspaces(await resolveWorkspaceDirectories(rootDirectory), selectors);
 	const missing = selected.filter((workspace) => typeof workspace.scripts[script] !== "string");
 	if (missing.length > 0 && !ifPresent) {
@@ -160,19 +202,32 @@ export async function runWorkspaces(argv, { rootDirectory = process.cwd(), env =
 	const pm = detectPackageManager(env);
 	const childEnv = cleanEnv(env);
 	const pmArgs = runScriptArguments(pm, script, forwarded);
+	const verdictOf = (workspace, status) =>
+		status === 0
+			? { workspace, verdict: "PASS", detail: "" }
+			: { workspace, verdict: "FAIL", detail: `exit ${status}`, status };
 	const results = [];
-	for (const workspace of selected) {
-		if (missing.includes(workspace)) {
-			results.push({ workspace, verdict: "SKIP", detail: `no "${script}" script` });
-			continue;
+	if (parallel) {
+		const running = selected.filter((workspace) => !missing.includes(workspace));
+		const statuses = await runInParallel(pm, pmArgs, running, childEnv);
+		for (const workspace of selected) {
+			const index = running.indexOf(workspace);
+			results.push(
+				index < 0
+					? { workspace, verdict: "SKIP", detail: `no "${script}" script` }
+					: verdictOf(workspace, statuses[index]),
+			);
 		}
-		console.log(`\n[${LABEL}] > ${describe(workspace)}: ${pm.cmd} ${pmArgs.join(" ")}`);
-		const status = await spawnPackageManager(pm, pmArgs, { cwd: workspace.directory, env: childEnv, label: LABEL });
-		results.push(
-			status === 0
-				? { workspace, verdict: "PASS", detail: "" }
-				: { workspace, verdict: "FAIL", detail: `exit ${status}`, status },
-		);
+	} else {
+		for (const workspace of selected) {
+			if (missing.includes(workspace)) {
+				results.push({ workspace, verdict: "SKIP", detail: `no "${script}" script` });
+				continue;
+			}
+			console.log(`\n[${LABEL}] > ${describe(workspace)}: ${pm.cmd} ${pmArgs.join(" ")}`);
+			const status = await spawnPackageManager(pm, pmArgs, { cwd: workspace.directory, env: childEnv, label: LABEL });
+			results.push(verdictOf(workspace, status));
+		}
 	}
 
 	console.log(`\n[${LABEL}] summary for "${script}" (${pm.cmd}):`);
@@ -194,7 +249,7 @@ async function main() {
 		if (error instanceof UsageError) {
 			console.error(`[${LABEL}] ${error.message}`);
 			console.error(
-				"usage: node scripts/run-workspaces.mjs [--if-present] [--workspace <name|path>]... <script> [-- <args>]",
+				"usage: node scripts/run-workspaces.mjs [--if-present] [--parallel] [--workspace <name|path>]... <script> [-- <args>]",
 			);
 			process.exitCode = 2;
 			return;
