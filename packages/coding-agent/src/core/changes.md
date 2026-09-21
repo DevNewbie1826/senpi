@@ -19,6 +19,34 @@
 - Runtime lifecycle dispatch adjacent to `emitBeforeSwitch`; no TUI lifecycle changes.
 
 ||||||| parent of 5f652dcfa (feat(coding-agent): edit a user message in place as a tree branch)
+||||||| parent of 1ab53e09e (feat(rpc): dispatch user-message edits and tree navigation)
+## 2026-09-21 - Selecting the current prompt still moves to its parent
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session.ts`: removed `_navigateTree`'s early return for
+  `targetId === oldLeafId`, so the existing user/custom selection rule also applies to the current
+  leaf. A root prompt resets the leaf to null; a nested prompt selects its parent. Both return
+  editor text and run the normal cancellation, summary, lifecycle-event, and session-state path.
+
+### Why
+
+- `packages/coding-agent/src/core/agent-session.ts` previously treated selecting the latest prompt
+  as a no-op. Retrying that prompt then appended it under itself, duplicating it in model context.
+  The RPC regressions cover root and non-root retries through the subsequent turn, preserving the
+  abandoned tree while submitting the prompt exactly once.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/core/agent-session.ts` returned before `session_before_tree` and before
+  the shared selection/state-restoration logic. An extension or RPC-only leaf rewrite cannot repair
+  that short-circuit consistently across the TUI and other callers.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/agent-session.ts`: `_navigateTree` immediately after the expected-leaf
+  guard. The existing assistant-edit and tree-selection suites pass unchanged before and after.
+
 ## 2026-09-21 - Edit a user message in place as a tree branch
 
 ### What changed

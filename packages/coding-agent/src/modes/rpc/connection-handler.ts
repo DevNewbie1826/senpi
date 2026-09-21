@@ -31,6 +31,7 @@ import {
 	removeCredentialAccount,
 } from "../../core/credential-accounts.ts";
 import { AssistantEditError, SessionStreamingError } from "../../core/edited-assistant-message.ts";
+import { UserEditError } from "../../core/edited-user-message.ts";
 import {
 	emitProviderAccountsChanged,
 	subscribeProviderAccountEvents,
@@ -452,6 +453,10 @@ export function createRpcConnectionHandler(
 		errorCode?: string,
 		errorData?: unknown,
 	): RpcResponse => {
+		const details =
+			errorData === undefined && (command === "edit_user_message" || command === "navigate_tree")
+				? { leafId: session.sessionManager.getLeafId() }
+				: errorData;
 		return {
 			id,
 			type: "response",
@@ -459,7 +464,7 @@ export function createRpcConnectionHandler(
 			success: false,
 			error: message,
 			...(errorCode ? { errorCode } : {}),
-			...(errorData === undefined ? {} : { errorData }),
+			...(details === undefined ? {} : { errorData: details }),
 		};
 	};
 
@@ -1403,22 +1408,43 @@ export function createRpcConnectionHandler(
 				if (command.entryId === undefined && command.targetId === undefined) {
 					return error(id, "navigate_tree", "navigate_tree requires entryId or targetId");
 				}
-				if (command.targetId === undefined) {
-					// PLACEHOLDER: `entryId` addressing carries the docs/sessions.md selection rule (a
-					// user or custom target selects its PARENT and answers `editorText`; the root user
-					// message resets the leaf to an empty conversation). That resolution is a separate
-					// piece of work; the protocol types land first so clients can compile against them.
-					// Replace this branch with the dispatch - the two refusals above stay.
-					return error(id, command.type, "navigate_tree entryId addressing is not dispatched yet");
+				const targetId = command.entryId ?? command.targetId;
+				if (typeof targetId !== "string" || targetId.length === 0) {
+					return error(id, command.type, "navigate_tree requires a non-empty entryId or targetId");
 				}
-				const result = await session.navigateTree(command.targetId, {
-					summarize: command.summarize,
-					customInstructions: command.customInstructions,
-					replaceInstructions: command.replaceInstructions,
-					label: command.label,
-				});
-				// The leaf the navigation left the session on, so one round trip resynchronizes a client.
-				return success(id, "navigate_tree", { ...result, leafId: session.sessionManager.getLeafId() });
+				try {
+					// Core owns the TUI selection rule, summaries, cancellation, and root reset.
+					// Pass the selected entry itself, not a client- or handler-computed parent.
+					const result = await session.navigateTree(targetId, {
+						summarize: command.summarize,
+						customInstructions: command.customInstructions,
+						replaceInstructions: command.replaceInstructions,
+						label: command.label,
+						expectedLeafId: command.expectedLeafId,
+					});
+					const leafId = session.sessionManager.getLeafId();
+					if (command.targetId !== undefined) {
+						return success(id, command.type, { ...result, leafId });
+					}
+					if (result.cancelled) {
+						return success(id, command.type, {
+							outcome: "cancelled",
+							leafId,
+							...(result.aborted ? { aborted: true } : {}),
+						});
+					}
+					return success(id, command.type, {
+						outcome: "navigated",
+						leafId,
+						...(result.editorText !== undefined ? { editorText: result.editorText } : {}),
+						...(result.summaryEntry ? { summaryEntryId: result.summaryEntry.id } : {}),
+					});
+				} catch (err) {
+					if (err instanceof AssistantEditError || err instanceof SessionStreamingError) {
+						return error(id, command.type, err.message, err.code);
+					}
+					throw err;
+				}
 			}
 
 			case "record_bash_result":
@@ -1537,6 +1563,53 @@ export function createRpcConnectionHandler(
 					});
 				} catch (err) {
 					if (err instanceof AssistantEditError || err instanceof SessionStreamingError) {
+						return error(id, command.type, err.message, err.code);
+					}
+					throw err;
+				}
+			}
+
+			case "edit_user_message": {
+				if (
+					typeof command.entryId !== "string" ||
+					command.entryId.length === 0 ||
+					typeof command.text !== "string"
+				) {
+					return error(id, command.type, "edit_user_message requires a non-empty entryId and a text string");
+				}
+				try {
+					const result = await session.editUserMessage(command.entryId, command.text, {
+						summarize: command.summarize,
+						customInstructions: command.customInstructions,
+						expectedLeafId: command.expectedLeafId,
+					});
+					const leafId = session.sessionManager.getLeafId();
+					if (result.unchanged) {
+						return success(id, command.type, { outcome: "unchanged", leafId });
+					}
+					if (result.cancelled) {
+						return success(id, command.type, {
+							outcome: "cancelled",
+							leafId,
+							...(result.aborted ? { aborted: true } : {}),
+						});
+					}
+					const entry = result.entryId ? session.sessionManager.getEntry(result.entryId) : undefined;
+					if (entry?.type !== "message" || leafId === null) {
+						return error(id, command.type, "Edited user entry was not persisted");
+					}
+					return success(id, command.type, {
+						outcome: "edited",
+						entry,
+						leafId,
+						...(result.summaryEntry ? { summaryEntryId: result.summaryEntry.id } : {}),
+					});
+				} catch (err) {
+					if (
+						err instanceof UserEditError ||
+						err instanceof AssistantEditError ||
+						err instanceof SessionStreamingError
+					) {
 						return error(id, command.type, err.message, err.code);
 					}
 					throw err;

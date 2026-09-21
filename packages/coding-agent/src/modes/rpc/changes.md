@@ -113,6 +113,40 @@ it right now. Pinned by `test/suite/regressions/1893-superseded-generation-drain
 supervisor, socket taken over with no signal) and `1893-generation-records-and-claims.test.ts`.
 
 ||||||| parent of e51eff445 (feat(rpc): type the user-message edit and tree navigation commands)
+||||||| parent of 1ab53e09e (feat(rpc): dispatch user-message edits and tree navigation)
+## 2026-09-21 - Dispatch user-message edits and entry-addressed tree selection
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts` dispatches `edit_user_message`
+  through the same session-owned binding as assistant edits. It projects edited, unchanged,
+  cancelled, and aborted results, maps core errors through their `.code` accessor, and includes
+  the current leaf on successes (`data.leafId`) and refusals (`errorData.leafId`).
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts` replaces the temporary `entryId`
+  refusal with core tree selection and its navigated/cancelled payload. Both addressing spellings
+  forward `expectedLeafId` unchanged; both/neither addressing remain errors. The legacy
+  `targetId` call and response shape remain intact.
+- Core selection chooses the parent of user/custom entries, including a null parent at the root.
+  Contrary to the earlier type entry's description, the shipped `targetId` path also applies that
+  rule; it is not a verbatim leaf move. `docs/rpc.md` corrects that claim and explains selection of
+  the current prompt after the core early-return fix. Tests preserve the real legacy response and
+  prove that both root and non-root prompt retries resubmit without duplicating the prompt.
+
+### Why
+
+`packages/coding-agent/src/modes/rpc/connection-handler.ts` must make the already-typed edit and
+selection operations reachable and let a stale client resynchronize without another request.
+
+### Why an extension could not handle it
+
+`packages/coding-agent/src/modes/rpc/connection-handler.ts` owns protocol dispatch and the routed
+session binding; an extension cannot implement these top-level command and error envelopes.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts`: message-edit cases, tree-navigation
+  dispatch, core error imports, and error response details.
+
 ## 2026-09-21 - `edit_user_message`, and `navigate_tree` addressed by `entryId`
 
 ### What changed

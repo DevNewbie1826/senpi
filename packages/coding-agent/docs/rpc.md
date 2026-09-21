@@ -1666,19 +1666,19 @@ Response:
 
 Other outcome: `{"outcome": "cancelled", "leafId": "...", "aborted": true}` when an extension cancelled the navigation or the summary was aborted. With a summary, `summaryEntryId` names the new `branch_summary` entry.
 
-**`targetId`: move the leaf verbatim.** The original spelling, kept for the TUI and every shipped client. No selection rule is applied: the leaf goes to exactly that node, whatever its kind. Answers the legacy payload.
+**`targetId`: select with the legacy response.** The original spelling, kept for the TUI and every shipped client. It applies the same selection rule as `entryId`: user/custom messages select their parent and return `editorText`, other entries select themselves, and the root user message resets the leaf to `null`. The difference is the response shape, not where selection moves the leaf: `targetId` answers the legacy payload, while `entryId` answers the richer `outcome`-tagged payload.
 
 ```json
-{"type": "navigate_tree", "targetId": "a1", "summarize": true}
+{"type": "navigate_tree", "targetId": "u2", "expectedLeafId": "a3"}
 ```
 
 Response:
 
 ```json
-{"type": "response", "command": "navigate_tree", "success": true, "data": {"cancelled": false, "leafId": "a1"}}
+{"type": "response", "command": "navigate_tree", "success": true, "data": {"cancelled": false, "leafId": "a1", "editorText": "Let's try approach A..."}}
 ```
 
-`editorText`, `aborted` and `summaryEntry` (the full `branch_summary` entry) appear on this shape when they apply. Navigating to the current leaf is a no-op that still answers `leafId`.
+`editorText`, `aborted` and `summaryEntry` (the full `branch_summary` entry) appear on this shape when they apply. With either spelling, selecting a user/custom message that is already the current leaf still moves to its parent and returns its text. In particular, retrying the most recent prompt removes it from the active context before resubmission; selecting a root prompt leaves an empty conversation.
 
 Options, common to both spellings:
 

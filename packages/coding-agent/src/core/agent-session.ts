@@ -9111,11 +9111,6 @@ export class AgentSession {
 		// Stale tokens fail even for a would-be no-op, before any extension hears about the navigation.
 		assertExpectedLeaf(options.expectedLeafId, oldLeafId);
 
-		// No-op if already at target (a replacement of the leaf itself still has work to do)
-		if (targetId === oldLeafId && !replacement) {
-			return { cancelled: false };
-		}
-
 		// Model required for summarization
 		if (options.summarize && !this.model) {
 			throw new Error("No model available for summarization");
