@@ -6,6 +6,8 @@
 
 ### Added
 
+- RPC clients can edit a user message in place. `edit_user_message` moves the session leaf to the prompt's parent and appends the edited prompt there as a new branch, the same thing `/tree` does when you select a prompt, except the text lands in the session instead of the editor. The original and every reply after it stay in the file; nothing is deleted and no turn starts. Images and other attachments on the original carry over. `navigate_tree` now also accepts `entryId`, which applies the `/tree` selection rule on the host (a user message selects its parent and returns `editorText`; the root prompt resets to an empty conversation) so a client never computes a parent id. Both commands take `expectedLeafId` and refuse with `stale_leaf` when another client moved the conversation first, and every response reports the resulting `leafId`. Documented under `docs/rpc.md`, with a test that fails when a new RPC command ships without a section there.
+
 ### Changed
 
 - Updated the bundled dependencies: @anthropic-ai/sdk 0.123.0 -> 0.127.0, @anthropic-ai/claude-agent-sdk 0.3.259 -> 0.3.278, @aws-sdk/client-bedrock-runtime 3.1127.0 -> 3.1136.0, @bufbuild/protobuf 2.14.0 -> 2.15.0, @smithy/types 4.17.2 -> 4.18.0, zod 4.4.3 -> 4.6.5, typebox 1.3.27 -> 1.3.34, ignore 7.0.8 -> 7.0.9, linkedom 0.18.12 -> 0.18.13, marked 18.0.11 -> 18.0.13, picomatch 4.0.5 -> 4.0.7, yaml 2.9.0 -> 2.9.1 and get-east-asian-width 1.6.0 -> 1.7.0. The transitive copies of fast-uri, hono, ip-address, qs, express-rate-limit, brace-expansion and undici carrying published advisories are pinned past them, so `npm audit` and `bun audit` both report nothing. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
