@@ -79,6 +79,7 @@ import {
 	type SessionCwdIssue,
 } from "./core/session-cwd.ts";
 import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
+import { collectSettingsDiagnosticsWithContext } from "./core/settings-diagnostics.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { shouldJoinSharedHost } from "./core/shared-host-policy.ts";
 import { printTimings, recordTiming, resetTimings, time } from "./core/timings.ts";
@@ -116,16 +117,6 @@ async function readPipedStdin(): Promise<string | undefined> {
 		});
 		process.stdin.resume();
 	});
-}
-
-function collectSettingsDiagnostics(
-	settingsManager: SettingsManager,
-	context: string,
-): AgentSessionRuntimeDiagnostic[] {
-	return settingsManager.drainErrors().map(({ scope, error }) => ({
-		type: "warning",
-		message: `(${context}, ${scope} settings) ${error.message}`,
-	}));
 }
 
 function collectAuthDiagnostics(authStorage: AuthStorage, context: string): AgentSessionRuntimeDiagnostic[] {
@@ -743,7 +734,15 @@ export function createCliRuntimeFactory(
 	const resolvedSkillPaths = resolveCliPaths(cwd, parsed.skills);
 	const resolvedPromptTemplatePaths = resolveCliPaths(cwd, parsed.promptTemplates);
 	const resolvedThemePaths = resolveCliPaths(cwd, parsed.themes);
-	return async ({ cwd, agentDir, sessionManager, sessionStartEvent, projectTrustContext, launchProfile }) => {
+	return async ({
+		cwd,
+		agentDir,
+		sessionManager,
+		sessionStartEvent,
+		projectTrustContext,
+		launchProfile,
+		mcpRegistry,
+	}) => {
 		const isInitialRuntime = sessionStartEvent === undefined;
 		const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];
 		const cachedProjectTrust = projectTrustByCwd.get(cwd);
@@ -761,6 +760,7 @@ export function createCliRuntimeFactory(
 			agentDir,
 			settingsManager: runtimeSettingsManager,
 			...(local.modelRuntime === undefined ? {} : { modelRuntime: local.modelRuntime }),
+			mcpRegistry,
 			modelRuntimeSignal: AbortSignal.timeout(15_000),
 			extensionFlagValues: parsed.unknownFlags,
 			resourceLoaderReloadOptions: shouldResolveProjectTrust
@@ -818,7 +818,7 @@ export function createCliRuntimeFactory(
 		const diagnostics: AgentSessionRuntimeDiagnostic[] = [
 			...projectTrustDiagnostics,
 			...services.diagnostics,
-			...collectSettingsDiagnostics(settingsManager, "runtime creation"),
+			...collectSettingsDiagnosticsWithContext(settingsManager, "runtime creation"),
 			...collectExtensionLoadDiagnostics(resourceLoader.getExtensions().errors),
 		];
 
@@ -1031,7 +1031,7 @@ export async function main(args: string[], options?: MainOptions) {
 	time("runMigrations");
 
 	const startupSettingsManager = SettingsManager.create(cwd, agentDir);
-	reportDiagnostics(collectSettingsDiagnostics(startupSettingsManager, "startup session lookup"));
+	reportDiagnostics(collectSettingsDiagnosticsWithContext(startupSettingsManager, "startup session lookup"));
 	const resolvedExtensionPaths = resolveCliPaths(cwd, parsed.extensions);
 	const resolvedSkillPaths = resolveCliPaths(cwd, parsed.skills);
 	const resolvedPromptTemplatePaths = resolveCliPaths(cwd, parsed.promptTemplates);
@@ -1084,7 +1084,7 @@ export async function main(args: string[], options?: MainOptions) {
 		});
 		reportDiagnostics([
 			...services.diagnostics,
-			...collectSettingsDiagnostics(services.settingsManager, "model listing"),
+			...collectSettingsDiagnosticsWithContext(services.settingsManager, "model listing"),
 			...collectAuthDiagnostics(services.authStorage, "model listing"),
 		]);
 		const searchPattern = typeof parsed.listModels === "string" ? parsed.listModels : undefined;

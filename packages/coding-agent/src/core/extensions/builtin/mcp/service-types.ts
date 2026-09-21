@@ -4,6 +4,7 @@ import type { McpCachedServerCatalog } from "./catalog-cache.ts";
 import type { ResolvedMcpServer } from "./config-schema.ts";
 import type { ServerConnection, ServerConnectionState } from "./connection.ts";
 import type { McpOutputArtifacts } from "./guard/output-guard.ts";
+import type { HostMcpRegistry } from "./host-registry.ts";
 import type { McpLogger } from "./log.ts";
 
 export type McpDisposeReason = Extract<SessionShutdownEvent["reason"], "quit" | "reload">;
@@ -99,6 +100,7 @@ export type McpSessionContext = Pick<ExtensionContext, "cwd" | "isProjectTrusted
 };
 
 export interface McpSessionOptions {
+	readonly mcpRegistry?: HostMcpRegistry;
 	readonly agentDir?: string;
 	readonly env?: Record<string, string | undefined>;
 	readonly logDir?: string;

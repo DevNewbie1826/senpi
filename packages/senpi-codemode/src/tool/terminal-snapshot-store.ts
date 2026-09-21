@@ -29,6 +29,10 @@ export class TerminalSnapshotStore {
 		this.#snapshots.delete(cellId);
 	}
 
+	list(): readonly EvalDetachedCellSnapshot[] {
+		return [...this.#snapshots.values()];
+	}
+
 	clear(): void {
 		this.#snapshots.clear();
 	}

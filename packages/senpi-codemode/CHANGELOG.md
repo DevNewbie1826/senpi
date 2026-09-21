@@ -6,6 +6,21 @@
 
 ### Added
 
+- `eval` runs up to `maxDetachedCells` background cells per session (default 15, `SENPI_CODEMODE_MAX_DETACHED_CELLS`) and queues same-language cells on their kernel instead of rejecting them; `list` observes live and recent cells, and resetting a busy language refuses with `eval_kernel_busy_reset_refused` instead of stopping live work. ([#1908](https://github.com/code-yeongyu/senpi/issues/1908))
+- `agent()` forwards `isolated`, `apply`, and `merge` when the task host advertises isolation. Hosts that do not still drop those options with the existing warning. A foreground call whose isolation did not apply now raises instead of looking successful; with `handle: true` the isolation result arrives on completion. ([#1910](https://github.com/code-yeongyu/senpi/issues/1910))
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [2026.9.21-2] - 2026-09-21
+
+### Breaking Changes
+
+### Added
+
 ### Changed
 
 ### Fixed

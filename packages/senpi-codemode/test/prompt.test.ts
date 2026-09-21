@@ -96,13 +96,13 @@ describe("buildEvalPrompt", () => {
 		}
 	});
 
-	it("documents detachment, busy-kernel discipline, and the detached-cell controls", () => {
+	it("documents detachment, queued-cell discipline, and the detached-cell controls", () => {
 		const prompt = fullPrompt({ py: true, js: true, rb: false, jl: false });
 
 		expect(prompt).toContain("outlives the foreground window detaches");
-		expect(prompt).toContain('eval({ action: "peek", cell_id })');
-		expect(prompt).toContain('eval({ action: "stop", cell_id })');
-		expect(prompt).toContain("Do not re-run a detached cell");
+		expect(prompt).toContain('eval({ action: "peek" | "stop", cell_id })');
+		expect(prompt).toContain('eval({ action: "list" })');
+		expect(prompt).toContain("Do not re-run a detached or queued cell");
 	});
 
 	it("teaches output() as an immediate status or transcript read", () => {

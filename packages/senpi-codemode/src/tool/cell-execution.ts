@@ -37,10 +37,12 @@ const NO_WATCHDOG: TimeoutPauseHandle & { dispose(): void } = {
 
 export class CellExecution {
 	readonly #callerSignal: AbortSignal;
+	readonly #cellId: string;
 	readonly #onAbort: (error: Error) => void;
 	readonly #abortPromise: Promise<never>;
 	readonly #detachedPromise: Promise<void>;
-	readonly #watchdog: TimeoutPauseHandle & { dispose(): void };
+	readonly #timeoutFactory: EvalTimeoutFactory;
+	#watchdog: TimeoutPauseHandle & { dispose(): void };
 	#rejectAbort: ((reason?: unknown) => void) | undefined;
 	#resolveDetached: (() => void) | undefined;
 	#kernel: EvalKernel | undefined;
@@ -48,7 +50,9 @@ export class CellExecution {
 	#active = true;
 
 	constructor(options: CellExecutionOptions) {
+		this.#timeoutFactory = options.timeoutFactory;
 		this.#callerSignal = options.callerSignal;
+		this.#cellId = options.cellId;
 		this.#onAbort = options.onAbort;
 		this.#abortPromise = new Promise<never>((_resolve, reject) => {
 			this.#rejectAbort = reject;
@@ -64,6 +68,7 @@ export class CellExecution {
 						cellId: options.cellId,
 						timeoutMs: idle.timeoutMs,
 						maxPauseGraceMs: idle.maxPauseGraceMs,
+						deadlineMs: Date.now() + idle.maxPauseGraceMs,
 						onTimeout: ({ error }) => idle.onTimeout(error),
 					});
 		this.#callerSignal.addEventListener("abort", this.#handleCallerAbort, {
@@ -81,6 +86,18 @@ export class CellExecution {
 
 	resume(): void {
 		this.#watchdog.resume();
+	}
+
+	/** One final submission-window wait after background admission was refused; pauses cannot extend it. */
+	rearmIdle(timeoutMs: number, onTimeout: () => void): void {
+		this.#watchdog.dispose();
+		this.#watchdog = this.#timeoutFactory.create({
+			cellId: this.#cellId,
+			timeoutMs,
+			maxPauseGraceMs: timeoutMs,
+			deadlineMs: Date.now() + timeoutMs,
+			onTimeout,
+		});
 	}
 
 	setKernel(kernel: EvalKernel): void {
@@ -130,7 +147,7 @@ export class CellExecution {
 			return;
 		}
 		this.#interruptDeadline = setTimeout(() => this.#settleAbort(error), INTERRUPT_DELIVERY_GRACE_MS);
-		const handle = Promise.resolve().then(async () => await kernel.interrupt(error.message));
+		const handle = Promise.resolve().then(async () => await kernel.interrupt(error.message, this.#cellId));
 		this.interruptHandle = handle;
 		void handle.then(
 			() => this.#settleAbort(error),

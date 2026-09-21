@@ -135,6 +135,64 @@ for (const language of languages) {
 			}
 		});
 
+		// senpi#1910: exercise the real JS and HTTP reserved bridges, including Python string modes.
+		it.each(["patch", "branch"])("forwards isolation merge mode %s through agent()", async (merge) => {
+			const calls: unknown[] = [];
+			const f = await fixture(
+				async (_name, args) => {
+					calls.push(args);
+					return hostResult({ isolation: { changes_applied: true } });
+				},
+				() => [{ name: "task", parameters: { properties: { isolated: { type: "boolean" } } } }],
+			);
+			const code = {
+				js: `await agent('fixture', { isolated: true, apply: false, merge: '${merge}' });`,
+				py: `agent('fixture', isolated=True, apply=False, merge='${merge}')`,
+				rb: `agent('fixture', isolated: true, apply: false, merge: '${merge}')`,
+				jl: `agent("fixture", isolated=true, apply=false, merge="${merge}")`,
+			};
+			try {
+				const result = await f.run(language, code[language]);
+				expect(toolResultIsError(result), JSON.stringify(result)).toBe(false);
+				expect(calls).toEqual([
+					expect.objectContaining({ isolated: true, apply: false, merge, run_in_background: false }),
+				]);
+			} finally {
+				await f.manager.dispose();
+			}
+		});
+
+		it("keeps isolation failure machine-readable across the transport", async () => {
+			const f = await fixture(async () =>
+				hostResult({ isolation: { changes_applied: false, patch_path: "/artifacts/task.patch" } }),
+			);
+			const code = {
+				js: "await agent('fixture');",
+				py: "agent('fixture')",
+				rb: "agent('fixture')",
+				jl: 'agent("fixture")',
+			};
+			try {
+				const result = await f.run(language, catchCode(language, code[language]));
+				expect(result.details.jsonOutputs, JSON.stringify(result)).toEqual([{ code: "isolation_not_applied" }]);
+			} finally {
+				await f.manager.dispose();
+			}
+		});
+
+		it("preserves optional host isolation on handles without waiting for completion", async () => {
+			const isolation = { changes_applied: false, patch_path: "/artifacts/task.patch" };
+			const f = await fixture(async () => hostResult({ task_id: "st_abcdef", run_epoch: 2, isolation }));
+			try {
+				const result = await f.run(language, handle[language]);
+				expect(result.details.jsonOutputs, JSON.stringify(result)).toEqual([
+					expect.objectContaining({ id: "st_abcdef", run_epoch: 2, details: { isolation } }),
+				]);
+			} finally {
+				await f.manager.dispose();
+			}
+		});
+
 		it("keeps invalid_task_handle machine-readable across the transport", async () => {
 			const f = await fixture(async () => hostResult({ task_id: "st_abcdef" }));
 			try {

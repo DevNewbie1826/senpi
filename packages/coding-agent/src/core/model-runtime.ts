@@ -59,8 +59,10 @@ import {
 	resolveConfiguredModelHeaders,
 	validateExtensionProvider,
 } from "./provider-composer.ts";
+import { createProviderSemaphores } from "./provider-concurrency.ts";
 import { remoteCatalogServesProvider, withRemoteCatalog } from "./remote-catalog-provider.ts";
 import { RuntimeCredentials } from "./runtime-credentials.ts";
+import type { SettingsManager } from "./settings-manager.ts";
 
 // The product's identity must ride outgoing requests. This lives here because the AI package
 // is already part of this module's graph; the CLI bootstrap deliberately does not import it.
@@ -75,6 +77,7 @@ interface ModelRuntimeSnapshot {
 }
 
 export interface CreateModelRuntimeOptions {
+	settingsManager?: SettingsManager;
 	/** Credential storage. Defaults to the file at authPath. */
 	credentials?: CredentialStore;
 	authPath?: string;
@@ -176,6 +179,25 @@ function withPayloadRequestMetadata(options: StreamOptions, model: Model<Api>): 
 
 /** Configured pi-ai Models collection used by coding-agent and SDK consumers. */
 export class ModelRuntime implements Models {
+	private settingsManager: SettingsManager | undefined;
+	private unsubscribeProviderSettings: (() => void) | undefined;
+	private readonly providerSemaphores = createProviderSemaphores(
+		(providerId) => this.settingsManager?.getProviderConcurrencyLimit(providerId) ?? Infinity,
+	);
+
+	setSettingsManager(settingsManager: SettingsManager): void {
+		if (this.settingsManager === settingsManager) return;
+		this.unsubscribeProviderSettings?.();
+		this.settingsManager = settingsManager;
+		const resize = () => {
+			for (const provider of this.getProviders()) {
+				this.providerSemaphores.resize(provider.id, settingsManager.getProviderConcurrencyLimit(provider.id));
+			}
+		};
+		this.unsubscribeProviderSettings = settingsManager.subscribeToProviderSettings(resize);
+		resize();
+	}
+
 	private readonly models: MutableModels;
 	private readonly credentials: RuntimeCredentials;
 	private readonly defaultBuiltins: ReadonlyMap<string, Provider>;
@@ -268,6 +290,7 @@ export class ModelRuntime implements Models {
 					: undefined,
 		);
 		runtime.rebuildProviders();
+		if (options.settingsManager) runtime.setSettingsManager(options.settingsManager);
 		const refreshFromNetwork = runtime.modelNetworkEnabled && options.allowModelNetwork === true;
 		const controller =
 			refreshFromNetwork && options.modelRefreshTimeoutMs !== undefined ? new AbortController() : undefined;
@@ -320,6 +343,7 @@ export class ModelRuntime implements Models {
 					: undefined,
 		);
 		runtime.rebuildProviders();
+		if (options.settingsManager) runtime.setSettingsManager(options.settingsManager);
 		return runtime;
 	}
 
@@ -847,20 +871,27 @@ export class ModelRuntime implements Models {
 									}
 								: { slotName: slot.name },
 						);
-						const attempt = prepared.provider.stream(
-							prepared.model as Model<TApi>,
-							context,
-							withPayloadRequestMetadata(prepared.options, prepared.model) as ApiStreamOptions<TApi>,
+						const attempt = await this.providerSemaphores.bracket(
+							prepared.model.provider,
+							prepared.options.signal,
+							() =>
+								prepared.provider.stream(
+									prepared.model as Model<TApi>,
+									context,
+									withPayloadRequestMetadata(prepared.options, prepared.model) as ApiStreamOptions<TApi>,
+								),
 						);
 						return wrapStreamWithModelRecovery(attempt, model, context.tools ?? []);
 					},
 				});
 			}
 			const prepared = await this.prepareRequest(model, streamOptions);
-			const inner = prepared.provider.stream(
-				prepared.model as Model<TApi>,
-				context,
-				withPayloadRequestMetadata(prepared.options, prepared.model) as ApiStreamOptions<TApi>,
+			const inner = await this.providerSemaphores.bracket(prepared.model.provider, prepared.options.signal, () =>
+				prepared.provider.stream(
+					prepared.model as Model<TApi>,
+					context,
+					withPayloadRequestMetadata(prepared.options, prepared.model) as ApiStreamOptions<TApi>,
+				),
 			);
 			return wrapStreamWithModelRecovery(inner, model, context.tools ?? []);
 		});
@@ -890,10 +921,12 @@ export class ModelRuntime implements Models {
 							slot.lane === "env" ? { apiKey: slot.envKey } : { slotName: slot.name },
 						);
 						return wrapStreamWithModelRecovery(
-							prepared.provider.streamSimple(
-								prepared.model,
-								context,
-								withPayloadRequestMetadata(prepared.options, prepared.model) as SimpleStreamOptions,
+							await this.providerSemaphores.bracket(prepared.model.provider, prepared.options.signal, () =>
+								prepared.provider.streamSimple(
+									prepared.model,
+									context,
+									withPayloadRequestMetadata(prepared.options, prepared.model) as SimpleStreamOptions,
+								),
 							),
 							model,
 							context.tools ?? [],
@@ -902,10 +935,12 @@ export class ModelRuntime implements Models {
 				});
 			}
 			const prepared = await this.prepareRequest(model, options);
-			const inner = prepared.provider.streamSimple(
-				prepared.model,
-				context,
-				withPayloadRequestMetadata(prepared.options, prepared.model) as SimpleStreamOptions,
+			const inner = await this.providerSemaphores.bracket(prepared.model.provider, prepared.options.signal, () =>
+				prepared.provider.streamSimple(
+					prepared.model,
+					context,
+					withPayloadRequestMetadata(prepared.options, prepared.model) as SimpleStreamOptions,
+				),
 			);
 			return wrapStreamWithModelRecovery(inner, model, context.tools ?? []);
 		});

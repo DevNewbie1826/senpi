@@ -1,5 +1,41 @@
 # Local fork changes
 
+## 2026-09-21 - Take es-module-lexer 3 (senpi#1895)
+
+### What changed
+
+- `packages/coding-agent/package.json`: `es-module-lexer` 2.1.0 -> 3.0.2, with `package-lock.json`, `bun.lock`, the coding-agent install-lock and `publish-deps.lock.json` regenerated the repository way.
+
+### Why
+
+- 3.x is the maintained line (Node 18+, SIMD scanning, eval-free string decoding so the Wasm builds run under `--disallow-code-generation-from-strings`, TypeScript type-only edge lexing). The importer adaptation lives in `src/core/extensions/changes.md`.
+
+### Why an extension could not handle it
+
+- Dependency pins are resolved by the package manager and the publish pipeline, never by the runtime extension system.
+
+### Expected merge conflict zones
+
+- LOW: the dependency version block.
+
+## 2026-09-21 - Migrate the test runner to Vitest 5 (senpi#1895)
+
+### What changed
+
+- `packages/coding-agent/package.json`: Updated the test runner to Vitest 5.0.1.
+
+### Why
+
+- Run this workspace on the pinned Vitest 5 release.
+
+### Why an extension could not handle it
+
+- The package manager resolves development tools before extensions load.
+
+### Expected merge conflict zones
+
+- The development dependency pins in `packages/coding-agent/package.json`.
+
 ## 2026-09-21 - Refresh the CLI dependency pins (senpi#1895)
 
 ### What changed

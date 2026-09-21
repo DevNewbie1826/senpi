@@ -1,5 +1,23 @@
 # senpi-codemode fork changes
 
+## 2026-09-21 - Remove write-only Python prelude session state
+
+### What changed
+
+- `packages/senpi-codemode/src/kernels/py/prelude.py`: remove the unused `SESSION_ID` initializer, global declaration and init-frame assignment.
+
+### Why
+
+- `packages/senpi-codemode/src/kernels/py/prelude.py`: the internal variable had no readers in the package or its tests and was not exposed in the cell namespace. The init frame and `PI_SESSION_ID` environment contract remain unchanged.
+
+### Why an extension could not handle it
+
+- `packages/senpi-codemode/src/kernels/py/prelude.py`: the write-only state belongs to the embedded runner, so its removal is internal to that asset.
+
+### Expected merge conflict zones
+
+- LOW: `packages/senpi-codemode/src/kernels/py/prelude.py`, module globals and the init branch of `handle`.
+
 
 ## 2026-09-21 - Busy py kernel retires when its host died before boot finished (senpi#1659)
 
@@ -20,6 +38,111 @@ The host pid must be present in the kernel's environment at spawn time and the w
 ### Expected merge conflict zones
 
 - LOW: `src/kernels/py/prelude.py` (`_watch_parent`/`_start_parent_watch` region), `src/kernels/py/process.ts` (`defaultSpawn`), `test/py-kernel-parent-watchdog.test.ts` (new file).
+
+## 2026-09-21 - Forward agent isolation options to capable task hosts (senpi#1910)
+
+### What changed
+
+- `src/bridges/agent-bridge.ts` probes the configured task schema once per bridge via the existing host catalog, forwards advertised `isolated`/`apply`/`merge` options, normalizes boolean merge aliases, and preserves the unsupported-host warning. Foreground unapplied isolation raises `AgentIsolationNotAppliedError` with recovery fields; host isolation metadata is preserved, including on immediate handles.
+- `src/bridges/reserved-dispatch.ts` passes the same catalog used by `tool_schema()` to the agent bridge for JS and HTTP transports.
+- `src/kernels/js/worker-runtime.js`, `src/kernels/py/prelude.py`, `src/kernels/rb/prelude.rb`, and `src/kernels/jl/prelude.jl` preserve optional handle isolation details; Python no longer coerces string merge modes to booleans.
+- `src/kernels/js/prelude.ts`, the Python/Ruby/Julia prelude docs, `src/prompt/eval-prompt-template.ts`, and `README.md` document capability gating, merge aliases, foreground errors, and waiting for background completion.
+- `test/agent-bridge.test.ts` and `test/workpool-prelude.test.ts` cover bridge contracts and real-language transports; the existing prompt snapshot follows the updated shipped helper documentation.
+
+### Why
+
+- Capable task engines must receive the requested isolation controls instead of silently dropping them; unapplied foreground changes must not appear successful.
+
+### Why an extension could not handle it
+
+- This extension owns the reserved agent bridge and language adapters. Isolation execution remains entirely in the host task engine; no orchestration dependency or task-handle schema change is introduced.
+
+### Expected merge conflict zones
+
+- LOW: agent option/result mapping, reserved dispatch catalog forwarding, and the four language helper adapters and docs.
+
+## 2026-09-21 - Configurable detached capacity and multi-job QA (senpi#1908)
+
+### What changed
+
+- `src/config/settings.ts` accepts the numeric `maxDetachedCells` setting (default 15) and resolves `SENPI_CODEMODE_MAX_DETACHED_CELLS` with the run-budget parser. `src/index.ts` and `src/tool/eval-tool.ts` share that resolver; the manager's cap also supplies `buildEvalPrompt`.
+- README and package/kernel/tool guides describe queued same-language execution on one kernel, the global cap, `list`, and `eval_kernel_busy_reset_refused`.
+- `test/config.test.ts` and `test/extension.test.ts` exercise file/default/environment admission and registration; `scripts/qa/eval-multi-job.ts` records a real session with JS/Python barriers, queued cancellation, reset refusal, completion notices and cleanup.
+- `src/tool/eval-kernel-reset-refused-error.ts` includes its stable code in the refusal message, preserving the identifier when the session serializes thrown errors as text.
+
+### Why
+
+- File and environment settings must control both the advertised cap and actual admission after registration.
+
+### Why an extension could not handle it
+
+- This extension owns settings resolution, manager construction, and the eval prompt.
+
+### Expected merge conflict zones
+
+- LOW: settings schema/resolvers, manager creation, and README settings table.
+
+## 2026-09-21 - Eval list and busy-kernel reset refusal (senpi#1908)
+
+### What changed
+
+- `src/tool/{types,eval-request,eval-tool,eval-tool-options,detached-eval-result,render}.ts` accept and render list controls with typed, cross-language live/recent metadata, without touching notifications. Peek/stop schema validation requires a nonempty cell id.
+- `src/tool/{detached-cell-contract,detached-cell-snapshot}.ts` retain submission timestamps and reset-refusal error codes in terminal snapshots.
+- `src/tool/{run-eval-cell,eval-kernel-reset-refused-error}.ts` reject busy-language resets, excluding the requesting queued cell, without resetting or stopping existing work.
+- `src/prompt/eval-prompt-template.ts`, its shipped-copy snapshot, and README explain list observation and reset refusal. `test/eval-list-and-reset.test.ts` covers schema, execution, listing, notification preservation, reset refusal and recovery.
+
+### Why
+
+- Callers need a session-wide view of eval work and must not erase state used by another live cell.
+
+### Why an extension could not handle it
+
+- This extension owns the schema, cell registry, reset boundary, and renderer.
+
+### Expected merge conflict zones
+
+- MEDIUM: eval tool schema/execute overloads, detached snapshots/results, reset boundary, and prompt sentence.
+
+## 2026-09-21 - Foreground capacity window and queued eval guidance (senpi#1908)
+
+### What changed
+
+- `src/tool/run-eval-cell.ts`, `cell-execution.ts`, and `src/timeouts/idle-timeout.ts` re-arm one submission-bound foreground wait after a refused detach. Bridge pauses cannot extend that deadline; shorter at-cap cells complete normally.
+- `src/tool/detached-eval-result.ts`, `detached-cell-manager.ts`, and `types.ts` return a typed capacity cancellation, preserve queued-detached status, and report live-cell counts and queue predecessors. `cell-runtime.ts` emits queued progress.
+- `src/tool/eval-tool.ts`, `src/prompt/{eval-prompt,eval-prompt-template}.ts`, and `src/extension/eval-status.ts` thread the configured cap into model guidance and show a queued marker rather than a fabricated elapsed time. README and the eval prompt snapshot follow the new contract.
+- `test/eval-detach.test.ts`, `eval-steering-detach.test.ts`, and `eval-status-queued.test.ts` cover FIFO notifications, the 30/45/60-second cap window, targeted cancellation, bridge pauses, acquisition, and steering without cancellation.
+
+### Why
+
+- Reaching background capacity must neither reject short work nor block the turn beyond its foreground window. Queued work needs clear non-retry guidance and must not look like executing work.
+
+### Why an extension could not handle it
+
+- This extension owns foreground execution, watchdog cleanup, detached settlement, and the model-facing tool contract.
+
+### Expected merge conflict zones
+
+- MEDIUM: run-eval-cell, CellExecution watchdog, detached result conversion, eval prompt sentence and snapshot.
+
+## 2026-09-21 - Capped detached set and queued kernel admission (senpi#1908)
+
+### What changed
+
+- `src/tool/detached-cell-{manager,contract,state,snapshot,status}.ts`, `managed-cell.ts`, and `terminal-snapshot-store.ts` track queued/running execution separately from detachment, cap detached cells globally, list live/recent cells, and dequeue queued stops without interrupting active work.
+- `src/tool/{eval-tool,eval-tool-options,run-eval-cell,cell-runtime,detached-eval-result,eval-execution-event,types,render}.ts` admit same-language work, bind per-run callbacks, start budgets on kernel activation, expose `queued_ms` and queue predecessors, and render queued state.
+- `src/config/settings.ts`, `src/index.ts`, `src/extension/eval-status.ts`, and `src/prompt/eval-prompt-template.ts` wire the default-15 cap and document submission-time hard limits versus execution-time budgets.
+
+### Why
+
+- Detached cells must not reject subsequent same-language work or consume its budget while it waits. Cell-specific callbacks prevent a later submission from stealing earlier output.
+
+### Why an extension could not handle it
+
+- The extension owns this cell state machine, kernel admission boundary, and renderer contract.
+
+### Expected merge conflict zones
+
+- MEDIUM: detached-cell manager, run-eval-cell, result/status rendering, and deadline fixtures.
 
 ## 2026-09-17 - Reject cell declarations that would replace kernel globals (senpi#1784)
 

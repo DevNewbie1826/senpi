@@ -84,18 +84,20 @@ export async function createFixture(collision = false) {
 			throw new Error("Paid completion is forbidden in this fixture");
 		},
 	});
-	const getKernel = kernelManager.getKernel.bind(kernelManager);
-	kernelManager.getKernel = (language, onMessage) =>
-		getKernel(language, (message) => {
-			if (message.type === "status" && message.event.op === "timeout-pause") pauses++;
-			onMessage(message);
-		});
 	const kernel = await kernelManager.getKernel("js", () => {});
 	assert(kernel instanceof JavaScriptKernel);
+	const run = kernel.run.bind(kernel);
+	kernel.run = (input) => run({
+		...input,
+		onMessage: (message) => {
+			if (message.type === "status" && message.event.op === "timeout-pause") pauses++;
+			input.onMessage?.(message);
+		},
+	});
 	const interrupt = kernel.interrupt.bind(kernel);
-	kernel.interrupt = async (reason) => {
+	kernel.interrupt = async (reason, cellId) => {
 		interrupts++;
-		return await interrupt(reason);
+		return await interrupt(reason, cellId);
 	};
 	// Register with the real extension loader, then construct a session owning those registrations.
 	real = await createHarness({
@@ -148,7 +150,8 @@ export async function createFixture(collision = false) {
 						const result = await tool.execute(id, args, signal, update, context);
 						if (id === activeCellId) {
 							events.push({ event: "foreground_result", result });
-							foreground.resolve(result);
+							assert(!("action" in result.details), "foreground bridge execution must return run details");
+							foreground.resolve({ ...result, details: result.details });
 						}
 						return result;
 					},

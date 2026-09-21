@@ -3,6 +3,7 @@ import { basename, join, parse, resolve } from "node:path";
 import { resolvePath } from "../utils/paths.ts";
 import type { AgentSession } from "./agent-session.ts";
 import type { AgentSessionRuntimeDiagnostic, AgentSessionServices } from "./agent-session-services.ts";
+import type { HostMcpRegistry } from "./extensions/builtin/mcp/host-registry.ts";
 import type {
 	ProjectTrustContext,
 	ReplacedSessionContext,
@@ -59,6 +60,7 @@ export interface AgentSessionLaunchProfile {
 export type CreateAgentSessionRuntimeFactory = (options: {
 	cwd: string;
 	agentDir: string;
+	mcpRegistry?: HostMcpRegistry;
 	sessionManager: SessionManager;
 	sessionStartEvent?: SessionStartEvent;
 	projectTrustContext?: ProjectTrustContext;

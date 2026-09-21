@@ -28,8 +28,8 @@ runner/prelude assets).
   AST-parsed (Babel) and rewritten to bridge-compatible dynamic imports.
 - JS runs on worker threads with an inline-worker fallback; py/rb/jl run as
   framed subprocesses through `shared/`.
-- Subprocess retirement/restart, worker recovery, timeout, and interrupt
-  semantics live here, never in the tool layer.
+- Each language keeps one serial FIFO kernel. Queued cancellation removes only
+  that cell; active interruption and runtime recovery stay in the kernel layer.
 - Every kernel exposes the active session's `PI_*` environment (`session-env.ts`):
   inherited values are deleted before the session's values are applied, so any
   child spawned from a cell sees the same session environment a bash-tool child

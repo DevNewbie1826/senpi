@@ -1,8 +1,13 @@
-import type { ToolDefinition } from "@code-yeongyu/senpi";
-import { DEFAULT_FOREGROUND_WINDOW_SECONDS } from "../config/settings.ts";
+import type { AgentToolResult, ToolDefinition } from "@code-yeongyu/senpi";
+import type { TUnsafe } from "typebox";
+import {
+	DEFAULT_FOREGROUND_WINDOW_SECONDS,
+	defaultCodemodeSettings,
+	resolveMaxDetachedCells,
+} from "../config/settings.ts";
 import { buildEvalPrompt } from "../prompt/eval-prompt.ts";
 import { EvalDetachedCellManager } from "./detached-cell-manager.ts";
-import { detachedKernelBusyError, executeEvalControl } from "./detached-eval-result.ts";
+import { executeEvalControl } from "./detached-eval-result.ts";
 import { clampEvalSummary, isEvalControlRequest, parseEvalRequest } from "./eval-request.ts";
 import type { CreateEvalToolOptions } from "./eval-tool-options.ts";
 import { runEvalCell } from "./run-eval-cell.ts";
@@ -10,6 +15,9 @@ import {
 	createEvalInputSchema,
 	defaultEvalDeadlineSeconds,
 	type EvalInputSchema,
+	type EvalListDetails,
+	type EvalListInput,
+	type EvalResultDetails,
 	type EvalToolDetails,
 	type EvalToolRequest,
 	enabledLanguageList,
@@ -19,8 +27,16 @@ export type { EvalTimeoutFactory } from "./cell-execution.ts";
 export type { CreateEvalToolOptions } from "./eval-tool-options.ts";
 export type { EnabledEvalLanguages, EvalKernel, EvalKernelManager } from "./types.ts";
 
-export function createEvalTool(options: CreateEvalToolOptions): ToolDefinition<EvalInputSchema, EvalToolDetails> {
+type EvalExecuteArgs<Request extends EvalToolRequest> = Parameters<
+	ToolDefinition<TUnsafe<Request>, EvalToolDetails>["execute"]
+>;
+
+export function createEvalTool(options: CreateEvalToolOptions) {
 	const foregroundWindowSeconds = options.foregroundWindowSeconds ?? DEFAULT_FOREGROUND_WINDOW_SECONDS;
+	const maxDetachedCells =
+		options.cellManager?.maxDetachedCells ??
+		options.maxDetachedCells ??
+		resolveMaxDetachedCells(options.settings ?? defaultCodemodeSettings);
 	const deadlines = {
 		runBudgetSeconds: options.runBudgetSeconds ?? defaultEvalDeadlineSeconds.runBudgetSeconds,
 		detachAfterSeconds: Math.min(options.cellTimeoutSeconds, foregroundWindowSeconds),
@@ -31,6 +47,7 @@ export function createEvalTool(options: CreateEvalToolOptions): ToolDefinition<E
 	const prompt = buildEvalPrompt(options.enabledLanguages, {
 		spawns: options.spawns ?? false,
 		monitor: options.monitor,
+		maxDetachedCells,
 		runBudgetSeconds: deadlines.runBudgetSeconds,
 		...(options.spawnDefaultAgent === undefined ? {} : { spawnDefaultAgent: options.spawnDefaultAgent }),
 		...(options.modelId === undefined ? {} : { modelId: options.modelId }),
@@ -42,10 +59,43 @@ export function createEvalTool(options: CreateEvalToolOptions): ToolDefinition<E
 	const cellManager =
 		options.cellManager ??
 		new EvalDetachedCellManager({
+			maxDetachedCells,
 			...(options.artifactsDir === undefined ? {} : { artifactsDir: options.artifactsDir }),
 			...(options.hardLimitSeconds === undefined ? {} : { hardLimitSeconds: options.hardLimitSeconds }),
 			...(options.runBudgetSeconds === undefined ? {} : { runBudgetSeconds: options.runBudgetSeconds }),
 		});
+	// Keep run/peek/stop results typed as execution details; list has no single language or output cell.
+	function execute(
+		...args: EvalExecuteArgs<Exclude<EvalToolRequest, EvalListInput>>
+	): Promise<AgentToolResult<EvalToolDetails>>;
+	function execute(...args: EvalExecuteArgs<EvalListInput>): Promise<AgentToolResult<EvalListDetails>>;
+	function execute(...args: EvalExecuteArgs<EvalToolRequest>): Promise<AgentToolResult<EvalResultDetails>>;
+	async function execute(
+		...[toolCallId, params, signal, onUpdate, ctx]: EvalExecuteArgs<EvalToolRequest>
+	): Promise<AgentToolResult<EvalResultDetails>> {
+		const request = parseEvalRequest(params);
+		if (isEvalControlRequest(request)) return await executeEvalControl(cellManager, request);
+		if (options.proxyExecutor) return await options.proxyExecutor(request, signal);
+		if (!languages.includes(request.language))
+			throw new RangeError(
+				`Unsupported eval language "${request.language}". Enabled languages: ${languages.join(", ")}`,
+			);
+		options.executionTracker?.assertEvalExecutionAllowed();
+		const lifecycleController = new AbortController();
+		const combinedSignal = signal
+			? AbortSignal.any([signal, lifecycleController.signal])
+			: lifecycleController.signal;
+		const execution = runEvalCell(options, cellManager, {
+			cellId: toolCallId,
+			input: request,
+			signal: combinedSignal,
+			onUpdate,
+			ctx,
+		});
+		return options.executionTracker
+			? await options.executionTracker.trackEvalExecution(execution, lifecycleController)
+			: await execution;
+	}
 	return {
 		name: "eval",
 		label: "Eval",
@@ -57,7 +107,8 @@ export function createEvalTool(options: CreateEvalToolOptions): ToolDefinition<E
 		prepareArguments: (args) => {
 			if (typeof args !== "object" || args === null) return args as EvalToolRequest;
 			const record = args as Record<string, unknown>;
-			if (record.action === "peek" || record.action === "stop") return args as EvalToolRequest;
+			if (record.action === "peek" || record.action === "stop" || record.action === "list")
+				return args as EvalToolRequest;
 			const summary = clampEvalSummary(record.summary);
 			if (summary === undefined) delete record.summary;
 			else record.summary = summary;
@@ -65,36 +116,6 @@ export function createEvalTool(options: CreateEvalToolOptions): ToolDefinition<E
 		},
 		...(options.renderers?.renderCall === undefined ? {} : { renderCall: options.renderers.renderCall }),
 		...(options.renderers?.renderResult === undefined ? {} : { renderResult: options.renderers.renderResult }),
-		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			const request = parseEvalRequest(params);
-			if (isEvalControlRequest(request)) return await executeEvalControl(cellManager, request);
-			if (options.proxyExecutor) return await options.proxyExecutor(request, signal);
-			if (!languages.includes(request.language))
-				throw new RangeError(
-					`Unsupported eval language "${request.language}". Enabled languages: ${languages.join(", ")}`,
-				);
-			const busy = cellManager.busyFor(request.language);
-			if (busy !== undefined) {
-				const idleLanguages = languages.filter(
-					(language) => language !== request.language && cellManager.busyFor(language) === undefined,
-				);
-				throw detachedKernelBusyError(busy, idleLanguages);
-			}
-			options.executionTracker?.assertEvalExecutionAllowed();
-			const lifecycleController = new AbortController();
-			const combinedSignal = signal
-				? AbortSignal.any([signal, lifecycleController.signal])
-				: lifecycleController.signal;
-			const execution = runEvalCell(options, cellManager, {
-				cellId: toolCallId,
-				input: request,
-				signal: combinedSignal,
-				onUpdate,
-				ctx,
-			});
-			return options.executionTracker
-				? await options.executionTracker.trackEvalExecution(execution, lifecycleController)
-				: await execution;
-		},
-	};
+		execute,
+	} satisfies ToolDefinition<EvalInputSchema, EvalResultDetails>;
 }

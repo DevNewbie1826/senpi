@@ -80,9 +80,31 @@ describe("rpc user-message edit and tree navigation types", () => {
 		expect(byEntryId).toMatchObject({ entryId: "u1", expectedLeafId: "leaf-1" });
 	});
 
+	it("accepts exact-leaf intent with either existing address", () => {
+		const entry = {
+			type: "navigate_tree",
+			entryId: "u1",
+			intent: "resume",
+			expectedLeafId: "a1",
+		} satisfies RpcCommand;
+		const target = {
+			type: "navigate_tree",
+			targetId: "u1",
+			intent: "resume",
+			expectedLeafId: "a1",
+		} satisfies RpcCommand;
+		expect(entry.intent).toBe("resume");
+		expect(target.intent).toBe("resume");
+	});
+
+	it("rejects an unknown navigation intent", () => {
+		// @ts-expect-error - only select and resume are navigation intents.
+		const command: RpcCommand = { type: "navigate_tree", entryId: "u1", intent: "unknown" };
+		expect(command.type).toBe("navigate_tree");
+	});
+
 	it("rejects a navigate_tree that addresses its target twice", () => {
-		// @ts-expect-error - entryId and targetId select different semantics (selection rule vs
-		// verbatim move), so a record carrying both has no single meaning.
+		// @ts-expect-error - exactly one address is required; the spellings use different response shapes.
 		const bothSpellings: RpcCommand = { type: "navigate_tree", entryId: "u1", targetId: "a9" };
 		expect(bothSpellings).toMatchObject({ type: "navigate_tree" });
 	});

@@ -47,11 +47,19 @@ async function steerDetach() {
 		await bounded(turn);
 		assert.deepEqual(getUserTexts(f.harness), ["initial", "queued-steering"]);
 		assert.deepEqual(f.harness.session.getSteeringMessages(), []);
-		const beforeBusy = f.settlements.length;
-		const busy = await f.harness.session.executeTool("eval", { ...request, code: "return 9" });
-		assert.equal(toolResultIsError(busy), true);
-		assert.equal(f.settlements.length, beforeBusy);
-		assert.equal(f.manager.busyFor("js")?.cellId, started.cellId);
+		const queuedReady = Promise.withResolvers<void>();
+		const queued = f.harness.session.executeTool("eval", { ...request, code: "return 9" }, {
+			onUpdate: () => queuedReady.resolve(),
+		});
+		await bounded(queuedReady.promise);
+		const waiter = f.manager.liveCells("js", { except: started.cellId })[0];
+		assert(waiter);
+		assert.equal(waiter.state, "queued");
+		assert.deepEqual(waiter.queuedBehind, [started.cellId]);
+		await f.manager.stop(waiter.cellId);
+		const cancelledQueued = await bounded(queued);
+		assert.equal(toolResultIsError(cancelledQueued), true);
+		assert.equal(f.manager.liveCells("js")[0]?.cellId, started.cellId);
 		const other = await f.harness.session.executeTool("eval", {
 			language: "py",
 			code: "40 + 2",
@@ -70,7 +78,7 @@ async function steerDetach() {
 		assert.equal(f.stats().interrupts, 0);
 		assert.equal(f.stats().bridgeFinished, true);
 		assert.equal(f.stats().bridgeAborts, 0);
-		assert.equal(f.manager.busyFor("js"), undefined);
+		assert.deepEqual(f.manager.liveCells("js"), []);
 		const state = await f.harness.session.executeTool("eval", { ...request, code: "return globalThis.item8" });
 		assert.equal(toolResultIsError(state), false);
 		assert(state.content.some((part) => part.type === "text" && part.text.includes("42")));
@@ -79,7 +87,7 @@ async function steerDetach() {
 			steeringReceipts,
 			foreground,
 			settlement,
-			busy,
+			cancelledQueued,
 			other,
 			retainedState: state,
 			stats: f.stats(),

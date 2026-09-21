@@ -206,6 +206,25 @@ it("keeps user-edit options identical to assistant-edit options", () => {
 });
 
 describe("RpcClient user edits and navigation", () => {
+	// #1926: the typed client must not discard exact-leaf intent before the real handler sees it.
+	it.each([false, true])(
+		"resumes an exact user leaf through client/handler with lifecycle metadata %j",
+		async (metadata) => {
+			const { client, harness, manager, user, leaf } = await fixture("rpc", metadata);
+			const call = vi.spyOn(harness.session, "navigateTree");
+			const result = await client!.navigateTree(user, { intent: "resume", expectedLeafId: leaf });
+			expect(result).toEqual({ cancelled: false, leafId: user });
+			expect(call).toHaveBeenCalledWith(user, expect.objectContaining({ intent: "resume", expectedLeafId: leaf }));
+			expect(manager.getLeafId()).toBe(user);
+			expect(harness.session.messages.map(getMessageText)).toEqual(["first", "one", "second"]);
+			if (metadata) {
+				const appended = manager.getEntries().at(-1)!;
+				expect(appended).toMatchObject({ type: "custom", parentId: user, customType: "edit-test-metadata" });
+				expect(manager.getBranch()).not.toContainEqual(appended);
+			}
+		},
+	);
+
 	it("exposes the host leafId as a nullable typed field on a client navigation call", async () => {
 		const { client, root } = await fixture("rpc");
 		const result = await client!.navigateTree(root);

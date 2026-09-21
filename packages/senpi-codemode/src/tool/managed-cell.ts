@@ -12,7 +12,9 @@ export type ManagedCell = {
 	readonly spillPath: string | undefined;
 	readonly startedAtMs: number;
 	readonly terminal: PromiseWithResolvers<EvalDetachedCellSnapshot>;
-	state: EvalDetachedCellState;
+	state: Exclude<EvalDetachedCellState, "detached">;
+	runStartedAtMs: number | undefined;
+	detached: boolean;
 	canDetach: boolean;
 	wasDetached: boolean;
 	kernel: EvalKernel | undefined;
@@ -47,12 +49,22 @@ export function createManagedCell(init: ManagedCellInit): ManagedCell {
 	// An explicit longer per-call timeout raises the deadline, mirroring bash keeping explicit timeouts.
 	const hardLimitSeconds = Math.max(init.defaultHardLimitSeconds, init.input.timeout ?? 0);
 	const runBudgetSeconds = init.input.timeout ?? init.defaultRunBudgetSeconds;
+	const deadlines = new CellDeadlines({
+		cellId: init.cellId,
+		hardLimitSeconds,
+		runBudgetSeconds,
+		onExpire: (expiry) => init.onExpire(init.cellId, expiry),
+	});
+	// Queue time never consumes execution budget; the submission-time hard limit remains armed.
+	deadlines.pause();
 	return {
 		cellId: init.cellId,
 		input: init.input,
 		spillPath: detachedNotificationSpillPath(init.artifactsDir, init.cellId),
 		startedAtMs: init.now(),
-		state: "running",
+		state: "queued",
+		runStartedAtMs: undefined,
+		detached: false,
 		canDetach: false,
 		wasDetached: false,
 		kernel: undefined,
@@ -62,12 +74,7 @@ export function createManagedCell(init: ManagedCellInit): ManagedCell {
 		liveResult: undefined,
 		terminalResult: undefined,
 		notificationQueued: false,
-		deadlines: new CellDeadlines({
-			cellId: init.cellId,
-			hardLimitSeconds,
-			runBudgetSeconds,
-			onExpire: (expiry) => init.onExpire(init.cellId, expiry),
-		}),
+		deadlines,
 		hardLimitSeconds,
 		runBudgetSeconds,
 		hardLimited: false,

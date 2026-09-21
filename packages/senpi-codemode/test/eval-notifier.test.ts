@@ -67,10 +67,11 @@ describe("EvalNotifier", () => {
 		});
 		const manager = new EvalDetachedCellManager({ hardLimitSeconds: 2, notifier });
 		const cell = manager.create("killed-cell", { language: "js", code: "await forever", summary: "runaway" });
-		manager.markRunning(cell, new FakeKernel([]), () => ({
+		manager.bindKernel(cell, new FakeKernel([]), () => ({
 			content: [{ type: "text", text: "partial" }],
 			details: { language: "js", languages: ["js"], durationMs: 0, toolCalls: [], truncated: false },
 		}));
+		manager.markRunning(cell);
 		manager.detach(cell);
 
 		await vi.advanceTimersByTimeAsync(2_000);

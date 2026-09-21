@@ -1,5 +1,23 @@
 # Builtin extensions changes
 
+## 2026-09-21 - Re-export the canonical question types from ask-user schema (#1931)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/schema.ts` re-exports `QuestionRequest` and `QuestionResponse` from `../../types.ts` instead of declaring textually identical local interfaces. `Question` and `QuestionOption` still derive from the imported `QuestionRequest`. Both `TODO(t3-merge)` markers are gone.
+
+### Why
+
+- One declaration of the question contract: the tool, the TUI dialog, the RPC bridge and every RPC client now read the same shape from the public extension API, and a future divergence is a type error rather than two silently different shapes. Type-only; no runtime diff.
+
+### Why an extension could not handle it
+
+- The duplicate lived inside this builtin's own module; only this builtin can stop declaring it.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/schema.ts`: the removed interfaces at the top of the file.
+
 ## 2026-09-20 - Serve question card renderers without a registration (#1857 I4)
 
 ### What changed

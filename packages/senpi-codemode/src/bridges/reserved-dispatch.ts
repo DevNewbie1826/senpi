@@ -35,6 +35,7 @@ export async function runReservedTool(toolName: string, context: ReservedDispatc
 			callId: context.callId,
 			taskToolName: context.taskToolName,
 			executeTool: context.executeTool,
+			...(context.listTools === undefined ? {} : { listTools: context.listTools }),
 			...(context.signal === undefined ? {} : { signal: context.signal }),
 			emitStatus: context.emitStatus,
 		});

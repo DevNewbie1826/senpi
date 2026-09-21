@@ -112,6 +112,8 @@ type RpcSessionCommand =
 	| ({
 			id?: string;
 			type: "navigate_tree";
+			/** Select for retry (default), or resume the exact entry as leaf with no editorText. */
+			intent?: "select" | "resume";
 			/** Leaf the client last observed; the navigation is refused with `stale_leaf` when the session moved on. */
 			expectedLeafId?: string;
 			summarize?: boolean;
@@ -121,9 +123,9 @@ type RpcSessionCommand =
 	  } & (
 			| {
 					/**
-					 * Entry to select, with the `/tree` selection rule of `docs/sessions.md` applied by the
-					 * host: a user or custom target moves the leaf to that entry's PARENT and returns its
-					 * text as `editorText`; any other kind moves the leaf TO the entry with no `editorText`;
+					 * Entry to navigate to. Unless intent is `resume`, the host applies the `/tree`
+					 * selection rule of `docs/sessions.md`: a user/custom target selects its PARENT and
+					 * returns `editorText`; any other kind moves the leaf TO the entry with no `editorText`;
 					 * the root user message resets the leaf to an empty conversation (`leafId: null`). A
 					 * client therefore never computes a parent id. Answers `NavigateTreeResult`.
 					 */
@@ -132,9 +134,10 @@ type RpcSessionCommand =
 			  }
 			| {
 					/**
-					 * Node to move the leaf to, verbatim - no selection rule is applied. The original
-					 * spelling, kept for the TUI and every shipped client; answers the legacy
-					 * `{ cancelled, editorText? }` payload. New clients address `entryId`.
+					 * Original spelling, kept for the TUI and shipped clients. By default applies the selection
+					 * rule as `entryId`: user/custom targets select their PARENT and return `editorText`,
+					 * other targets select themselves, and a root user target yields `leafId: null`.
+					 * Answers the legacy `{ cancelled, leafId, editorText? }` payload. New clients use `entryId`.
 					 */
 					targetId: string;
 					entryId?: never;
@@ -796,8 +799,8 @@ export type EditUserMessageResult =
 
 /**
  * Success payload of an `entryId`-addressed `navigate_tree`. `editorText` is present when the
- * target is a user or custom message - the text the TUI would put back in the editor - and absent
- * for every other entry kind. `leafId` is `null` when the navigation reset the session to an empty
+ * intent is selection and the target is a user/custom message, as in the TUI editor. Resumption
+ * never returns editor text. `leafId` is `null` when selection reset the session to an empty
  * conversation, which is what selecting the root user message does.
  */
 export type NavigateTreeResult =
@@ -1076,7 +1079,20 @@ export type RpcSessionClosedEvent = {
 	type: "session_closed";
 	sessionId: string;
 	reason?: RpcSessionClosedReason;
+	/** File released by handoff parking; reopen it on the successor. */
+	sessionPath?: string;
 };
+
+/** Sent once to every connection before this generation starts parking for a handoff. */
+export interface RpcHostSupersededEvent {
+	type: "host_superseded";
+	instanceId: string;
+	generation: number;
+	/** Public endpoint of the successor, or null for a drain without a known successor. */
+	successor: { socket: string } | null;
+}
+
+export type RpcHostLifecycleEvent = RpcHostSupersededEvent | RpcHostStalledEvent | RpcHostMemoryPressureEvent;
 
 /** Emitted after the loaded skill, extension, or MCP inventory changes. */
 export interface RpcLoadedSurfacesChangedEvent {

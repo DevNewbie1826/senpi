@@ -7,7 +7,8 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import type { CodemodeSessionManager } from "../src/extension/session-manager.ts";
 import senpiCodemode, { type CodemodeExtensionAPI } from "../src/index.ts";
 import type { EvalKernelResult, EvalKernelRunInput, KernelInterruptHandle } from "../src/tool/types.ts";
-import { fakeExtensionContext } from "./eval/fakes.ts";
+import { fakeExtensionContext, result } from "./eval/fakes.ts";
+import { QueuedFakeKernel } from "./eval/queued-fake.ts";
 
 interface RegisteredHandler {
 	readonly event: string;
@@ -75,7 +76,9 @@ class DisposableManager implements CodemodeSessionManager {
 
 	async getKernel(): Promise<{
 		run(input: EvalKernelRunInput): Promise<EvalKernelResult>;
-		interrupt(reason?: string): Promise<KernelInterruptHandle>;
+		cancelQueued(cellId: string, reason: string): boolean;
+		interrupt(reason?: string, cellId?: string): Promise<KernelInterruptHandle>;
+		queueSnapshot(): { activeCellId: string | null; queuedCellIds: readonly string[] };
 		deliverToolReply(): void;
 		reset(): Promise<void>;
 		close(): Promise<void>;
@@ -84,24 +87,31 @@ class DisposableManager implements CodemodeSessionManager {
 		this.getKernelCount++;
 		const controller = new AbortController();
 		this.runControllers.push(controller);
+		let activeCellId: string | null = null;
 		return {
 			run: async (input) => {
+				activeCellId = input.cellId;
+				input.onStarted?.();
 				this.runStarted.resolve();
 				return await new Promise((resolve) => {
 					controller.signal.addEventListener(
 						"abort",
-						() =>
+						() => {
+							activeCellId = null;
 							resolve({
 								type: "result",
 								cellId: input.cellId,
 								ok: false,
 								error: { message: "kernel disposed" },
 								durationMs: 0,
-							}),
+							});
+						},
 						{ once: true },
 					);
 				});
 			},
+			cancelQueued: () => false,
+			queueSnapshot: () => ({ activeCellId, queuedCellIds: [] }),
 			interrupt: async (reason) => {
 				this.events.push("interrupt");
 				controller.abort(reason);
@@ -173,7 +183,62 @@ async function emit(pi: FakePi, event: string, payload: unknown, ctx: ExtensionC
 describe("senpi-codemode extension factory", () => {
 	afterEach(() => {
 		vi.clearAllMocks();
+		vi.unstubAllEnvs();
 		vi.useRealTimers();
+	});
+
+	it("keeps the environment cap after session start and model reselection", async () => {
+		// Given a file cap distinct from both the default and environment override.
+		const cwd = await mkdtemp(join(tmpdir(), "senpi-codemode-extension-cap-"));
+		await mkdir(join(cwd, ".senpi"));
+		await writeFile(
+			join(cwd, ".senpi", "codemode.json"),
+			JSON.stringify({
+				languages: { js: true, py: false, rb: false, jl: false },
+				cellTimeoutSeconds: 1,
+				maxDetachedCells: 3,
+			}),
+		);
+		vi.stubEnv("SENPI_CODEMODE_MAX_DETACHED_CELLS", "1");
+		const pi = new FakePi();
+		const kernel = new QueuedFakeKernel();
+		const ctx = { ...extensionContext(cwd), mode: "tui" as const };
+		const pending: Promise<unknown>[] = [];
+		senpiCodemode(pi, {
+			createSessionManager: () => ({
+				getKernel: async () => kernel,
+				dispose: async () => {},
+				complete: async () => ({ text: "", details: { model: "unused", structured: false } }),
+			}),
+		});
+		try {
+			// When a real extension registration is replaced on session start and model select.
+			await emit(pi, "session_start", { reason: "startup" }, ctx);
+			await emit(pi, "model_select", { model: fakeModel("gpt-5.6") }, ctx);
+			vi.useFakeTimers();
+			const tool = pi.registeredTool;
+			if (!tool) throw new Error("eval tool was not registered");
+			for (const id of ["cap-A", "cap-B"]) {
+				const admitted = kernel.admitted(id);
+				pending.push(tool.execute(id, { language: "js", code: id, summary: id }, undefined, undefined, ctx));
+				await admitted;
+				await vi.advanceTimersByTimeAsync(1000);
+			}
+			// Then B remains foreground at capacity instead of occupying a second background slot.
+			const listed = await tool.execute("list-cap", { action: "list" }, undefined, undefined, ctx);
+			expect(listed.details.cells).toMatchObject([
+				{ cellId: "cap-A", state: "detached" },
+				{ cellId: "cap-B", state: "queued" },
+			]);
+		} finally {
+			while (kernel.queueSnapshot().activeCellId !== null) {
+				const active = kernel.queueSnapshot().activeCellId;
+				if (active !== null) kernel.completeDeferredRun(result(active, "finished"));
+			}
+			await Promise.all(pending);
+			await emit(pi, "session_shutdown", {}, ctx);
+			await rm(cwd, { recursive: true, force: true });
+		}
 	});
 
 	it("registers eval exactly once and has no module side effects", () => {

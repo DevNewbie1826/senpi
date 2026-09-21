@@ -49,19 +49,29 @@ export class JavaScriptRunQueue {
 		const next = this.#queue.shift() ?? null;
 		if (next) next.startedAtMs = startedAtMs;
 		this.#active = next;
+		next?.input.onStarted?.();
 		return next;
+	}
+
+	remove(cellId: string, reason = "interrupted"): boolean {
+		const index = this.#queue.findIndex((run) => run.input.cellId === cellId);
+		if (index < 0) return false;
+		const [run] = this.#queue.splice(index, 1);
+		if (!run) return false;
+		this.settle(run, stoppedResult(cellId, reason));
+		return true;
+	}
+
+	snapshot(): { activeCellId: string | null; queuedCellIds: readonly string[] } {
+		return {
+			activeCellId: this.#active?.input.cellId ?? null,
+			queuedCellIds: this.#queue.map((run) => run.input.cellId),
+		};
 	}
 
 	durationMs(run: PendingJavaScriptRun, finishedAtMs: number): number {
 		if (run.startedAtMs === null) return 0;
 		return Math.max(0, Math.round(finishedAtMs - run.startedAtMs));
-	}
-
-	takeInterruptTarget(): PendingJavaScriptRun | null {
-		if (!this.#active) return this.#queue.shift() ?? null;
-		const active = this.#active;
-		this.#active = null;
-		return active;
 	}
 
 	releaseActive(run: PendingJavaScriptRun): boolean {

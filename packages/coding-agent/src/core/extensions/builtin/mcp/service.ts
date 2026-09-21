@@ -6,29 +6,28 @@ import {
 	resetToolSearchServiceForTests,
 	type ToolSearchService,
 } from "../tool-search/service.ts";
-import { detectLiteralBearerWarnings, resolveAuthMode, resolveServerAuth } from "./auth/context.ts";
+import { resolveAuthMode } from "./auth/context.ts";
 import { collectToolCatalog } from "./catalog.ts";
 import { getValidCachedServer, readMcpCatalogCache } from "./catalog-cache.ts";
 import { loadMcpConfig, mergeExtensionMcpServers, resolveSkillMcpServer, visitSpawnableMcpServers } from "./config.ts";
 import type { McpServerConfig, ResolvedMcpConfig, ResolvedMcpServer } from "./config-schema.ts";
-import { ServerConnection } from "./connection.ts";
+import type { ServerConnection } from "./connection.ts";
 import { collectAllPages } from "./expose/pagination.ts";
 import { mapMcpCatalogNames } from "./expose/register.ts";
 import type { McpSessionRegistration } from "./expose/session.ts";
 import type { McpServerExposureStatus } from "./expose/status.ts";
 import { cleanupMcpOutputArtifacts, McpOutputArtifacts } from "./guard/output-guard.ts";
-import { markMcpConnectionNeedsAuth } from "./health.ts";
-import { configureMcpConnectionLifecycle, disposeMcpConnectionLifecycle } from "./idle.ts";
+import { HostMcpRegistry } from "./host-registry.ts";
 import { refreshMcpInstructionsForSession } from "./instructions.ts";
-import { createMcpLogger } from "./log.ts";
 import {
 	buildMcpTombstoneDefinition,
 	createMcpListChangeCoalescer,
 	diffMcpToolNames,
 	formatMcpListChangedDelta,
 } from "./notifications.ts";
-import { configureMcpReconnect, disposeMcpReconnect, reconnectMcpNow } from "./reconnect.ts";
+import { reconnectMcpNow } from "./reconnect.ts";
 import type { McpResourceServer } from "./resources.ts";
+import { createMcpSessionConnection, disposeEntryConnection } from "./service-connection.ts";
 import { getMcpServiceExposureStatus } from "./service-exposure.ts";
 import { registerMcpServiceDirectTools } from "./service-register.ts";
 import { buildMcpServerSnapshot } from "./service-snapshot.ts";
@@ -48,8 +47,8 @@ import type {
 	McpWireStatusSnapshot,
 	McpWireTool,
 } from "./service-types.ts";
+import { SharedMcpLease } from "./shared-lease.ts";
 import {
-	connectAndRefreshMcpCatalog,
 	MCP_ATTACH_SETTLE_TIMEOUT_MS,
 	McpDeferredAttach,
 	type McpStartupRaceResult,
@@ -96,6 +95,14 @@ export class McpService {
 	readonly #connections = new Map<string, McpConnectionEntry>();
 	readonly #connectionKeysByName = new Map<string, string>();
 	readonly #outputArtifacts = new McpOutputArtifacts();
+
+	readonly #registry: HostMcpRegistry;
+	readonly #shareConnections: boolean;
+
+	constructor(options: Pick<McpSessionOptions, "mcpRegistry"> = {}) {
+		this.#registry = options.mcpRegistry ?? new HostMcpRegistry();
+		this.#shareConnections = options.mcpRegistry !== undefined;
+	}
 
 	async attachSession(
 		event: SessionStartEvent,
@@ -284,7 +291,7 @@ export class McpService {
 		const entries = [...this.#connections.values()];
 		this.#connections.clear();
 		this.#connectionKeysByName.clear();
-		await Promise.all(entries.map((entry) => disposeEntryConnection(entry)));
+		await Promise.all(entries.map((entry) => disposeEntryConnection(entry, this.#registry, this)));
 		await cleanupMcpOutputArtifacts(this.#outputArtifacts);
 	}
 
@@ -376,7 +383,7 @@ export class McpService {
 			if (key === entry.key) continue;
 			this.#connections.delete(entry.key);
 			this.#connectionKeysByName.delete(entry.name);
-			disposals.push(disposeEntryConnection(entry));
+			disposals.push(disposeEntryConnection(entry, this.#registry, this));
 		}
 		await Promise.all(disposals);
 
@@ -385,60 +392,22 @@ export class McpService {
 			if (server.config === undefined || server.configHash === undefined) continue;
 			const key = `${name}\0${server.configHash}`;
 			if (this.#connections.has(key)) continue;
-			const logger = createMcpLogger(name, { logDir: options.logDir });
-			const authPlan = resolveServerAuth({
-				agentDir: options.agentDir,
-				config: server.config,
-				env: options.env,
-				logger,
-				serverName: name,
-			});
-			for (const warning of detectLiteralBearerWarnings(name, server.config)) logger.warn(warning);
-			const connection = new ServerConnection({
-				authProvider: authPlan.provider,
-				config: server.config,
-				env: options.env,
-				elicitationUiProvider: () => this.getMcpElicitationUi(),
-				logger,
-				serverName: name,
-			});
-			const cachedCatalog = useCache ? getValidCachedServer(cache, name, server.configHash) : undefined;
-			const entry: McpConnectionEntry = {
-				agentDir: options.agentDir,
-				artifacts: this.#outputArtifacts,
-				authPlan,
-				cacheRefreshedAfterConnect: false,
-				cachedCatalog,
+			const entry = createMcpSessionConnection({
+				registry: this.#registry,
+				share: this.#shareConnections,
+				owner: this,
 				key,
 				name,
 				configHash: server.configHash,
-				connection,
-				logger,
-				createdAtMs: Date.now(),
-				counters: { callCount: 0, errorCount: 0, totalLatencyMs: 0, reconnectCount: 0 },
-			};
-			configureMcpConnectionLifecycle(connection, server.config, logger);
-			configureMcpReconnect({
-				connection,
-				logger,
-				reconnect: async () => {
-					entry.counters.reconnectCount += 1;
-					entry.cacheRefreshedAfterConnect = false;
-					try {
-						await entry.authPlan?.refresh?.ensureFresh();
-					} catch (error) {
-						const authError = markMcpConnectionNeedsAuth(entry.connection, error);
-						if (authError !== undefined) {
-							entry.logger.warn(authError.message);
-							throw authError;
-						}
-						throw error;
-					}
-					await entry.connection.renew();
-					await connectAndRefreshMcpCatalog(entry, server.config);
-				},
-				shouldReconnect: () => !this.#disposed && this.#entryForName(name) === entry,
+				config: server.config,
+				session: options,
+				cwd: this.#sessionContext?.cwd ?? process.cwd(),
+				ui: () => this.getMcpElicitationUi(),
+				artifacts: this.#outputArtifacts,
+				shouldReconnect: (current) => !this.#disposed && this.#entryForName(name) === current,
 			});
+			const cachedCatalog = useCache ? getValidCachedServer(cache, name, server.configHash) : undefined;
+			entry.cachedCatalog = cachedCatalog;
 			this.#connections.set(key, entry);
 			this.#connectionKeysByName.set(name, key);
 			this.#wireListChanged(entry);
@@ -506,6 +475,9 @@ export class McpService {
 		if (pi === undefined || config === null) return;
 		const server = config.servers[entry.name];
 		if (server?.config === undefined || entry.connection.state !== "connected") return;
+		if (entry.connection instanceof SharedMcpLease) {
+			entry.cachedCatalog = await entry.connection.catalog();
+		}
 		const catalog = await collectToolCatalog(entry.name, entry.connection, server.config, {
 			agentDir: entry.agentDir,
 			outputGuard: config.settings.outputGuard,
@@ -805,14 +777,6 @@ export function getMcpService(): McpService {
 
 export function shouldDisposeMcpService(reason: SessionShutdownEvent["reason"]): reason is McpDisposeReason {
 	return reason === "quit" || reason === "reload";
-}
-
-async function disposeEntryConnection(entry: McpConnectionEntry): Promise<void> {
-	entry.disposeListChanged?.();
-	entry.disposeWireStatus?.();
-	disposeMcpReconnect(entry.connection);
-	disposeMcpConnectionLifecycle(entry.connection);
-	await entry.connection.dispose();
 }
 
 export function resetMcpServiceForTests(): void {

@@ -25,7 +25,9 @@ class BridgeKernel implements EvalKernel {
 		this.#throwOnReply = throwOnReply;
 	}
 
-	async run(_input: EvalKernelRunInput): Promise<EvalResult> {
+	async run(input: EvalKernelRunInput): Promise<EvalResult> {
+		input.onStarted?.();
+		this.onMessage = input.onMessage ?? this.onMessage;
 		this.onMessage?.({ type: "tool-call", callId: "bridge-call", toolName: "demo", args: {} });
 		if (this.#result) return this.#result;
 		return await new Promise<EvalResult>(() => {});
@@ -42,6 +44,14 @@ class BridgeKernel implements EvalKernel {
 	}
 
 	async reset(): Promise<void> {}
+
+	cancelQueued(): boolean {
+		return false;
+	}
+
+	queueSnapshot() {
+		return { activeCellId: null, queuedCellIds: [] };
+	}
 
 	async close(): Promise<void> {}
 }

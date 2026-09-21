@@ -1,3 +1,104 @@
+## 2026-09-21 - Start a generation beside a stranded foreign one (#1936)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/host-ensure.ts`: in the `start` branch of `ensureHostLocked`, a record written by another process refuses `foreign_writer` only while something still ACCEPTS connections at the public path (`publicEndpointAccepts`: a missing entry and an entry nobody listens behind both read as free; win32 named pipes, abstract sockets and an entry that cannot be stat'ed always read as owned; an accepted-but-silent socket is owned, exactly as `host_busy` treats it). A live foreign generation whose endpoint accepts nothing is left running and `startHost` binds a new generation numbered after it: `startHost` takes a `generation` argument that flows into the daemon settings, the registration and `SENPI_RPC_HOST_GENERATION`, and appends to the daemon stderr log instead of truncating the file the stranded generation still writes. Own-writer behaviour (`host_busy`, stop-and-restart) is unchanged.
+
+### Why
+
+- `packages/coding-agent/src/modes/rpc/host-ensure.ts`: a supervisor that sees another entry over its path drains and exits only when its last session settles (#1893). Once that replacement exited and unlinked, every ensure met a silent probe, a live pid and a writer that was the ephemeral `senpi host ensure` child, and refused - one desktop lost its host for 75 minutes while nothing served the path.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/rpc/host-ensure.ts` is the daemon ensure itself; extensions run inside sessions the host serves and cannot decide whether a host may be bound.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/host-ensure.ts`: the `start` branch of `ensureHostLocked`, the `startHost` signature and `hostEnv`. Upstream has no shared daemon, so any conflict is structural.
+
+## 2026-09-21 - Announce a supersession and park attached sessions (#1933)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`: additive `RpcHostSupersededEvent` (`host_superseded` with `instanceId`, `generation`, `successor`) in the host lifecycle record union, and an optional `sessionPath` on `session_closed` so a `handoff_parked` record names the file to reopen on the successor. No existing field changed shape.
+- `packages/coding-agent/src/modes/rpc/multi-session-host.ts`: `drainForHandoff` broadcasts `host_superseded` through the event writer before parking, exactly once per drain (a re-entered drain rescans only), and closes a connection once its last attached session parks.
+- `packages/coding-agent/src/modes/rpc/session-command-router.ts`: the drain sweep parks attached sessions too, gated by `handoff-activity.ts`; a parked handle is answered by its terminal record and close rather than `unknown_session`, and `open_session` on a draining connection is refused with the new stable code `host_draining`.
+- `packages/coding-agent/src/modes/rpc/handoff-activity.ts` (new): the handoff parkable predicate - turns and in-flight host requests block parking, durable wake-source holds do not.
+- `packages/coding-agent/src/modes/rpc/host-lifecycle.ts`: `SENPI_RPC_HANDOFF_GRACE_MS` (default 600000) soft grace that rescans and reports without aborting work; the idle ticker is suppressed while draining; proxied clients drain their final records before the socket closes.
+- `packages/coding-agent/src/modes/rpc/session-event-writer.ts`, `session-worker-client.ts`, `session-worker-protocol.ts`, `session-worker.ts`: publish the handoff predicate and flush a connection's records before it is closed, for both session runtimes.
+
+### Why
+
+- A superseded generation parked only the sessions nobody was attached to, so an attached idle client pinned the old host forever (the memory #1893's drain was meant to reclaim) and learned nothing about the handoff; its next command on a fresh connection reached the successor's empty registry and answered `unknown_session`.
+
+### Why an extension could not handle it
+
+- Supervisor signals, JSONL ordering on a shared connection, session-path reservations and the registry's parkable state are host transport internals; no extension can observe or drive them.
+
+### Expected merge conflict zones
+
+- `host-lifecycle.ts` drain/shutdown block, `multi-session-host.ts` connection accounting, `session-command-router.ts` sweep. Socket regression tests spawn real supervisors and hold a real model turn.
+
+## 2026-09-21 - Correct the legacy navigation selection comment (#1892 follow-up)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`: the `targetId` comment now describes the same selection rule as `entryId`: user/custom targets select their parent, root-user selection yields a null leaf, and other targets select themselves. Only the response shape is legacy.
+
+### Why
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts` still promised a verbatim leaf move, contrary to the shipped core behavior and corrected RPC documentation.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts` owns the client-facing command contract; an extension cannot correct its type comments.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`: the `navigate_tree.targetId` comment only. No type, dispatch, response shape, or selection behavior changes.
+
+## 2026-09-21 - Exact-leaf navigation intent (#1926)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`: additive `navigate_tree.intent: select | resume`, independent of existing addressing and response shapes.
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts`: validate inbound intent and forward it and `expectedLeafId` unchanged through core navigation. Omitted intent preserves the existing options and serialized response.
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts`: typed client options accept the same intent; transport already forwards those options.
+
+### Why
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`, `packages/coding-agent/src/modes/rpc/connection-handler.ts`, `packages/coding-agent/src/modes/rpc/rpc-client.ts`: branch resumption must preserve an unanswered user tail without redefining either released address. Real-handler and client regressions cover resumption, serialized retry payloads and stale tokens; shipping RPC/SDK docs describe the distinction.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`, `packages/coding-agent/src/modes/rpc/connection-handler.ts`, `packages/coding-agent/src/modes/rpc/rpc-client.ts`: the wire union, JSON boundary and typed client are RPC-owned; leaf mutations must remain in core rather than an extension or transport workaround.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`: `navigate_tree` command options/comments.
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts`: `navigate_tree` validation and option forwarding only.
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts`: `navigateTree` option type only.
+
+## 2026-09-21 - Own one MCP registry per in-process host (#1915)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/multi-session-host.ts` creates one registry for each in-process host.
+- `packages/coding-agent/src/modes/rpc/session-registry.ts` wraps the runtime factory once to inject the same registry on opens and session replacements.
+
+### Why
+
+- `packages/coding-agent/src/modes/rpc/multi-session-host.ts` owns the host lifetime; `packages/coding-agent/src/modes/rpc/session-registry.ts` retains that ownership across session replacement without changing attachment or parked/resumed semantics.
+
+### Why an extension could not handle it
+
+- Host construction in `packages/coding-agent/src/modes/rpc/multi-session-host.ts` and runtime-factory retention in `packages/coding-agent/src/modes/rpc/session-registry.ts` precede extension execution.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/multi-session-host.ts`: `createHostCore` in-process registry options.
+- `packages/coding-agent/src/modes/rpc/session-registry.ts`: options and constructor. Worker runtime selection and session policies are unchanged.
+
 ## 2026-09-21 - Pause periodic work on retained detach (#1902)
 
 ### What changed
@@ -130,9 +231,6 @@ reclaimed from. A generation record that cannot be parsed is never pruned: an en
 it right now. Pinned by `test/suite/regressions/1893-superseded-generation-drain.test.ts` (real
 supervisor, socket taken over with no signal) and `1893-generation-records-and-claims.test.ts`.
 
-||||||| parent of e51eff445 (feat(rpc): type the user-message edit and tree navigation commands)
-||||||| parent of 1ab53e09e (feat(rpc): dispatch user-message edits and tree navigation)
-||||||| parent of 1c5fd8af9 (feat(extensions): edit a user message and navigate the tree)
 ## 2026-09-21 - Extension user-edit binding and client leaf visibility
 
 ### What changed

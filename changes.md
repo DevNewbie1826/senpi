@@ -1,5 +1,47 @@
 # changes — senpi-monorepo root
 
+## Unify the shared and evals Vitest runners (2026-09-21)
+
+### What changed
+
+- `package.json` pins the root development runner and its V8 coverage provider to 5.0.1 so the hoisted runner can load coverage.
+- `.gitignore` excludes the `.vitest/` artifact directory.
+- `package-lock.json` and `bun.lock` resolve Vitest and V8 coverage 5.0.1 across every workspace, including evals.
+- `package.json` overrides vitest-evals 0.17.0's Vitest peer edge to 5.0.1.
+- `bun.lock` retains configuration version 0 and the existing hoisted install layout.
+
+### Why
+
+- PTY and codemode invoke the hoisted runner without declaring it. A root pin makes their shared runner version explicit under both npm and Bun.
+- vitest-evals 0.17.0 declares Vitest `>=4 <5`. Its npm peer override makes the single-major installation explicit; runtime tests and TypeScript checks verify compatibility instead of preserving a split runner graph.
+- Bun hoists the harness beside the root runner even when a lock entry requests workspace nesting. Keeping every runner on 5.0.1 avoids mixed TaskMeta types without changing the native workflows' root dependency paths.
+
+### Why an extension could not handle it
+
+- Package managers select test runners and resolve peer dependencies before extensions load.
+
+### Expected merge conflict zones
+
+- The root development dependencies and generated dependency locks.
+
+## Run the two dev lanes through run-workspaces --parallel and drop concurrently (2026-09-21)
+
+### What changed
+
+- `package.json`: the root `dev` script is `node scripts/run-workspaces.mjs --parallel --workspace packages/ai --workspace packages/coding-agent dev`; the `concurrently` devDependency is removed and `shell-quote` 1.10.0 is declared as a root devDependency — three repository scripts import it directly but it only reached `node_modules` as `concurrently`'s transitive dependency (its version was already pinned by the root override). `package-lock.json` / `bun.lock` are regenerated the repository way (`bun.lock` stays `configVersion: 0`).
+
+### Why
+
+- `concurrently` was the last root script that bypassed the package-manager-agnostic runner from #1447; `npm run dev`, `bun run dev` and `pnpm run dev` now all start both lanes through the same driver, with prefixed output and one Ctrl-C reaching every lane (senpi#1895).
+
+### Why an extension could not handle it
+
+- Root scripts and the dependency closure are resolved by the package manager before any extension loads.
+
+### Expected merge conflict zones
+
+- The root `scripts.dev` line and the root devDependency block, on every upstream tooling bump.
+
 ## Refresh the dependency pins and pin past the reachable advisories (2026-09-21)
 
 ### What changed

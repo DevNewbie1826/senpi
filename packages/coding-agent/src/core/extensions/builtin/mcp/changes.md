@@ -1,5 +1,52 @@
 # mcp Extension Changes
 
+## 2026-09-21 - Share eligible connections in the in-process host (#1921)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts`, `packages/coding-agent/src/core/extensions/builtin/mcp/shared-connection.ts` and `packages/coding-agent/src/core/extensions/builtin/mcp/shared-lease.ts` add host-owned shared transports and session-owned views. The host owns reconnect, aggregate idle/keep-alive, one catalog writer, notification fan-out and unambiguous in-flight elicitation routing.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/sharing-policy.ts` and `packages/coding-agent/src/core/extensions/builtin/mcp/config.ts` preserve session-template provenance across interpolation and key physical connections by resolved transport/auth configuration and agent directory.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/service-connection.ts` extracts connection creation/disposal from `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts`; sharing is enabled only for an injected host registry. `packages/coding-agent/src/core/extensions/builtin/mcp/startup-race.ts` delegates shared cache refresh to the host.
+
+### Why
+
+- Equal eligible configurations previously opened one physical MCP transport per session. `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts`, `packages/coding-agent/src/core/extensions/builtin/mcp/shared-connection.ts` and `packages/coding-agent/src/core/extensions/builtin/mcp/shared-lease.ts` now retain one transport without allowing one session to close or renew another session's connection.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/sharing-policy.ts` and `packages/coding-agent/src/core/extensions/builtin/mcp/config.ts` prevent cwd/session-dependent stdio servers from joining the pool, including after interpolation erases the original template.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/service-connection.ts`, `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts` and `packages/coding-agent/src/core/extensions/builtin/mcp/startup-race.ts` keep standalone lifecycle behavior and per-session exposure separate from host ownership.
+
+### Why an extension could not handle it
+
+- The builtin owns physical connection construction, SDK handlers and catalog writes. `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts`, `packages/coding-agent/src/core/extensions/builtin/mcp/shared-connection.ts`, `packages/coding-agent/src/core/extensions/builtin/mcp/shared-lease.ts`, `packages/coding-agent/src/core/extensions/builtin/mcp/service-connection.ts`, `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts` and `packages/coding-agent/src/core/extensions/builtin/mcp/startup-race.ts` must coordinate at that boundary; an outside extension cannot multicast handlers or identify a call's owner.
+- Raw config provenance is available only in `packages/coding-agent/src/core/extensions/builtin/mcp/config.ts`; `packages/coding-agent/src/core/extensions/builtin/mcp/sharing-policy.ts` carries it without changing the persisted catalog hash.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts` connection reconciliation, `packages/coding-agent/src/core/extensions/builtin/mcp/service-connection.ts` connection factory and `packages/coding-agent/src/core/extensions/builtin/mcp/startup-race.ts` cache refresh.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts`, `packages/coding-agent/src/core/extensions/builtin/mcp/shared-connection.ts` and `packages/coding-agent/src/core/extensions/builtin/mcp/shared-lease.ts`: host ownership and request routing.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/config.ts` interpolation and `packages/coding-agent/src/core/extensions/builtin/mcp/sharing-policy.ts` eligibility/identity. No SDK version or session protocol change.
+
+## 2026-09-21 - Host-owned connection leases with sharing disabled (#1915)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts` adds object-owner reference counts, immediate final-detach disposal, owner enumeration and a typed unknown-owner error. `shareable` returns false for every configuration.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts` obtains connections through an injected registry, or a new instance-owned registry for standalone services, and detaches leases during existing disposal.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/service-types.ts` carries the optional registry in `McpSessionOptions`.
+
+### Why
+
+- `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts`, `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts` and `packages/coding-agent/src/core/extensions/builtin/mcp/service-types.ts` establish explicit ownership before any future connection sharing. Equal configurations still create separate connections for different services.
+
+### Why an extension could not handle it
+
+- Connection construction and disposal in `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts` are private to the builtin. The lease contract in `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts` and injection option in `packages/coding-agent/src/core/extensions/builtin/mcp/service-types.ts` must reach that owner.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts`: constructor, `#syncFromConfig` and `disposeEntryConnection`.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/service-types.ts`: `McpSessionOptions`.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts`: future sharing policy and lifecycle routing. This change does not enable sharing or alter idle, reconnect, cache, keep-alive or elicitation behavior.
+
 ## 2026-09-21 - Catalog cache writes bind to the attach-time agent dir (senpi#1904)
 
 ### What changed

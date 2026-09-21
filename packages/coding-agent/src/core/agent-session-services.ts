@@ -4,6 +4,7 @@ import type { Model, ThinkingSelection } from "@earendil-works/pi-ai";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { AuthStorage } from "./auth-storage.ts";
+import type { HostMcpRegistry } from "./extensions/builtin/mcp/host-registry.ts";
 import type { ServiceTier } from "./extensions/builtin/service-tier.ts";
 import type { SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { drainPendingProviderRegistrations } from "./extensions/loader.ts";
@@ -44,6 +45,7 @@ export interface CreateAgentSessionServicesOptions {
 	agentDir?: string;
 	settingsManager?: SettingsManager;
 	modelRuntime?: ModelRuntime;
+	mcpRegistry?: HostMcpRegistry;
 	modelRuntimeSignal?: AbortSignal;
 	extensionFlagValues?: Map<string, boolean | string>;
 	resourceLoaderOptions?: Omit<DefaultResourceLoaderOptions, "cwd" | "agentDir" | "settingsManager">;
@@ -176,12 +178,14 @@ export async function createAgentSessionServices(
 		cwd,
 		agentDir,
 		settingsManager,
+		mcpRegistry: options.mcpRegistry,
 	});
 	const { primary: modelRuntime } = await joinStartupBranches(
 		runtimePromise,
 		resourceLoader.reload(options.resourceLoaderReloadOptions),
 	);
 	const modelRegistry = new ModelRegistry(modelRuntime, authStorage);
+	modelRuntime.setSettingsManager(settingsManager);
 
 	const diagnostics: AgentSessionRuntimeDiagnostic[] = [];
 	const extensionsResult = resourceLoader.getExtensions();

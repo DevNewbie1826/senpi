@@ -8,9 +8,9 @@ const aiSrcCompat = fileURLToPath(new URL("../ai/src/compat.ts", import.meta.url
 export default defineConfig({
 	test: {
 		environment: "node",
+		reporters: ["verbose"],
 		benchmark: {
 			include: ["benchmark/session/**/*.bench.ts"],
-			reporters: ["verbose"],
 		},
 	},
 	resolve: {

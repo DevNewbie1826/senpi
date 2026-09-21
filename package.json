@@ -21,7 +21,7 @@
 		"build:native:darwin": "node scripts/run-workspaces.mjs --workspace packages/tui build:native:darwin",
 		"build:native:linux": "node scripts/run-workspaces.mjs --workspace packages/tui build:native:linux",
 		"build:native:win32": "node scripts/run-workspaces.mjs --workspace packages/tui build:native:win32",
-		"dev": "concurrently --names \"ai,coding-agent\" --prefix-colors \"cyan,red\" \"node scripts/run-workspaces.mjs --workspace packages/ai dev\" \"node scripts/run-workspaces.mjs --workspace packages/coding-agent dev\"",
+		"dev": "node scripts/run-workspaces.mjs --parallel --workspace packages/ai --workspace packages/coding-agent dev",
 		"dev:tsc": "node scripts/run-workspaces.mjs --workspace packages/ai dev:tsc",
 		"check": "biome check --error-on-warnings . && npm run check:pinned-deps && npm run check:ts-imports && npm run check:entry-graphs && npm run check:shrinkwrap && npm run check:install-lock:coding-agent && npm run check:claude-sdk-platform-lock && tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json && node scripts/check-browser-smoke.mjs",
 		"check:fix": "biome check --write --error-on-warnings . && npm run check",
@@ -66,12 +66,14 @@
 		"@types/node": "26.6.2",
 		"@typescript/native": "npm:@typescript/native-preview@7.0.0-dev.20260707.2",
 		"@typescript/typescript6": "6.0.2",
-		"concurrently": "10.0.5",
+		"@vitest/coverage-v8": "5.0.1",
 		"esbuild": "0.28.2",
 		"husky": "9.1.7",
+		"shell-quote": "1.10.0",
 		"shx": "0.4.0",
 		"tsx": "4.23.13",
-		"typescript": "7.0.2"
+		"typescript": "7.0.2",
+		"vitest": "5.0.1"
 	},
 	"engines": {
 		"node": ">=24.0.0"
@@ -90,6 +92,9 @@
 		"rimraf": "6.1.3",
 		"shell-quote": "1.10.0",
 		"vite": "8.2.2",
+		"vitest-evals": {
+			"vitest": "5.0.1"
+		},
 		"ws": "8.21.3",
 		"gaxios": {
 			"rimraf": "6.1.3"

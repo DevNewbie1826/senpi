@@ -3,6 +3,7 @@ import { createConnection, createServer, type Server } from "node:net";
 import { dirname, join } from "node:path";
 import type { CreateAgentSessionRuntimeFactory } from "../../core/agent-session-runtime.ts";
 import { envValue } from "../../core/brand.ts";
+import { HostMcpRegistry } from "../../core/extensions/builtin/mcp/host-registry.ts";
 import {
 	flushRawStdout,
 	takeOverStdout,
@@ -21,7 +22,7 @@ import { createEndpointReservations } from "./host-reservations.ts";
 import { armHostWatchdog, readHostWatchdogConfigFromBrandEnv } from "./host-watchdog.ts";
 import { attachJsonlLineReader, MAX_RPC_LINE_CHARACTERS } from "./jsonl.ts";
 import { LoopLagWatchdog } from "./loop-lag-watchdog.ts";
-import { hostInstanceId } from "./protocol-identity.ts";
+import { hostGeneration, hostInstanceId } from "./protocol-identity.ts";
 import { rpcCommandShapeError } from "./rpc-input-validation.ts";
 import type { RpcCommand, RpcResponse } from "./rpc-types.ts";
 import { type RpcBindingFactory, SessionCommandRouter } from "./session-command-router.ts";
@@ -81,6 +82,7 @@ export interface HostIdleOverrides {
 	closeGraceMs?: number;
 	/** Shutdown hook the empty-exit window invokes; hosts pass their exit path. */
 	onEmptyExit?: () => void;
+	onHandoffParked?: (connections: readonly string[]) => Promise<void>;
 	/** Gate consulted before the empty-exit window advances (connected clients block it). */
 	canExitWhenEmpty?: () => boolean;
 }
@@ -167,6 +169,7 @@ export function createHostCore(
 			: new RpcSessionRegistry({
 					agentDir: options.agentDir,
 					createRuntime: options.createRuntime,
+					mcpRegistry: new HostMcpRegistry(),
 					now: policy.now,
 					closeGraceMs: idle.closeGraceMs ?? parseIdleExitMs(process.env[RPC_CLOSE_GRACE_MS_ENV]) ?? 10_000,
 					// Two generations of this daemon can be alive at once during a handoff; the claims
@@ -187,6 +190,7 @@ export function createHostCore(
 			idleEvictionMs: policy.idleEvictionMs,
 			emptyExitMs: policy.emptyExitMs,
 			onEmptyExit: idle.onEmptyExit,
+			onHandoffParked: idle.onHandoffParked,
 			canExitWhenEmpty: idle.canExitWhenEmpty,
 		},
 	);
@@ -253,6 +257,7 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 	const writer = new SessionEventWriter(() => {});
 	const connections = new Map<string, Connection>();
 	let draining = false;
+	let handoffAnnounced = false;
 	const { router, handle } = createHostCore(
 		options,
 		writer,
@@ -271,7 +276,18 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 		// under it would drop its socket and read as a crash to the supervisor.
 		// While DRAINING the opposite is true: the successor generation owns the socket, so a
 		// sessionless connection must not hold this host open.
-		{ onEmptyExit: () => void shutdown(0), canExitWhenEmpty: () => draining || connections.size === 0 },
+		{
+			onEmptyExit: () => void shutdown(0),
+			canExitWhenEmpty: () => draining || connections.size === 0,
+			onHandoffParked: async (ids) => {
+				await Promise.all(
+					ids.map(async (id) => {
+						await writer.flushConnection(id);
+						connections.get(id)?.close();
+					}),
+				);
+			},
+		},
 	);
 	const observers = startHostObservers(router, writer, {
 		// The shape #1893 measured: gigabytes resident with `sessions.total 0`. Say it once, and when
@@ -311,6 +327,10 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 	let supervisorPublicIdentity: SocketFileIdentity | undefined;
 	const server = createServer((socket) => {
 		const accept = (): void => {
+			if (draining || shuttingDown) {
+				socket.destroy();
+				return;
+			}
 			const id = `socket-${++nextConnection}`;
 			const sink = socketSink(socket);
 			writer.registerConnection(id, sink);
@@ -408,16 +428,33 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 		}
 	};
 	/**
-	 * Drain for a generation handoff: keep serving every attached client and every running turn,
-	 * park each session as it settles, and exit once none is left. The successor already owns the
-	 * public socket by the time this signal arrives, so nothing new can reach this host.
+	 * Announce through the record writer, never inside the supervisor's raw byte proxy. This
+	 * preserves JSONL framing and FIFO before parking, including when a record spans proxy reads.
+	 * Active turns/requests keep running; durable wake-source holds resume on reopen.
 	 */
 	const drainForHandoff = (): void => {
-		if (draining || shuttingDown) return;
+		if (shuttingDown) return;
+		if (draining) {
+			if (handoffAnnounced) router.beginDrain();
+			return;
+		}
 		draining = true;
 		crashCleanupPaths.length = 0;
 		hostLog("draining for a generation handoff");
-		router.beginDrain();
+		void endpointSuperseded()
+			.then((superseded) => {
+				writer.broadcastHostRecord({
+					type: "host_superseded",
+					instanceId: hostInstanceId(),
+					generation: hostGeneration(process.env),
+					successor: superseded ? { socket: supervisorPublicSocketPath ?? socketPath } : null,
+				});
+				handoffAnnounced = true;
+				router.beginDrain();
+			})
+			.catch((cause: unknown) => {
+				hostLog(`handoff announcement failed: ${String(cause)}`);
+			});
 	};
 	/**
 	 * Whether the endpoint this host serves is held by another socket entry now. A supervised host

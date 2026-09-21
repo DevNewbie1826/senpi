@@ -1,5 +1,28 @@
 # Core Extensions Changes
 
+## 2026-09-21 - Read es-module-lexer 3 import records in the Bun extension importer (senpi#1895)
+
+### What changed
+
+- `bun-extension-importer.ts` reads the tagged-union records that `es-module-lexer` 3 returns from the asm.js full build: `type === "dynamic"` replaces `d >= 0`, `importStart`/`importEnd` replace `ss`/`se`, `specifier` replaces `n`, `start`/`end` replace `s`/`e`, `dynamicStart` replaces the dynamic `d` index, and `attributesStart` replaces `a`. Static and `export * from` edges are matched by `type`; `import.meta` records are skipped as before.
+- `bun-extension-commonjs.ts` is unchanged: the full build still returns `hasModuleSyntax` as the fourth tuple element.
+
+### Why
+
+- `es-module-lexer` 3.0.0 replaced the terse v2 record fields with descriptive tagged unions and turned `es-module-lexer/js` into the asm.js full build; the importer's field reads stopped compiling (seven `TS2339` errors) and eleven extension tests failed until the records were read by their new names.
+
+### Why an extension could not handle it
+
+- The importer runs before any extension code is evaluated and rewrites the extension's own import edges; it is engine-owned.
+
+### Extension impact
+
+- None: rewritten output is byte-identical for the covered cases (static, dynamic, attributes, `export * from`).
+
+### Expected merge conflict zones
+
+- The import-edge rewrite loop in `bun-extension-importer.ts`, whenever upstream touches the importer.
+
 ## 2026-09-21 - Retained-session parked/resumed events (#1902)
 
 ### What changed
@@ -19,7 +42,6 @@
 
 - Session event union, event-subscription overloads and public type exports.
 
-||||||| parent of 1c5fd8af9 (feat(extensions): edit a user message and navigate the tree)
 ## 2026-09-21 - User-message edits and backward-compatible entry-addressed navigation
 
 ### What changed

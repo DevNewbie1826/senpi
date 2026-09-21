@@ -1,5 +1,5 @@
 import { strictEqual } from "node:assert/strict";
-import { bench, describe } from "vitest";
+import { describe, test } from "vitest";
 
 export interface BenchmarkTarget<TFixture extends AsyncDisposable> {
 	readonly name: string;
@@ -109,13 +109,11 @@ export async function registerReadBenchmarks<
 					if (prepared === undefined) throw new Error("Benchmark fixture was not initialized");
 					const subject = options.getSubject(prepared.fixture);
 
-					bench(
-						target.name,
-						async () => {
+					test(target.name, async ({ bench }) => {
+						await bench(target.name, async () => {
 							await scenario.run(subject, dataset);
-						},
-						READ_BENCHMARK_OPTIONS,
-					);
+						}).run(READ_BENCHMARK_OPTIONS);
+					});
 				}
 			});
 		}
@@ -164,15 +162,13 @@ export async function registerWriteBenchmarks<
 				);
 				if (prepared === undefined) throw new Error("Benchmark fixtures were not initialized");
 
-				bench(
-					target.name,
-					async () => {
+				test(target.name, async ({ bench }) => {
+					await bench(target.name, async () => {
 						const subject = prepared.pendingSubjects.shift();
 						if (subject === undefined) throw new Error("Benchmark fixture pool was exhausted");
 						await options.run(subject, scenario);
-					},
-					WRITE_BENCHMARK_OPTIONS,
-				);
+					}).run(WRITE_BENCHMARK_OPTIONS);
+				});
 			}
 		});
 	}

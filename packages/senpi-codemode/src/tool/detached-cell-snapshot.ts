@@ -1,12 +1,15 @@
 import type { AgentToolResult } from "@code-yeongyu/senpi";
 import type { EvalDetachedCellSnapshot, EvalDetachedCellState } from "./detached-cell-manager.ts";
 import { resultForDetachedState } from "./detached-eval-result.ts";
+import { EvalKernelResetRefusedError } from "./eval-kernel-reset-refused-error.ts";
 import type { EvalKernel, EvalToolDetails, EvalToolInput } from "./types.ts";
 
 export interface DetachedCellResultSource {
 	readonly cellId: string;
 	readonly input: EvalToolInput;
 	readonly startedAtMs: number;
+	readonly runStartedAtMs?: number | undefined;
+	readonly detached?: boolean;
 	state: EvalDetachedCellState;
 	kernel: EvalKernel | undefined;
 	stateRetained: boolean | undefined;
@@ -20,12 +23,16 @@ export interface DetachedCellResultSource {
 }
 
 export function snapshotDetachedCell(cell: DetachedCellResultSource, nowMs: number): EvalDetachedCellSnapshot {
-	const durationMs = Math.max(0, nowMs - cell.startedAtMs);
-	const result = resultForDetachedState(currentDetachedResult(cell), cell.state, durationMs);
+	const durationMs = cell.runStartedAtMs === undefined ? 0 : Math.max(0, nowMs - cell.runStartedAtMs);
+	const state = cell.detached && (cell.state === "queued" || cell.state === "running") ? "detached" : cell.state;
+	const queuedBehind = queuedBehindCell(cell);
+	const result = resultForDetachedState(currentDetachedResult(cell), state, durationMs, queuedBehind);
 	return {
 		cellId: cell.cellId,
 		language: cell.input.language,
-		state: cell.state,
+		startedAtMs: cell.startedAtMs,
+		state,
+		...(queuedBehind === undefined ? {} : { queuedBehind }),
 		outputTail: detachedOutputTail(result),
 		result,
 		stateRetained: cell.stateRetained,
@@ -37,6 +44,19 @@ export function snapshotDetachedCell(cell: DetachedCellResultSource, nowMs: numb
 			? { runBudgetSeconds: cell.runBudgetSeconds }
 			: {}),
 	};
+}
+
+export function queuedBehindCell(
+	cell: Pick<DetachedCellResultSource, "state" | "kernel" | "cellId">,
+): readonly string[] | undefined {
+	if (cell.state !== "queued") return undefined;
+	const queue = cell.kernel?.queueSnapshot();
+	if (queue === undefined) return [];
+	const index = queue.queuedCellIds.indexOf(cell.cellId);
+	return [
+		...(queue.activeCellId === null || queue.activeCellId === cell.cellId ? [] : [queue.activeCellId]),
+		...queue.queuedCellIds.slice(0, index < 0 ? undefined : index),
+	];
 }
 
 export function currentDetachedResult(cell: DetachedCellResultSource): AgentToolResult<EvalToolDetails> {
@@ -54,7 +74,11 @@ export function detachedErrorResult(cell: DetachedCellResultSource, error: Error
 			},
 			...current.content.filter((part) => part.type === "image"),
 		],
-		details: { ...current.details, isError: true },
+		details: {
+			...current.details,
+			isError: true,
+			...(error instanceof EvalKernelResetRefusedError ? { code: error.code } : {}),
+		},
 	};
 }
 

@@ -3,8 +3,7 @@ import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import type { Progress } from "@modelcontextprotocol/sdk/types.js";
 import type { TSchema } from "typebox";
-import type { ExtensionAPI, ToolDefinition } from "../../../types.ts";
-import { registerToolsPreservingActiveSet } from "../active-set.ts";
+import type { ToolDefinition } from "../../../types.ts";
 import type { McpToolCatalogEntry } from "../catalog.ts";
 import { ToolExecError } from "../errors.ts";
 import { applyMcpOutputGuard } from "../guard/output-guard.ts";
@@ -32,20 +31,6 @@ type WarnFn = (message: string) => void;
 
 export interface McpCatalogRegistrationOptions {
 	readonly refreshActiveSetWhenEmpty?: boolean;
-}
-
-export function registerMcpCatalogTools(
-	pi: Pick<ExtensionAPI, "getActiveTools" | "setActiveTools" | "registerTool">,
-	entries: readonly McpToolCatalogEntry[],
-	activeEntries: readonly McpToolCatalogEntry[],
-	warn?: WarnFn,
-	options: McpCatalogRegistrationOptions = {},
-): void {
-	if (entries.length === 0 && activeEntries.length === 0 && options.refreshActiveSetWhenEmpty !== true) return;
-	const tools = buildMcpToolDefinitions(entries, warn);
-	const currentActive = pi.getActiveTools().filter((name) => !name.startsWith("mcp_"));
-	const mcpNames = buildActiveToolNames(entries, activeEntries, warn);
-	registerToolsPreservingActiveSet(pi, tools, [...currentActive, ...mcpNames]);
 }
 
 export interface McpNamedCatalogEntry {
@@ -212,25 +197,4 @@ function truncatePreview(value: string): string {
 
 function compareCatalogEntries(left: McpToolCatalogEntry, right: McpToolCatalogEntry): number {
 	return left.server.localeCompare(right.server) || left.tool.localeCompare(right.tool);
-}
-
-function buildActiveToolNames(
-	entries: readonly McpToolCatalogEntry[],
-	activeEntries: readonly McpToolCatalogEntry[],
-	warn?: WarnFn,
-): string[] {
-	const activeKeys = new Set(activeEntries.map(catalogEntryKey));
-	const sorted = [...entries].sort(compareCatalogEntries);
-	const names = buildMcpToolNames(
-		sorted.map((entry) => ({ serverName: entry.server, toolName: entry.tool })),
-		warn,
-	);
-	return sorted
-		.map((entry, index) => (activeKeys.has(catalogEntryKey(entry)) ? (names[index] ?? "") : ""))
-		.filter((name) => name.length > 0)
-		.sort();
-}
-
-function catalogEntryKey(entry: McpToolCatalogEntry): string {
-	return `${entry.server}\0${entry.tool}`;
 }

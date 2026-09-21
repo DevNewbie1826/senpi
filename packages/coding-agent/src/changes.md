@@ -1,5 +1,43 @@
 # changes
 
+## 2026-09-21 - Announce supersession and park attached RPC sessions (#1933)
+
+### What changed
+
+- The socket host serializes `host_superseded` through its event writer before draining, then parks attached as well as unattached sessions with `session_closed { reason: "handoff_parked", sessionPath }` and closes connections after their last attached session parks.
+- Handoff activity protects turns and in-flight requests but excludes durable wake-source holds; ordinary idle eviction is unchanged. Both in-process and worker runtimes publish the handoff predicate.
+- The supervisor owns the 600000 ms `SENPI_RPC_HANDOFF_GRACE_MS` soft deadline. Expiry requests another drain pass, never aborts active work, and child exit ends the generation regardless of attached clients.
+
+### Why
+
+- Attached idle sessions pinned superseded hosts forever, without telling clients to reopen their files on the successor. Late commands on a parked handle now terminate through the close rather than `unknown_session`.
+
+### Why an extension could not handle it
+
+- Supervisor signals, JSONL ordering, shared connection ownership, request accounting and file reservations belong to the host transport and session registry.
+
+### Expected merge conflict zones
+
+- `modes/rpc/host-lifecycle.ts`, `multi-session-host.ts`, `session-command-router.ts`, `session-event-writer.ts`, and worker activity snapshots. Socket regression tests exercise real supervisors and held model turns.
+
+## 2026-09-21 - Preserve host MCP registry injection in CLI runtime creation (#1915)
+
+### What changed
+
+- `packages/coding-agent/src/main.ts` forwards the runtime factory's optional MCP registry to session services.
+
+### Why
+
+- `packages/coding-agent/src/main.ts` recreates services during session replacement; the host registry must follow the runtime factory rather than a single initial session.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/main.ts` owns CLI runtime construction before extension loading.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/main.ts`: `createCliRuntimeFactory` arguments and `createAgentSessionServices` options. Sharing remains disabled.
+
 ## 2026-09-21 - Export retained-session attachment events (#1902)
 
 ### What changed
@@ -17,6 +55,33 @@
 ### Expected merge conflict zones
 
 - The session event type export list in `index.ts`.
+
+## 2026-09-21 - Per-provider streaming concurrency cap (senpi#1909)
+
+### What changed
+
+- `core/provider-concurrency.ts` (new): `createProviderSemaphores(getLimit)` hands out one FIFO, abort-aware semaphore per provider id and exposes `bracket(providerId, signal, run)` plus `resize(providerId, limit)`. `bracket` acquires a slot, calls `run()`, and releases exactly once when the returned stream's `result()` settles - fulfil, reject, or abort - never at stream construction. A provider with no cap returns `run()` untouched, so the unconfigured path adds no bookkeeping.
+- `core/model-runtime.ts`: all four provider stream call sites (`stream` and `streamSimple`, each in its credential-rotation attempt and its plain path) now go through the bracket, keyed by `prepared.model.provider`. `complete`/`completeSimple` inherit it. `setSettingsManager()` (also accepted as `CreateModelRuntimeOptions.settingsManager`) supplies the limits and subscribes for changes.
+- `core/settings-manager.ts`: `Settings.providers?: Record<string, ProviderConcurrencySettings>`, `getProviderConcurrencyLimit()`, `getProviderSettings()`, and `subscribeToProviderSettings()`. Every merged-settings assignment now routes through one `updateSettings()` helper so trust changes, reloads, overrides and saves all notify subscribers.
+- `core/settings-diagnostics.ts`: a negative or fractional `providers.<id>.maxConcurrency` becomes a startup warning instead of silently doing nothing. One private `providerSettingsWarnings()` feeds both the plain collector and the new context-labelled `collectSettingsDiagnosticsWithContext()`.
+- `main.ts`: the CLI's own private settings-diagnostic collector is gone. Startup session lookup, runtime creation and model listing now call `collectSettingsDiagnosticsWithContext()`, so a malformed cap reaches the CLI surface too - the duplicate collector had silently skipped every diagnostic this module adds.
+- `core/sdk.ts`, `core/agent-session-services.ts`: both session entry points hand their settings manager to the runtime.
+- Behaviour is unchanged until a cap is configured; no provider ships a default.
+
+### Why
+
+- A provider that rate-limits on concurrent connections (or a local runtime with a small worker pool) turns burst fan-out into 429s and refused sockets, and senpi had no way to express "at most N at once" for one provider.
+- The bracket is deliberately narrow. Holding a slot for a whole agent turn deadlocks any spawn tree wider than the cap, because parents wait on children that wait for slots the parents still hold. Releasing when the provider's stream finishes producing keeps the slot tied to the HTTP request and nothing else.
+
+### Why an extension could not handle it
+
+- The request is issued inside `ModelRuntime`, after credential resolution and rotation slot selection; no extension hook sits between provider selection and the outgoing stream, and the cap must also cover rotation retries.
+
+### Expected merge conflict zones on next upstream sync
+
+- MEDIUM: the four `prepared.provider.stream(...)` / `streamSimple(...)` call sites in `model-runtime.ts` are now wrapped, so upstream edits to those argument lists conflict textually.
+- LOW: additive `Settings` field, additive settings-manager methods, and the `this.settings = ...` assignments rerouted through `updateSettings()`.
+- LOW: `main.ts` loses a nine-line local function and gains one import; its three diagnostic call sites are renamed.
 
 ## 2026-09-21 - The in-process daemon host initializes the theme before serving sessions (senpi#1894)
 
@@ -37,7 +102,6 @@
 
 - LOW: one additive call (plus comment) inside the multi-session dispatch branch in `main.ts`.
 
-||||||| parent of 1c5fd8af9 (feat(extensions): edit a user message and navigate the tree)
 ## 2026-09-21 - Print extension user edits and guarded tree navigation
 
 ### What changed

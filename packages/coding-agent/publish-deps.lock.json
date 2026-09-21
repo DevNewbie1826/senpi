@@ -1,25 +1,25 @@
 {
 	"name": "@code-yeongyu/senpi",
-	"version": "2026.9.21",
+	"version": "2026.9.21-2",
 	"lockfileVersion": 3,
 	"requires": true,
 	"packages": {
 		"": {
 			"name": "@code-yeongyu/senpi",
-			"version": "2026.9.21",
+			"version": "2026.9.21-2",
 			"license": "MIT",
 			"dependencies": {
 				"@earendil-works/chord": "0.85.1",
-				"@earendil-works/pi-agent-core": "^2026.9.21",
-				"@earendil-works/pi-ai": "^2026.9.21",
-				"@earendil-works/pi-client": "^2026.9.21",
-				"@earendil-works/pi-protocol": "^2026.9.21",
-				"@earendil-works/pi-tui": "^2026.9.21",
+				"@earendil-works/pi-agent-core": "^2026.9.21-2",
+				"@earendil-works/pi-ai": "^2026.9.21-2",
+				"@earendil-works/pi-client": "^2026.9.21-2",
+				"@earendil-works/pi-protocol": "^2026.9.21-2",
+				"@earendil-works/pi-tui": "^2026.9.21-2",
 				"@silvia-odwyer/photon-node": "0.3.4",
 				"chalk": "6.0.0",
 				"cross-spawn": "7.0.6",
 				"diff": "9.0.0",
-				"es-module-lexer": "2.1.0",
+				"es-module-lexer": "3.0.2",
 				"grok-mermaid": "0.2.3",
 				"highlight.js": "11.12.0",
 				"hosted-git-info": "10.1.1",
@@ -36,8 +36,8 @@
 				"@anthropic-ai/sdk": "0.127.0",
 				"@aws-sdk/client-bedrock-runtime": "3.1136.0",
 				"@bufbuild/protobuf": "2.15.0",
-				"@code-yeongyu/senpi-codemode": "^2026.9.21",
-				"@earendil-works/pi-pty": "^2026.9.21",
+				"@code-yeongyu/senpi-codemode": "^2026.9.21-2",
+				"@earendil-works/pi-pty": "^2026.9.21-2",
 				"@modelcontextprotocol/sdk": "1.30.0",
 				"@mozilla/readability": "0.6.0",
 				"@opentelemetry/api": "1.9.1",
@@ -560,12 +560,12 @@
 			"license": "(Apache-2.0 AND BSD-3-Clause)"
 		},
 		"node_modules/@code-yeongyu/senpi-codemode": {
-			"version": "2026.9.21",
+			"version": "2026.9.21-2",
 			"inBundle": true,
 			"license": "MIT",
 			"dependencies": {
 				"@babel/parser": "8.0.4",
-				"@earendil-works/pi-ai": "^2026.9.21",
+				"@earendil-works/pi-ai": "^2026.9.21-2",
 				"typebox": "1.3.34"
 			},
 			"peerDependencies": {
@@ -633,13 +633,13 @@
 			}
 		},
 		"node_modules/@earendil-works/pi-agent-core": {
-			"version": "2026.9.21",
+			"version": "2026.9.21-2",
 			"inBundle": true,
 			"license": "MIT",
 			"dependencies": {
 				"@earendil-works/chord": "0.85.1",
-				"@earendil-works/pi-ai": "^2026.9.21",
-				"@earendil-works/pi-telemetry": "^2026.9.21",
+				"@earendil-works/pi-ai": "^2026.9.21-2",
+				"@earendil-works/pi-telemetry": "^2026.9.21-2",
 				"diff": "9.0.0",
 				"ignore": "7.0.9",
 				"typebox": "1.3.34",
@@ -660,13 +660,13 @@
 			}
 		},
 		"node_modules/@earendil-works/pi-ai": {
-			"version": "2026.9.21",
+			"version": "2026.9.21-2",
 			"inBundle": true,
 			"license": "MIT",
 			"dependencies": {
 				"@anthropic-ai/sdk": "0.127.0",
 				"@aws-sdk/client-bedrock-runtime": "3.1136.0",
-				"@earendil-works/pi-telemetry": "^2026.9.21",
+				"@earendil-works/pi-telemetry": "^2026.9.21-2",
 				"@google/genai": "2.23.0",
 				"@smithy/node-http-handler": "4.12.1",
 				"http-proxy-agent": "9.1.0",
@@ -723,19 +723,19 @@
 			}
 		},
 		"node_modules/@earendil-works/pi-client": {
-			"version": "2026.9.21",
+			"version": "2026.9.21-2",
 			"inBundle": true,
 			"license": "MIT",
 			"dependencies": {
 				"@earendil-works/chord": "0.85.1",
-				"@earendil-works/pi-protocol": "2026.9.21"
+				"@earendil-works/pi-protocol": "2026.9.21-2"
 			},
 			"engines": {
 				"node": ">=22.19.0"
 			}
 		},
 		"node_modules/@earendil-works/pi-protocol": {
-			"version": "2026.9.21",
+			"version": "2026.9.21-2",
 			"inBundle": true,
 			"license": "MIT",
 			"dependencies": {
@@ -747,7 +747,7 @@
 			}
 		},
 		"node_modules/@earendil-works/pi-pty": {
-			"version": "2026.9.21",
+			"version": "2026.9.21-2",
 			"inBundle": true,
 			"license": "MIT",
 			"dependencies": {
@@ -758,7 +758,7 @@
 			}
 		},
 		"node_modules/@earendil-works/pi-telemetry": {
-			"version": "2026.9.21",
+			"version": "2026.9.21-2",
 			"inBundle": true,
 			"license": "MIT",
 			"engines": {
@@ -766,7 +766,7 @@
 			}
 		},
 		"node_modules/@earendil-works/pi-tui": {
-			"version": "2026.9.21",
+			"version": "2026.9.21-2",
 			"inBundle": true,
 			"license": "MIT",
 			"dependencies": {
@@ -2015,12 +2015,6 @@
 			"engines": {
 				"node": ">= 0.4"
 			}
-		},
-		"node_modules/es-module-lexer": {
-			"version": "2.1.0",
-			"resolved": "https://registry.npmjs.org/es-module-lexer/-/es-module-lexer-2.1.0.tgz",
-			"integrity": "sha512-n27zTYMjYu1aj4MjCWzSP7G9r75utsaoc8m61weK+W8JMBGGQybd43GstCXZ3WNmSFtGT9wi59qQTW6mhTR5LQ==",
-			"license": "MIT"
 		},
 		"node_modules/es-object-atoms": {
 			"version": "1.1.2",
@@ -3651,6 +3645,12 @@
 			"engines": {
 				"node": ">=0.3.1"
 			}
+		},
+		"packages/coding-agent/node_modules/es-module-lexer": {
+			"version": "3.0.2",
+			"resolved": "https://registry.npmjs.org/es-module-lexer/-/es-module-lexer-3.0.2.tgz",
+			"integrity": "sha512-BuIB67FngDSyQ/dpQNOZybwdEBDUGJQvOqwWr4ha/ufYiqzuEwPkKO2zLhRAgay28tStRIHUeWmszZAJo3GCOg==",
+			"license": "MIT"
 		},
 		"packages/coding-agent/node_modules/http-proxy-agent": {
 			"version": "9.1.0",

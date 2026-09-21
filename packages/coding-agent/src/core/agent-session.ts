@@ -707,6 +707,8 @@ export interface ExtensionBindings {
 }
 
 export interface TreeNavigationOptions {
+	/** navigateTree only: resume the exact entry; select (default) puts user/custom text in the editor. */
+	intent?: "select" | "resume";
 	summarize?: boolean;
 	customInstructions?: string;
 	replaceInstructions?: boolean;
@@ -9014,6 +9016,7 @@ export class AgentSession {
 	 * Unlike fork() which creates a new session file, this stays in the same file.
 	 *
 	 * @param targetId The entry ID to navigate to
+	 * @param options.intent Select for retry (default), or resume the exact entry without editor text
 	 * @param options.summarize Whether user wants to summarize abandoned branch
 	 * @param options.customInstructions Custom instructions for summarizer
 	 * @param options.replaceInstructions If true, customInstructions replaces the default prompt
@@ -9118,7 +9121,7 @@ export class AgentSession {
 
 		const targetEntry = this.sessionManager.getEntry(targetId);
 		if (!targetEntry) {
-			throw new Error(`Entry ${targetId} not found`);
+			throw new AssistantEditError("not-found", `Entry ${targetId} not found`);
 		}
 
 		// Collect entries to summarize (from old leaf to common ancestor)
@@ -9228,7 +9231,9 @@ export class AgentSession {
 				summaryUsage = extensionSummary.usage;
 			}
 
-			// Determine the new leaf position based on target type
+			// Determine the new leaf position based on intent and target type.
+			// Message edits keep their replacement semantics regardless of navigation-only options.
+			const resume = options.intent === "resume" && !replacement;
 			let newLeafId: string | null;
 			let editorText: string | undefined;
 
@@ -9236,6 +9241,9 @@ export class AgentSession {
 				// Edited message (assistant or user): leaf = parent, the edited copy is appended below.
 				// A user target keeps no editorText: its text is written into the session, not an editor.
 				newLeafId = targetEntry.parentId;
+			} else if (resume) {
+				// Exact branch resumption never selects a prompt for editing, whatever its role.
+				newLeafId = targetId;
 			} else if (targetEntry.type === "message" && targetEntry.message.role === "user") {
 				// User message: leaf = parent (null if root), text goes to editor
 				newLeafId = targetEntry.parentId;
@@ -9282,6 +9290,11 @@ export class AgentSession {
 				this.sessionManager.appendLabelChange(editedEntryId ?? targetId, label);
 			}
 
+			// Keep generated summary/label entries in the tree, not at the resumed conversation's tail.
+			if (resume && (summaryText || label)) {
+				this.sessionManager.branch(targetId);
+			}
+
 			// Update agent state (preserving exact messages still awaiting persistence)
 			this._restoreAgentMessagesFromSession();
 			this._delegatedCompactionKey = undefined;
@@ -9296,7 +9309,12 @@ export class AgentSession {
 				fromExtension: summaryText ? fromExtension : undefined,
 			});
 
-			// Emit to custom tools
+			// Lifecycle handlers may append metadata too. Preserve it without changing an exact resume.
+			if (resume && this.sessionManager.getLeafId() !== targetId) {
+				this.sessionManager.branch(targetId);
+				this._restoreAgentMessagesFromSession();
+				this._incrementMessageRevision();
+			}
 
 			return { editorText, cancelled: false, summaryEntry, entryId: editedEntryId };
 		} finally {

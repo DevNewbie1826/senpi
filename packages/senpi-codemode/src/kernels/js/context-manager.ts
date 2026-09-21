@@ -90,13 +90,26 @@ export class JavaScriptKernel {
 		return await promise;
 	}
 
-	async interrupt(reason = "interrupted"): Promise<KernelInterruptHandle> {
+	cancelQueued(cellId: string, reason: string): boolean {
+		return this.#runs.remove(cellId, reason);
+	}
+
+	queueSnapshot(): { activeCellId: string | null; queuedCellIds: readonly string[] } {
+		return this.#runs.snapshot();
+	}
+
+	async interrupt(reason = "interrupted", cellId?: string): Promise<KernelInterruptHandle> {
 		assertJavaScriptKernelOpen(this.#lifecycle, "interrupt");
 		const active = this.#runs.active;
+		if (cellId !== undefined && active?.input.cellId !== cellId) {
+			const cancelled = this.cancelQueued(cellId, reason);
+			return { stateRetained: Promise.resolve(true), ...(cancelled ? {} : { note: "cell not found" }) };
+		}
 		if (!active) {
-			const queued = this.#runs.takeInterruptTarget();
-			if (!queued) return { stateRetained: Promise.resolve(true) };
-			this.#runs.settle(queued, stoppedResult(queued.input.cellId, `JS cell interrupted: ${reason}`));
+			// A worker still stuck in startup is not a healthy idle worker: retiring it is the only recovery.
+			const wedgedInStartup = this.#slot.startingUp;
+			this.#runs.settleAll(`JS cell interrupted: ${reason}`);
+			if (!wedgedInStartup) return { stateRetained: Promise.resolve(true) };
 			await this.#restartAfterStop();
 			return { stateRetained: Promise.resolve(false) };
 		}
@@ -262,8 +275,7 @@ export class JavaScriptKernel {
 			this.#trackChildEvent(message.event);
 			return;
 		}
-		this.#options.onMessage?.(message);
-		this.#runs.active?.input.onMessage?.(message);
+		(this.#runs.active?.input.onMessage ?? this.#options.onMessage)?.(message);
 		if (message.type === "tool-call") {
 			const waiter = this.#toolWaiters.shift();
 			if (waiter) waiter(message);

@@ -27,7 +27,6 @@ from threading import Lock, Thread
 from typing import Any, Callable, Union
 from urllib.parse import unquote
 
-SESSION_ID = ""
 CONNECTION: dict[str, Any] = {}
 USER_NS: dict[str, Any] = {"__name__": "__main__", "__doc__": None, "__builtins__": __builtins__}
 LOOP = asyncio.new_event_loop()
@@ -530,9 +529,15 @@ def agent(
     schema: dict[str, Any] | None = None,
     isolated: bool | None = None,
     apply: bool | None = None,
-    merge: bool | None = None,
+    merge: bool | str | None = None,
     handle: bool = False,
 ) -> Any:
+    """Delegate work; isolated/apply/merge need a host that supports isolation, otherwise a warning.
+
+    merge accepts "patch"/"branch" or False/True respectively. Unapplied foreground
+    changes raise an error with recovery instructions. A handle returns immediately;
+    await the completion notification or read task_output for the isolation result.
+    """
     args: dict[str, Any] = {"prompt": prompt}
     if agent is not None:
         args["agent"] = agent
@@ -547,7 +552,7 @@ def agent(
     if apply is not None:
         args["apply"] = bool(apply)
     if merge is not None:
-        args["merge"] = bool(merge)
+        args["merge"] = merge
     if handle:
         args["handle"] = True
 
@@ -579,6 +584,9 @@ def agent(
     }
     if schema is not None:
         node["data"] = parsed
+    details = response_record.get("details")
+    if isinstance(details, dict) and "isolation" in details:
+        node["details"] = {"isolation": details["isolation"]}
     for key in (
         "isolated",
         "patch_path",
@@ -1056,10 +1064,9 @@ def elapsed(start: float) -> int:
 
 
 def handle(message: dict[str, Any]) -> bool:
-    global SESSION_ID, CONNECTION
+    global CONNECTION
     message_type = message.get("type")
     if message_type == "init":
-        SESSION_ID = str(message.get("sessionId", ""))
         connection = message.get("connection")
         if not isinstance(connection, dict):
             emit({"type": "init-failed", "error": {"message": "missing bridge connection"}})

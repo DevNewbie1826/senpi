@@ -6,6 +6,7 @@ import { markMcpConnectionNeedsAuth } from "./health.ts";
 import { createMcpLogger } from "./log.ts";
 import { ensureMcpResourceSubscriptions } from "./resources.ts";
 import type { McpConnectionEntry } from "./service-types.ts";
+import { SharedMcpLease } from "./shared-lease.ts";
 import { safeTimer } from "./wrap.ts";
 
 export const MCP_STARTUP_RACE_MS = 250;
@@ -117,6 +118,11 @@ export async function connectAndRefreshMcpCatalog(
 	}
 	await connectMcpServer(entry.connection, entry.logger);
 	if (entry.connection.state !== "connected") return;
+	if (entry.connection instanceof SharedMcpLease) {
+		entry.cachedCatalog = await entry.connection.catalog();
+		entry.cacheRefreshedAfterConnect = true;
+		return;
+	}
 	if (entry.cacheRefreshedAfterConnect) return;
 	entry.cacheRefreshedAfterConnect = true;
 	try {

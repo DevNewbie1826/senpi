@@ -132,7 +132,7 @@ describe("app-server daemon state", () => {
 	}, 15_000);
 });
 
-describe.sequential("app-server daemon CLI", () => {
+describe("app-server daemon CLI", () => {
 	it("starts, reports status, attaches idempotently, and stops a managed daemon", async () => {
 		// Given: a scratch agent directory and a non-default loopback port.
 		const root = await scratchRoot("senpi-daemon-cli-");

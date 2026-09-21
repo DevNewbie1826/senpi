@@ -8,6 +8,16 @@
 
 ### Fixed
 
+## [2026.9.21-2] - 2026-09-21
+
+### Breaking Changes
+
+### Changed
+
+- Updated the test runner to Vitest 5.0.1. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
+
+### Fixed
+
 ## [2026.9.21] - 2026-09-21
 
 ### Breaking Changes

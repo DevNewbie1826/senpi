@@ -1,5 +1,7 @@
 import { SENPI_CODEMODE_WAKE_SOURCE, type WakeSourceState } from "../extension/wake-source-state.ts";
 import type { EvalDetachedCellStatusEntry } from "./detached-cell-manager.ts";
+import { queuedBehindCell } from "./detached-cell-snapshot.ts";
+import type { ManagedCell } from "./managed-cell.ts";
 
 export interface LiveDetachedCell {
 	readonly cellId: string;
@@ -7,11 +9,12 @@ export interface LiveDetachedCell {
 	readonly input: { readonly language: EvalDetachedCellStatusEntry["language"]; readonly summary?: string };
 }
 
-export function detachedStatusEntries(liveCells: readonly LiveDetachedCell[]): EvalDetachedCellStatusEntry[] {
+export function detachedStatusEntries(liveCells: readonly ManagedCell[]): EvalDetachedCellStatusEntry[] {
 	return liveCells.map((cell) => ({
 		cellId: cell.cellId,
 		language: cell.input.language,
-		startedAtMs: cell.startedAtMs,
+		startedAtMs: cell.runStartedAtMs ?? cell.startedAtMs,
+		...(cell.state === "queued" ? { queuedBehind: queuedBehindCell(cell) } : {}),
 		...(cell.input.summary === undefined ? {} : { summary: cell.input.summary }),
 	}));
 }
