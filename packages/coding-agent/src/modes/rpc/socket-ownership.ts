@@ -61,6 +61,24 @@ export async function statSocketIdentity(socketPath: string): Promise<SocketFile
 	}
 }
 
+/**
+ * Whether `socketPath` is served by a DIFFERENT entry than `identity` describes: a successor
+ * generation renamed its own socket over it, or something else took the name. A generation that
+ * finds this true no longer owns the endpoint and cannot be reached by path any more.
+ *
+ * An absent entry and an unknown identity both answer `false`. Supersession has to be POSITIVELY
+ * observed - a name that is merely missing is somebody's `rm`, not a newer host, and treating it as
+ * one would make a healthy daemon drain itself.
+ */
+export async function socketEntryReplaced(
+	socketPath: string,
+	identity: SocketFileIdentity | undefined,
+): Promise<boolean> {
+	if (identity === undefined || process.platform === "win32" || socketPath.startsWith("\0")) return false;
+	const current = await statSocketIdentity(socketPath).catch(() => undefined);
+	return current !== undefined && !sameSocketIdentity(current, identity);
+}
+
 /** Records a bound socket identity for teardown paths that cannot hold it in memory. */
 export async function writeSocketIdentityFile(path: string, identity: SocketFileIdentity): Promise<void> {
 	await mkdir(dirname(path), { recursive: true, mode: 0o700 });

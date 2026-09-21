@@ -10,12 +10,10 @@
  * A socket nobody serves is not an error here: `reachable: false` with the same field set is the
  * answer, so a caller parses one shape either way and branches on one boolean.
  */
-import { readdir } from "node:fs/promises";
-import { processIsLive } from "../app-server/daemon/process.ts";
 import { readDaemonEnvKeys } from "./host-daemon-env.ts";
-import { createHostDaemonPaths, generationPaths, type HostDaemonPaths } from "./host-daemon-paths.ts";
-import { parseJson, readFileOrUndefined } from "./host-daemon-state.ts";
+import { createHostDaemonPaths } from "./host-daemon-paths.ts";
 import type { HostProtocolInfo } from "./host-decision.ts";
+import { type HostGenerationRow, pruneDeadGenerations, readGenerationRows } from "./host-generations.ts";
 import { probeProtocolInfo, requestOnSocket } from "./host-probe.ts";
 import { type HostProcessMetrics, readHostProcessMetrics } from "./host-process-metrics.ts";
 import type { RpcLaunchProfile } from "./rpc-types.ts";
@@ -37,16 +35,7 @@ export interface HostSessionCounts {
 	readonly foreign_retained: number;
 }
 
-/** One generation's record in the daemon directory - the current one, and any that outlived it. */
-export interface HostGenerationRow {
-	readonly instanceId: string;
-	readonly generation: number;
-	readonly pid: number;
-	readonly engineVersion: string | null;
-	/** True for the generation the pointer names: the one serving the socket. */
-	readonly current: boolean;
-	readonly alive: boolean;
-}
+export type { HostGenerationRow } from "./host-generations.ts";
 
 export interface HostStatusReport {
 	readonly reachable: boolean;
@@ -79,7 +68,10 @@ export async function readHostStatus(options: HostStatusOptions): Promise<HostSt
 		...(options.agentDir ? { agentDir: options.agentDir } : {}),
 	});
 	const host = await probeProtocolInfo(options.socket, STATUS_PROBE_TIMEOUT_MS);
-	const generations = await readGenerations(paths);
+	// Reading the directory is also when it is cleaned: an operator asking what runs here must not
+	// be shown generations that ended, and the next reader must get the same answer.
+	await pruneDeadGenerations(paths);
+	const generations = await readGenerationRows(paths);
 	const current = generations.find((row) => row.current);
 	const metrics = current ? await readHostProcessMetrics(current.pid) : UNOBSERVED_METRICS;
 	return {
@@ -155,26 +147,6 @@ function sessionRows(reply: unknown): readonly SessionRow[] {
 			},
 		];
 	});
-}
-
-async function readGenerations(paths: HostDaemonPaths): Promise<readonly HostGenerationRow[]> {
-	const pointer = parseJson(await readFileOrUndefined(paths.pointerFile));
-	const currentId = typeof pointer?.instance_id === "string" ? pointer.instance_id : undefined;
-	const entries = await readdir(paths.generationsDir).catch(() => []);
-	const rows: HostGenerationRow[] = [];
-	for (const instanceId of entries) {
-		const record = parseJson(await readFileOrUndefined(generationPaths(paths, instanceId).pidFile));
-		if (typeof record?.pid !== "number") continue;
-		rows.push({
-			instanceId,
-			generation: typeof record.generation === "number" ? record.generation : 0,
-			pid: record.pid,
-			engineVersion: typeof record.engineVersion === "string" ? record.engineVersion : null,
-			current: instanceId === currentId,
-			alive: processIsLive(record.pid),
-		});
-	}
-	return rows.sort((left, right) => left.generation - right.generation);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

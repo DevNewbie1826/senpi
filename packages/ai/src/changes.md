@@ -31,6 +31,24 @@
 - `packages/ai/src/providers/kimi-coding.models.ts`, if upstream ever describes the provider again
   and the generator wants to own the shard back.
 
+## 2026-09-21 - Track the widened Anthropic input-transformation union (senpi#1895)
+
+### What changed
+
+- `packages/ai/src/api/anthropic-messages.ts`: the streaming path holds `BetaInputTransformation[]` instead of `BetaThinkingDroppedInputTransformation[]`, and imports that union type.
+
+### Why
+
+- @anthropic-ai/sdk 0.127.0 widened a message's `input_transformations` into a union that also carries `thinking_mismatch_allowed` entries, so both assignments from `message_start` and `message_delta` stopped type-checking. The runtime already forwarded whatever the server sent, so the narrower annotation was describing less than the code did; the interactive transcript filters on `thinking_dropped`, so a mismatch-allowed entry reaches the assistant diagnostic without being announced as a dropped block.
+
+### Why an extension could not handle it
+
+- The stream reader is provider-API plumbing inside this package; no extension hook sees the raw Anthropic event before it is mapped.
+
+### Expected merge conflict zones
+
+- LOW: the type import block at the top of the file and the `inputTransformations` declaration.
+
 ## 2026-09-18 — Drop the OpenRouter Mistral overflow case that the catalog no longer carries
 
 ### What changed

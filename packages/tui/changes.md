@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-21 - Refresh the renderer dependency pins (senpi#1895)
+
+### What changed
+
+- `packages/tui/package.json`: `marked` 18.0.11 -> 18.0.13 and `get-east-asian-width` 1.6.0 -> 1.7.0.
+
+### Why
+
+- Both are fork-owned exact pins shared with `packages/coding-agent`, and the renderer's wide-glyph measurement has to agree with the CLI's, so the two sites move together to the newest release in the same minor that satisfies `min-release-age=2`.
+
+### Why an extension could not handle it
+
+- Manifest dependency versions are resolved by the package manager before any extension loads.
+
+### Expected merge conflict zones
+
+- LOW: the dependency version block, on every upstream release bump.
+
 ## 2026-09-14 - tmux short-frame cursor source (#1645)
 
 ### What changed

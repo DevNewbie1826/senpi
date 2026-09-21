@@ -30,10 +30,11 @@ it("uses API-equivalent reference costs for Coding Plan models", () => {
 			cacheRead: 0.26,
 			cacheWrite: 0,
 		});
+		// Reference prices come from the regenerated z.ai catalog (packages/ai/src/providers/data/zai*.json); update them together with the data files.
 		expect(getBuiltinModel(provider, "glm-5.3-flash").cost).toEqual({
-			input: 0.075,
-			output: 0.25,
-			cacheRead: 0.015,
+			input: 0.15,
+			output: 0.5,
+			cacheRead: 0.03,
 			cacheWrite: 0,
 		});
 	}

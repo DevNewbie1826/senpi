@@ -57,6 +57,6 @@
 		"@xterm/headless": "6.0.0"
 	},
 	"devDependencies": {
-		"@types/node": "26.2.0"
+		"@types/node": "26.6.2"
 	}
 }

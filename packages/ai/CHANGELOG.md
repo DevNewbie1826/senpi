@@ -8,7 +8,11 @@
 
 ### Changed
 
+- Updated the bundled dependencies: @anthropic-ai/sdk 0.123.0 -> 0.127.0, @aws-sdk/client-bedrock-runtime 3.1127.0 -> 3.1136.0, @google/genai 2.21.0 -> 2.23.0, @bufbuild/protobuf 2.14.0 -> 2.15.0, @smithy/types 4.17.2 -> 4.18.0, typebox 1.3.27 -> 1.3.34 and yaml 2.9.0 -> 2.9.1. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
+
 ### Fixed
+
+- Anthropic streams that report a `thinking_mismatch_allowed` input transformation no longer fail the type-check: @anthropic-ai/sdk 0.127.0 widened `input_transformations` into a union, and the streaming path now holds the union the SDK delivers. The interactive transcript still announces only `thinking_dropped` entries as dropped blocks. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
 
 ### Removed
 

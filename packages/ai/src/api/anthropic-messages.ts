@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type {
+	BetaInputTransformation,
 	BetaStopReason,
-	BetaThinkingDroppedInputTransformation,
 	BetaTool,
 	BetaCacheControlEphemeral as CacheControlEphemeral,
 	BetaContentBlockParam as ContentBlockParam,
@@ -1184,7 +1184,7 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			let client: Anthropic;
 			let isOAuth: boolean;
 			let usageModel = model;
-			let inputTransformations: BetaThinkingDroppedInputTransformation[] | undefined;
+			let inputTransformations: BetaInputTransformation[] | undefined;
 
 			if (options?.client) {
 				client = options.client;

@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-21 - The lock generators allowlist the bumped @google/genai (senpi#1895)
+
+### What changed
+
+- `scripts/generate-coding-agent-shrinkwrap.mjs` and `scripts/generate-coding-agent-install-lock.mjs`: the install-script allowlist entry moves from `@google/genai@2.21.0` to `@google/genai@2.23.0`.
+
+### Why
+
+- Both generators refuse a release dependency whose install scripts are not reviewed, and the allowlist is keyed by exact `name@version`, so bumping the dependency without the allowlist entry fails `npm run check` at `check:shrinkwrap`. The reviewed fact is unchanged: the package's `preinstall` is a no-op in the published tarball.
+
+### Why an extension could not handle it
+
+- The allowlist gates what the publish pipeline is permitted to bundle; it runs long before any extension exists.
+
+### Expected merge conflict zones
+
+- LOW: the `allowedInstallScriptPackages` map in both generators, whenever a release dependency with install scripts is bumped.
+
 ## 2026-09-19 - A bundled build can start its host again
 
 ### What changed
