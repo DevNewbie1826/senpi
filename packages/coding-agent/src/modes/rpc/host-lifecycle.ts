@@ -49,6 +49,7 @@ import { getAgentDir, isBunBinary, isBundledNode } from "../../config.ts";
 import { processIsLive, readProcessStartTime } from "../app-server/daemon/process.ts";
 import { createHostDaemonPaths, generationPaths, HOST_DAEMON_DIR_ENV } from "./host-daemon-paths.ts";
 import { releaseGeneration } from "./host-daemon-registration.ts";
+import { watchForSupersession } from "./host-supersession.ts";
 import {
 	HOST_CLEANUP_PATHS_ENV,
 	HOST_PUBLIC_SOCKET_ENV,
@@ -469,6 +470,7 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 	let observerHealthy = false;
 	let observerReconnectTimer: ReturnType<typeof setTimeout> | undefined;
 	let childExitWatchTimer: ReturnType<typeof setInterval> | undefined;
+	let stopSupersessionWatch: (() => void) | undefined;
 	let shuttingDown = false;
 	let draining = false;
 	let shutdownPromise: Promise<never> | undefined;
@@ -607,6 +609,7 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 		shuttingDown = true;
 		clearInterval(ticker);
 		if (childExitWatchTimer) clearInterval(childExitWatchTimer);
+		stopSupersessionWatch?.();
 		const hardExit =
 			process.platform === "win32"
 				? setTimeout(() => process.exit(exitCode), WINDOWS_SUPERVISOR_SHUTDOWN_HARD_EXIT_MS)
@@ -693,6 +696,15 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 		if (publicSocketIdentity && internal.dir) {
 			await writeSocketIdentityFile(join(internal.dir, PUBLIC_SOCKET_IDENTITY_FILE), publicSocketIdentity);
 		}
+		// Losing the public entry IS a drain request: nothing can reach this supervisor by path any
+		// more, and the handoff that replaced it may never have signalled (#1893).
+		stopSupersessionWatch = watchForSupersession(
+			{ path: publicSocket, identity: publicSocketIdentity, settled: () => shuttingDown || draining },
+			() => {
+				supervisorLog("another generation owns the public socket; draining this one");
+				drainForHandoff();
+			},
+		);
 	} catch (cause) {
 		await shutdown(`startup failed: ${errorMessage(cause)}`, 1);
 	}

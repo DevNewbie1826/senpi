@@ -38,6 +38,7 @@ import {
 	type HostDaemonPaths,
 } from "./host-daemon-paths.ts";
 import { isRecord, parseJson, readFileOrUndefined, writeStateFile } from "./host-daemon-state.ts";
+import { pruneDeadGenerations } from "./host-generations.ts";
 
 /** Who wrote a registration: the process identity a later stop must match to be allowed. */
 export interface HostPidFileWriter {
@@ -91,6 +92,10 @@ export async function readHostRegistration(paths: HostDaemonPaths): Promise<Regi
  * host it names, and the recorded start time keeps a recycled pid from inheriting that right.
  */
 export async function writeHostRegistration(paths: HostDaemonPaths, registration: HostRegistration): Promise<void> {
+	// Every write is also the moment to drop what is no longer running: records of dead generations
+	// and their session-path claims otherwise accumulate for the life of the agent directory, and a
+	// stale pointer among them reads as "a daemon serves this endpoint" (#1893).
+	await pruneDeadGenerations(paths);
 	const generation = generationPaths(paths, registration.instanceId);
 	const writer: HostPidFileWriter = { pid: process.pid, startTime: await thisProcessStartTime() };
 	const build = engineBuildIdentity();

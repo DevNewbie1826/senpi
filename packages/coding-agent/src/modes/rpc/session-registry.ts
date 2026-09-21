@@ -171,6 +171,7 @@ export class RpcSessionRegistry {
 				this.reservations.delete(key);
 				this.options.pathReservations?.release(key);
 			},
+			markDetached: (key) => this.options.pathReservations?.setAttached(key, false),
 			sync: () => this.syncRuntimeMetadata(),
 		};
 	}
@@ -196,6 +197,9 @@ export class RpcSessionRegistry {
 			if (!existing) throw new RpcSessionRegistryError("session_path_in_use");
 			const [handle, entry] = existing;
 			entry.attachments += 1;
+			// The claim carries the attachment state another generation decides on: a path this host is
+			// actively serving a client on is never reclaimable from it.
+			this.options.pathReservations?.setAttached(sessionPath, true);
 			// Retention is a property of the live session: any attach may ask for it, and
 			// no attach may revoke it for the clients that already rely on it.
 			if (options?.retainOnDisconnect) entry.retainOnDisconnect = true;
@@ -453,9 +457,10 @@ export class RpcSessionRegistry {
 				}
 				if (currentKey) {
 					this.reservations.add(currentKey);
-					// A replacement moved this session to another file; the claim follows it. A file a
-					// live foreign generation holds is left alone by claim() itself.
-					void this.options.pathReservations?.claim(currentKey);
+					// A replacement moved this session to another file; the claim follows it, carrying the
+					// attachment state it is now held at. A file a live foreign generation holds is left
+					// alone by claim() itself.
+					void this.options.pathReservations?.claim(currentKey, entry.attachments > 0);
 				}
 				entry.reservationKey = currentKey;
 				entry.sessionPath = currentPath;

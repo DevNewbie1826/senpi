@@ -210,11 +210,16 @@ describe.skipIf(process.platform === "win32")("generation handoff between live h
 		});
 
 		expect(result).toMatchObject({ action: "refuse", reason: "socket_replaced" });
-		// The intruder's socket is exactly as it was, and the old host was never signalled.
+		// Nothing was renamed and nothing was unlinked: the intruder's entry is exactly as it was and
+		// the successor left no bind path behind.
 		expect(await socketInode(qa.socket)).toBe(intruderInode);
-		expect(processAlive(firstPid(qa))).toBe(true);
-		expect(recordedPid(await pidFile(qa))).toBe(firstPid(qa));
 		await expect(stat(`${qa.socket}.next-1`)).rejects.toMatchObject({ code: "ENOENT" });
+		// The handoff never signalled the running generation. It leaves anyway - the entry it bound is
+		// gone, so no client can reach it by path (#1893) - and it still refuses to touch the socket
+		// that replaced it or to leave a registration behind.
+		expect(await waitForPidGone(firstPid(qa), 45_000)).toBe(true);
+		expect(await socketInode(qa.socket)).toBe(intruderInode);
+		await expect(pidFile(qa)).rejects.toMatchObject({ code: "ENOENT" });
 	}, 120_000);
 });
 
