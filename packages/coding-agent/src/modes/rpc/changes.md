@@ -17,6 +17,24 @@
 
 - `releaseOwnedSession` and attach-on-open. Keep eviction, worker runtimes and positive attachment counts unchanged.
 
+## 2026-09-21 - Drop the unreachable control-command guard in the session router (dead-code sweep after #1907)
+
+### What changed
+
+- `session-command-router.ts`: removed the module-level `controls` set and the `if (controls.has(command.type)) return undefined;` line in `dispatch`. Every member of that set (`get_protocol_info`, `list_sessions`, `open_session`, `close_session`) already returns from `dispatch` before that line, so the guard could never match a parsed command.
+
+### Why
+
+- Dead-code sweep over the files #1907 touched: the guard is an unreachable branch (LSP: one reference, itself). No behavior, public API or protocol table changes.
+
+### Why an extension could not handle it
+
+- The router is host-internal; extensions never see this dispatch path.
+
+### Expected merge conflict zones
+
+- LOW: the top-of-file constants and the `dispatch` tail in `session-command-router.ts`.
+
 ## 2026-09-21 — a loop stall no longer cuts live peers, teardown cannot leak a scope, and a critical host refuses new workers (#1905)
 
 ### What changed

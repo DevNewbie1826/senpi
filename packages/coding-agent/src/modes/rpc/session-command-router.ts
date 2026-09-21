@@ -27,8 +27,6 @@ import type { SessionEventWriter } from "./session-event-writer.ts";
 import type { OpenRpcSession, RpcSessionLaunchProfile, RpcSessionRegistry } from "./session-registry.ts";
 import { RpcSessionRegistryError } from "./session-registry.ts";
 
-const controls = new Set(["get_protocol_info", "open_session", "close_session", "list_sessions"]);
-
 /** How often a draining host re-checks whether the work it is waiting for has settled. */
 const DRAIN_SWEEP_MS = 50;
 
@@ -286,7 +284,6 @@ export class SessionCommandRouter {
 			}
 			return { id: command.id, type: "response", command: "set_client_info", success: true } as RpcResponse;
 		}
-		if (controls.has(command.type)) return undefined;
 		if (!command.sessionId) return error(command.id, command.type, RPC_ERROR_MISSING_SESSION_ID);
 		try {
 			this.registry.getForCommand(command.sessionId, command.type);
