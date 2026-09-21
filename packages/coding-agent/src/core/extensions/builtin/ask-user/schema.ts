@@ -1,27 +1,7 @@
+import type { QuestionRequest } from "../../types.ts";
+
+export type { QuestionRequest, QuestionResponse } from "../../types.ts";
 export { CLAUDE_PARAMS, CODEX_PARAMS } from "./params.ts";
-
-// TODO(t3-merge): re-export from ../../types.ts
-export interface QuestionRequest {
-	requestId: string;
-	questions: Array<{
-		id: string;
-		header: string;
-		question: string;
-		options: Array<{ label: string; description?: string }>;
-		multiSelect: boolean;
-	}>;
-	waitForAnswer: boolean;
-	timeoutMs: number;
-}
-
-// TODO(t3-merge): re-export from ../../types.ts
-export interface QuestionResponse {
-	status: "answered" | "comment-submitted" | "timed_out" | "cancelled" | "orphaned-after-restart" | "unavailable";
-	answers: Record<string, { selected: string[]; text?: string }>;
-	comment?: string;
-	unanswered: string[];
-	autoResolvedAfterMs?: number;
-}
 
 export type AskUserVariant = "codex" | "claude";
 export type Question = QuestionRequest["questions"][number];
