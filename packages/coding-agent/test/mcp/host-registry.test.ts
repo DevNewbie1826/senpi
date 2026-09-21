@@ -41,7 +41,7 @@ function fixture() {
 describe("HostMcpRegistry", () => {
 	it("isolates services using one registry through reload and disposal", async () => {
 		const root = makeRoot("host-registry-services", cleanupTasks);
-		setConfig(root, { fx: { ...stdioServer(["--tools", "1"]), lifecycle: "eager" } });
+		setConfig(root, { fx: { ...stdioServer(["--tools", "1"]), env: { PROJECT_CWD: root.cwd }, lifecycle: "eager" } });
 		const registry = new HostMcpRegistry();
 		const first = new McpService({ mcpRegistry: registry });
 		const second = new McpService({ mcpRegistry: registry });
@@ -146,9 +146,10 @@ describe("HostMcpRegistry", () => {
 		expect(registry.size()).toBe(2);
 	});
 
-	it("keeps HTTP and stdio configuration sharing disabled", () => {
+	it("allows HTTP and independent stdio but excludes session-dependent stdio", () => {
 		const { config } = fixture();
-		expect(shareable(config)).toBe(false);
-		expect(shareable({ ...config, type: "http", url: "http://127.0.0.1:1/mcp" })).toBe(false);
+		expect(shareable(config)).toBe(true);
+		expect(shareable({ ...config, type: "http", url: "http://127.0.0.1:1/mcp" })).toBe(true);
+		expect(shareable({ ...config, env: { OMO_AST_GREP_PROJECT_CWD: process.cwd() } })).toBe(false);
 	});
 });
