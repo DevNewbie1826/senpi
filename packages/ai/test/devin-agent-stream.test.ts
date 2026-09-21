@@ -25,7 +25,7 @@ import {
 
 afterEach(closeStubServers);
 
-describe.sequential("devin-agent stream: auth, host and router", () => {
+describe("devin-agent stream: auth, host and router", () => {
 	it("mints a user JWT first, then streams the chat with the released CLI headers", async () => {
 		const { baseUrl, seen } = await serveEdge({
 			chat: (_req, res) => {

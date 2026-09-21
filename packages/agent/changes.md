@@ -1,5 +1,28 @@
 # changes
 
+## 2026-09-21 - Migrate the test runner to Vitest 5 (senpi#1895)
+
+### What changed
+
+- `packages/agent/package.json`: Updated the test runner to Vitest 5.0.1 and V8 coverage to @vitest/coverage-v8 5.0.1.
+- `packages/agent/benchmark/session/benchmark.ts`: Register session timing benchmarks through the Vitest 5 test-context fixture and pass the existing iteration and warmup settings to `bench.run`.
+- `packages/agent/vitest.benchmark.config.ts`: Move the benchmark reporter to the top-level test reporter setting.
+
+### Why
+
+- Run this workspace on the pinned Vitest 5 release.
+- `packages/agent/benchmark/session/benchmark.ts` and `packages/agent/vitest.benchmark.config.ts` use APIs removed by Vitest 5; migrating them keeps the optional session timing command usable.
+
+### Why an extension could not handle it
+
+- The package manager resolves development tools before extensions load.
+- `packages/agent/benchmark/session/benchmark.ts` and `packages/agent/vitest.benchmark.config.ts` are consumed by the test runner, not by runtime extensions.
+
+### Expected merge conflict zones
+
+- The development dependency pins in `packages/agent/package.json`.
+- Benchmark registration in `packages/agent/benchmark/session/benchmark.ts` and reporter configuration in `packages/agent/vitest.benchmark.config.ts`.
+
 ## 2026-09-21 - Refresh the agent dependency pins (senpi#1895)
 
 ### What changed

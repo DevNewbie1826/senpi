@@ -14,7 +14,7 @@ import {
 
 afterEach(closeStubServers);
 
-describe.sequential("devin-agent stream: deltas, stop reasons and failures", () => {
+describe("devin-agent stream: deltas, stop reasons and failures", () => {
 	it("keeps one tool call when later chunks carry the arguments without the id", async () => {
 		const { baseUrl } = await serveEdge({
 			chat: (_req, res) => {

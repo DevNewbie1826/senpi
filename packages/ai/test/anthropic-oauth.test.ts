@@ -35,7 +35,7 @@ function getJsonBody(init?: RequestInit): Record<string, string> {
 	return JSON.parse(init.body) as Record<string, string>;
 }
 
-describe.sequential("Anthropic OAuth", () => {
+describe("Anthropic OAuth", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
 		__setAnthropicOAuthNodeApisForTests(null);
@@ -318,7 +318,7 @@ function stubTokenExchange(): { exchanges: Record<string, string>[]; loopbackFet
 	return { exchanges, loopbackFetch: realFetch };
 }
 
-describe.sequential("Anthropic OAuth callback listener", () => {
+describe("Anthropic OAuth callback listener", () => {
 	afterEach(() => {
 		vi.useRealTimers();
 		vi.unstubAllGlobals();
