@@ -10,7 +10,7 @@ import { activeProviderScope, bindToProviderScope } from "@earendil-works/pi-ai/
  * "Provider scope is closed" out of a timer nobody awaits is what leaked those watchers
  * on the shared host (senpi#1905).
  */
-export function bindSessionScopedCallback<TArgs extends readonly unknown[]>(
+export function bindSessionScopedCallback<TArgs extends unknown[]>(
 	callback: (...args: TArgs) => void,
 ): (...args: TArgs) => void {
 	const scope = activeProviderScope();
