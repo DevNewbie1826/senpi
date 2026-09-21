@@ -254,6 +254,12 @@ function output(ids...; format="raw", offset=nothing, limit=nothing)
     senpi_with_bridge_timeout_pause(() -> senpi_call_tool("__output__", arguments))
 end
 
+"""
+Delegate work with isolated/apply/merge; needs a host that supports isolation, otherwise a warning.
+merge accepts "patch"/"branch" (false/true aliases). Unapplied foreground changes raise
+an error with recovery instructions. Handles return immediately: await the completion
+notification or read task_output for the isolation result.
+"""
 function agent(prompt::AbstractString; agent="task", model=nothing, label=nothing, schema=nothing, isolated=nothing, apply=nothing, merge=nothing, handle=false, kwargs...)
     arguments = Dict{String, Any}("prompt" => string(prompt), "agent" => agent)
     for (key, value) in (("model", model), ("label", label), ("schema", schema), ("isolated", isolated), ("apply", apply), ("merge", merge))
@@ -272,6 +278,10 @@ function agent(prompt::AbstractString; agent="task", model=nothing, label=nothin
     result["handle"] = get(record, "handle", result["id"] === nothing ? nothing : "agent://" * string(result["id"]))
     result["run_epoch"] = get(record, "run_epoch", nothing)
     schema !== nothing && (result["data"] = parsed)
+    details = get(record, "details", nothing)
+    if details isa AbstractDict && haskey(details, "isolation")
+        result["details"] = Dict("isolation" => details["isolation"])
+    end
     result
 end
 

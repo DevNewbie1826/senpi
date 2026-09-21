@@ -305,7 +305,9 @@ export class JsWorkerRuntime {
 				: JSON.parse(String(text))
 			: text;
 		if (!handle) return output;
-		const details = isPlainObject(responseRecord.details) ? responseRecord.details : responseRecord;
+		const details = Object.hasOwn(responseRecord, "id")
+			? responseRecord
+			: isPlainObject(responseRecord.details) ? responseRecord.details : responseRecord;
 		const id = details.id;
 		if (id === undefined || id === null) return { text, output: text, handle: null, id: null, agent: null };
 		const node = {
@@ -317,6 +319,9 @@ export class JsWorkerRuntime {
 			agent: details.agent ?? callArgs.agent ?? null,
 		};
 		if (Object.hasOwn(callArgs, "schema")) node.data = output;
+		if (isPlainObject(responseRecord.details) && Object.hasOwn(responseRecord.details, "isolation")) {
+			node.details = { isolation: responseRecord.details.isolation };
+		}
 		for (const key of ["isolated", "patchPath", "branchName", "nestedPatches", "changesApplied", "isolationSummary"]) {
 			if (details[key] !== undefined) node[key] = details[key];
 		}

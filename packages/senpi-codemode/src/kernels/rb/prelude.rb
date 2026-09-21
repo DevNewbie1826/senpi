@@ -213,6 +213,10 @@ def output(*ids, format: "raw", offset: nil, limit: nil)
   __senpi_call_tool(SENPI_RESERVED_OUTPUT_TOOL, args)
 end
 
+# isolated/apply/merge need a host that supports isolation; otherwise a warning.
+# merge: "patch"/"branch" (false/true aliases). Unapplied foreground changes raise
+# an error with recovery instructions. Handles return immediately: await completion
+# notification or read task_output for the isolation result.
 def agent(prompt, agent: "task", model: nil, label: nil, schema: nil, isolated: nil, apply: nil, merge: nil, handle: false)
   args = { "prompt" => prompt.to_s, "agent" => agent }
   { "model" => model, "label" => label, "schema" => schema, "isolated" => isolated, "apply" => apply, "merge" => merge }.each do |key, value|
@@ -226,6 +230,8 @@ def agent(prompt, agent: "task", model: nil, label: nil, schema: nil, isolated: 
   return result unless handle
   { "text" => text_value, "output" => text_value, "handle" => record["handle"] || (record["id"] && "agent://#{record["id"]}"), "id" => record["id"], "run_epoch" => record["run_epoch"], "agent" => record.fetch("agent", agent) }.tap do |node|
     node["data"] = result unless schema.nil?
+    details = record["details"]
+    node["details"] = { "isolation" => details["isolation"] } if details.is_a?(Hash) && details.key?("isolation")
   end
 end
 

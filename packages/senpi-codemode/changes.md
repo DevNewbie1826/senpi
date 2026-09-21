@@ -39,6 +39,28 @@ The host pid must be present in the kernel's environment at spawn time and the w
 
 - LOW: `src/kernels/py/prelude.py` (`_watch_parent`/`_start_parent_watch` region), `src/kernels/py/process.ts` (`defaultSpawn`), `test/py-kernel-parent-watchdog.test.ts` (new file).
 
+## 2026-09-21 - Forward agent isolation options to capable task hosts (senpi#1910)
+
+### What changed
+
+- `src/bridges/agent-bridge.ts` probes the configured task schema once per bridge via the existing host catalog, forwards advertised `isolated`/`apply`/`merge` options, normalizes boolean merge aliases, and preserves the unsupported-host warning. Foreground unapplied isolation raises `AgentIsolationNotAppliedError` with recovery fields; host isolation metadata is preserved, including on immediate handles.
+- `src/bridges/reserved-dispatch.ts` passes the same catalog used by `tool_schema()` to the agent bridge for JS and HTTP transports.
+- `src/kernels/js/worker-runtime.js`, `src/kernels/py/prelude.py`, `src/kernels/rb/prelude.rb`, and `src/kernels/jl/prelude.jl` preserve optional handle isolation details; Python no longer coerces string merge modes to booleans.
+- `src/kernels/js/prelude.ts`, the Python/Ruby/Julia prelude docs, `src/prompt/eval-prompt-template.ts`, and `README.md` document capability gating, merge aliases, foreground errors, and waiting for background completion.
+- `test/agent-bridge.test.ts` and `test/workpool-prelude.test.ts` cover bridge contracts and real-language transports; the existing prompt snapshot follows the updated shipped helper documentation.
+
+### Why
+
+- Capable task engines must receive the requested isolation controls instead of silently dropping them; unapplied foreground changes must not appear successful.
+
+### Why an extension could not handle it
+
+- This extension owns the reserved agent bridge and language adapters. Isolation execution remains entirely in the host task engine; no orchestration dependency or task-handle schema change is introduced.
+
+### Expected merge conflict zones
+
+- LOW: agent option/result mapping, reserved dispatch catalog forwarding, and the four language helper adapters and docs.
+
 ## 2026-09-17 - Reject cell declarations that would replace kernel globals (senpi#1784)
 
 ### What changed
