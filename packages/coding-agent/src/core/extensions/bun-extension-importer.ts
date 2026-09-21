@@ -106,24 +106,29 @@ export function createBunExtensionImporter(
 			const edits: { readonly start: number; readonly end: number; readonly text: string }[] = [];
 			let commonJsImports = 0;
 			for (const edge of imports) {
-				if (edge.d >= 0) {
+				if (edge.type === "dynamic") {
 					// Replace the keyword, not its argument: nested expressions, templates,
 					// import attributes, and unavailable optional dependencies stay lazy.
-					edits.push({ start: edge.ss, end: edge.d, text: `${name}.import` });
-				} else if (edge.n !== undefined) {
-					const target = resolveTarget(edge.n, filename);
+					edits.push({ start: edge.importStart, end: edge.dynamicStart, text: `${name}.import` });
+				} else if (edge.type === "static" || edge.type === "reexport-star") {
+					const target = resolveTarget(edge.specifier, filename);
 					if (target.path !== undefined && isCommonJsFile(target.path)) {
-						const clause = contents.slice(edge.ss + "import".length, edge.s - 1).replace(/\bfrom\s*$/, "");
+						// "import" and "export" are both six characters, so the clause is
+						// whatever sits between the keyword and the specifier in either form.
+						const clause = contents
+							.slice(edge.importStart + "import".length, edge.start - 1)
+							.replace(/\bfrom\s*$/, "");
 						// This branch replaces the whole statement, so the attributes between the
 						// specifier and the end of it have to travel with it: they pick the loader.
-						const attributes = edge.a < 0 ? "" : contents.slice(edge.e + 1, edge.se).replace(/;\s*$/, "");
+						const attributes =
+							edge.attributesStart < 0 ? "" : contents.slice(edge.end + 1, edge.importEnd).replace(/;\s*$/, "");
 						edits.push({
-							start: edge.ss,
-							end: edge.se,
+							start: edge.importStart,
+							end: edge.importEnd,
 							text: rewriteCommonJsImport(clause, target.id, `${name}Cjs${commonJsImports++}`, attributes),
 						});
 					} else {
-						edits.push({ start: edge.s - 1, end: edge.e + 1, text: JSON.stringify(target.id) });
+						edits.push({ start: edge.start - 1, end: edge.end + 1, text: JSON.stringify(target.id) });
 					}
 				}
 			}

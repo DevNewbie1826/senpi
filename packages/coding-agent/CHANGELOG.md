@@ -14,6 +14,7 @@
 
 ### Fixed
 
+- The Bun extension importer reads `es-module-lexer` 3's tagged-union import records, so extensions load unchanged after the lexer upgrade to 3.0.2. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
 - RPC `navigate_tree` now returns the documented `errorCode: "not_found"` when its target entry is missing, instead of an untyped error. The refusal leaves the session unchanged. ([#1892](https://github.com/code-yeongyu/senpi/issues/1892))
 
 ### Removed
