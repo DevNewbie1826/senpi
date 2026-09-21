@@ -66,6 +66,7 @@ export function createCacheKeepAliveExtension(
 		let inFlight = false;
 		let generation = 0;
 		let active = false;
+		let parked = false;
 		let attempts = 0;
 		let cumulativeEstimatedUsd = 0;
 		let lastCompletedAtMs: number | undefined;
@@ -99,7 +100,7 @@ export function createCacheKeepAliveExtension(
 		}
 
 		function arm(): void {
-			if (timer !== undefined || inFlight) return;
+			if (parked || timer !== undefined || inFlight) return;
 			const current = ctx;
 			const settings = current?.getPromptCacheKeepAliveSettings?.();
 			if (!settings?.enabled || current?.model === undefined || lastCompletedAtMs === undefined) return;
@@ -256,6 +257,15 @@ export function createCacheKeepAliveExtension(
 		pi.on("model_select", (_event, nextCtx) => {
 			ctx = nextCtx;
 			stop("model-changed");
+			arm();
+		});
+		pi.on("session_parked", () => {
+			parked = true;
+			stop("session-parked");
+		});
+		pi.on("session_resumed", (_event, nextCtx) => {
+			parked = false;
+			ctx = nextCtx;
 			arm();
 		});
 		pi.on("agent_start", () => stop("agent-busy"));

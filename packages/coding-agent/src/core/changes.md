@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-21 - Dispatch retained attachment lifecycle (#1902)
+
+### What changed
+
+- `agent-session-runtime.ts` dispatches additive parked/resumed events through the current session's extension runner.
+
+### Why
+
+- A retained session outlives its client but optional periodic work should not.
+
+### Why an extension could not handle it
+
+- Only the runtime owns the current runner across session replacement.
+
+### Expected merge conflict zones
+
+- Runtime lifecycle dispatch adjacent to `emitBeforeSwitch`; no TUI lifecycle changes.
+
 ## 2026-09-20 - A fallback rung too small for the transcript is repaired, not rejected (senpi#1873)
 
 ### What changed

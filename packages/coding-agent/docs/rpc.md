@@ -2,6 +2,13 @@
 
 Shared-host clients may advertise the `rendered_components` capability to receive factory-rendered widget, header, and footer records. In a shared session, component rendering uses the minimum width reported by currently attached connections, defaulting to 80 when none report a width; disconnected connections no longer contribute.
 
+When the last client disconnects from a retained in-process session, extensions receive
+`session_parked`; the first reattachment to that still-open session emits
+`session_resumed`. File-monitor polling and prompt-cache keepalive pause between these
+events. Active turns and idle eviction keep their existing behavior. These extension
+hooks are not the `session_parked` wire record emitted when eviction or handoff releases
+a runtime. Worker-runtime sessions currently do not dispatch the extension hooks.
+
 The shared Unix socket host keeps its ownership state in a PER-SOCKET daemon directory, `<agentDir>/rpc-host-daemon/<sha256(canonical socket)[:16]>/` (see [Daemon state directory](#daemon-state-directory-layout-2)). Clients attach to a compatible existing host regardless of which client surface started it; only incompatible unmanaged owners are refused.
 
 RPC mode enables headless operation of the coding agent via a JSON protocol over stdin/stdout. This is useful for embedding the agent in other applications, IDEs, or custom UIs.

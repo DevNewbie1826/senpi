@@ -167,6 +167,12 @@ export class AgentSessionRuntime {
 		this.beforeSessionInvalidate = beforeSessionInvalidate;
 	}
 
+	/** Attachment transitions are ordered by the RPC entry's lifecycle mutex. */
+	async emitAttachmentEvent(type: "session_parked" | "session_resumed"): Promise<void> {
+		const runner = this.session.extensionRunner;
+		if (runner.hasHandlers(type)) await runner.emit({ type });
+	}
+
 	private async emitBeforeSwitch(
 		reason: "new" | "resume",
 		targetSessionFile?: string,

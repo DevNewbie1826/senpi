@@ -908,6 +908,16 @@ export interface SessionInfoChangedEvent {
 	name: string | undefined;
 }
 
+/** Fired when the last client detaches from a retained in-process RPC session. */
+export interface SessionParkedEvent {
+	type: "session_parked";
+}
+
+/** Fired when the first client reattaches to an open, parked in-process RPC session. */
+export interface SessionResumedEvent {
+	type: "session_resumed";
+}
+
 /** Fired before switching to another session (can be cancelled) */
 export interface SessionBeforeSwitchEvent {
 	type: "session_before_switch";
@@ -1065,6 +1075,8 @@ export interface SessionTreeEvent {
 export type SessionEvent =
 	| SessionStartEvent
 	| SessionInfoChangedEvent
+	| SessionParkedEvent
+	| SessionResumedEvent
 	| SessionBeforeSwitchEvent
 	| SessionBeforeForkEvent
 	| SessionBeforeReloadEvent
@@ -1793,6 +1805,8 @@ export interface ExtensionAPI {
 	on(event: "resources_discover", handler: ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>): void;
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
 	on(event: "session_info_changed", handler: ExtensionHandler<SessionInfoChangedEvent>): void;
+	on(event: "session_parked", handler: ExtensionHandler<SessionParkedEvent>): void;
+	on(event: "session_resumed", handler: ExtensionHandler<SessionResumedEvent>): void;
 	on(
 		event: "session_before_switch",
 		handler: ExtensionHandler<SessionBeforeSwitchEvent, SessionBeforeSwitchResult>,

@@ -1,3 +1,22 @@
+## 2026-09-21 - Pause periodic work on retained detach (#1902)
+
+### What changed
+
+- `session-command-router.ts` emits the extension park transition on the last retained attachment release.
+- `session-registry.ts` emits resume on the first attachment returning to an open retained runtime. Both transitions join the existing per-entry lifecycle ordering.
+
+### Why
+
+- Retention kept file-watch and cache-warming timers active with no client attached.
+
+### Why an extension could not handle it
+
+- Attachment counts belong to the RPC host; extensions previously had no event for these transitions.
+
+### Expected merge conflict zones
+
+- `releaseOwnedSession` and attach-on-open. Keep eviction, worker runtimes and positive attachment counts unchanged.
+
 ## 2026-09-21 — a loop stall no longer cuts live peers, teardown cannot leak a scope, and a critical host refuses new workers (#1905)
 
 ### What changed

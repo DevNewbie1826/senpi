@@ -216,6 +216,7 @@ export class RpcSessionRegistry {
 			);
 			if (!existing) throw new RpcSessionRegistryError("session_path_in_use");
 			const [handle, entry] = existing;
+			const wasParked = entry.retainOnDisconnect === true && entry.attachments === 0;
 			entry.attachments += 1;
 			// The claim carries the attachment state another generation decides on: a path this host is
 			// actively serving a client on is never reclaimable from it.
@@ -225,6 +226,12 @@ export class RpcSessionRegistry {
 			if (options?.retainOnDisconnect) entry.retainOnDisconnect = true;
 			if (!entry.durableSessionId) throw new RpcSessionRegistryError("session_path_in_use");
 			entry.lastCommandAt = this.now();
+			if (wasParked) {
+				entry.lifecycleMutex = entry.lifecycleMutex.then(() =>
+					entry.runtime?.emitAttachmentEvent("session_resumed"),
+				);
+				await entry.lifecycleMutex;
+			}
 			return {
 				sessionId: handle,
 				durableSessionId: entry.durableSessionId,

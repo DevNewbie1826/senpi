@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-21 - Export retained-session attachment events (#1902)
+
+### What changed
+
+- `index.ts` exports `SessionParkedEvent` and `SessionResumedEvent` alongside the other public session event types.
+
+### Why
+
+- Extensions need to name the types of the additive retained-session attachment hooks.
+
+### Why an extension could not handle it
+
+- The package entry point owns its exported type surface.
+
+### Expected merge conflict zones
+
+- The session event type export list in `index.ts`.
+
 ## 2026-09-21 - The in-process daemon host initializes the theme before serving sessions (senpi#1894)
 
 ### What changed

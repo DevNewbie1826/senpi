@@ -60,6 +60,7 @@ interface TerminalExtensionState {
 	/** Manifest recorder; present only while this process owns the session's lease. */
 	manifestWriter: TerminalManifestWriter | null;
 	recordedBackgroundIds: Set<string>;
+	parked: boolean;
 }
 
 /** Tests and SDK callers may hand partial contexts without a session manager. */
@@ -93,7 +94,7 @@ function bundleSinks(pi: ExtensionAPI, state: TerminalExtensionState): TerminalE
 			pi.rpc?.emit(TERMINAL_MONITOR_ENDED_EVENT, event);
 		},
 		onMonitorState: (snapshot, transition = true) => {
-			state.statusTicker.sync(snapshot);
+			if (!state.parked) state.statusTicker.sync(snapshot);
 			const payload = {
 				activeCount: snapshot.length,
 				monitors: snapshot.map((entry) => ({
@@ -152,6 +153,7 @@ function buildToolContext(pi: ExtensionAPI, state: TerminalExtensionState): Term
 		// settings-configured bundle and tears down any earlier one.
 		if (!state.bundle) {
 			state.bundle = createBundle(state);
+			state.bundle.monitors.setParked(state.parked);
 			state.bundle.bind(bundleSinks(pi, state));
 		}
 		return state.bundle;
@@ -410,6 +412,7 @@ export function registerTerminalExtension(pi: ExtensionAPI): void {
 		lease: null,
 		manifestWriter: null,
 		recordedBackgroundIds: new Set(),
+		parked: false,
 	};
 	const toolCtx = buildToolContext(pi, state);
 
@@ -465,6 +468,18 @@ export function registerTerminalExtension(pi: ExtensionAPI): void {
 			await adoptPersistedTerminalState(pi, state, toolCtx, state.bundle, sessionKey);
 		}
 		syncToolset(pi, state);
+	});
+
+	pi.on("session_parked", () => {
+		state.parked = true;
+		state.bundle?.monitors.setParked(true);
+		state.statusTicker.stop();
+	});
+
+	pi.on("session_resumed", () => {
+		state.parked = false;
+		state.bundle?.monitors.setParked(false);
+		if (state.bundle) state.statusTicker.sync(state.bundle.monitors.snapshot());
 	});
 
 	pi.on("model_select", async (event, ctx) => {
