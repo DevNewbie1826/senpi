@@ -74,7 +74,7 @@ const CATALOG: Configs = {
 	],
 };
 
-describe.sequential("devin provider", () => {
+describe("devin provider", () => {
 	it("registers the devin-agent api in the builtin registry", () => {
 		expect(getBuiltinApiProvider("devin-agent")).toBeDefined();
 	});

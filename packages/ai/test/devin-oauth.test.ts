@@ -65,7 +65,7 @@ function driveLogin(
 	return { drive, interaction };
 }
 
-describe.sequential("Devin OAuth", () => {
+describe("Devin OAuth", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
 		vi.unstubAllEnvs();
