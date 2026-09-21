@@ -197,8 +197,11 @@ export class SessionCommandRouter {
 			if (status !== "open") continue;
 			const entry = this.registry.peek(sessionId);
 			if (!entry || this.activeRequests.has(sessionId)) continue;
-			if (entry.worker?.handoffBusy || (entry.runtime && isHandoffBusy(entry.runtime.session.activitySnapshot)))
-				continue;
+			// Both signals are optional: a runtime that does not publish an activity
+			// snapshot cannot be proven busy, and a park that waits for a signal the
+			// runtime never emits would strand the session on the old generation.
+			const snapshot = entry.runtime?.session.activitySnapshot;
+			if (entry.worker?.handoffBusy === true || (snapshot !== undefined && isHandoffBusy(snapshot))) continue;
 			this.handoffClosed.add(sessionId);
 			this.handoffParks++;
 			void this.evictIdleSession(sessionId, "handoff_parked")
@@ -593,12 +596,17 @@ export class SessionCommandRouter {
 					),
 				);
 				if (entry.worker) entry.worker.bindingReady = true;
+				// Wake the drain sweep the moment a session settles, so a handoff parks it
+				// without waiting for the next timer tick. Both hooks are OPTIONAL: an
+				// embedder's runtime and the suite's fakes implement the session surface
+				// they need and nothing more, and an open must never fail because a
+				// settle notification is unavailable - the periodic sweep still parks it.
 				const settled = () => {
 					if (this.draining) queueMicrotask(() => this.sweepDrain());
 				};
-				if (entry.worker) entry.worker.subscribeSettled(settled);
-				else
-					entry.runtime?.session.subscribe((event) => {
+				if (typeof entry.worker?.subscribeSettled === "function") entry.worker.subscribeSettled(settled);
+				else if (typeof entry.runtime?.session.subscribe === "function")
+					entry.runtime.session.subscribe((event) => {
 						if (event.type === "agent_settled" || event.type === "agent_idle") settled();
 					});
 				if (entry.worker)
