@@ -720,6 +720,7 @@ describe("queued cell result contract", () => {
 	const snapshot = {
 		cellId: "cell-9",
 		language: "py",
+		startedAtMs: 0,
 		state: "detached",
 		outputTail: "still going",
 		result: { content: [], details: { language: "py", durationMs: 0, toolCalls: [], truncated: false } },

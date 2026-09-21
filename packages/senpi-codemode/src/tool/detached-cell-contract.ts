@@ -7,6 +7,7 @@ export type EvalDetachedCellState = "queued" | "running" | "detached" | "complet
 export interface EvalDetachedCellSnapshot {
 	readonly cellId: string;
 	readonly language: EvalLanguage;
+	readonly startedAtMs: number;
 	readonly state: EvalDetachedCellState;
 	readonly queuedBehind?: readonly string[];
 	readonly outputTail: string;

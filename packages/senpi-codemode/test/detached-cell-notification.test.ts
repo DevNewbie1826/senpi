@@ -12,6 +12,7 @@ function cancelledSnapshot(
 	return {
 		cellId: `cancelled-${language}`,
 		language,
+		startedAtMs: 0,
 		state: "cancelled",
 		outputTail: "",
 		stateRetained,

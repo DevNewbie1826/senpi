@@ -61,6 +61,27 @@ The host pid must be present in the kernel's environment at spawn time and the w
 
 - LOW: agent option/result mapping, reserved dispatch catalog forwarding, and the four language helper adapters and docs.
 
+## 2026-09-21 - Eval list and busy-kernel reset refusal (senpi#1908)
+
+### What changed
+
+- `src/tool/{types,eval-request,eval-tool,eval-tool-options,detached-eval-result,render}.ts` accept and render list controls with typed, cross-language live/recent metadata, without touching notifications. Peek/stop schema validation requires a nonempty cell id.
+- `src/tool/{detached-cell-contract,detached-cell-snapshot}.ts` retain submission timestamps and reset-refusal error codes in terminal snapshots.
+- `src/tool/{run-eval-cell,eval-kernel-reset-refused-error}.ts` reject busy-language resets, excluding the requesting queued cell, without resetting or stopping existing work.
+- `src/prompt/eval-prompt-template.ts`, its shipped-copy snapshot, and README explain list observation and reset refusal. `test/eval-list-and-reset.test.ts` covers schema, execution, listing, notification preservation, reset refusal and recovery.
+
+### Why
+
+- Callers need a session-wide view of eval work and must not erase state used by another live cell.
+
+### Why an extension could not handle it
+
+- This extension owns the schema, cell registry, reset boundary, and renderer.
+
+### Expected merge conflict zones
+
+- MEDIUM: eval tool schema/execute overloads, detached snapshots/results, reset boundary, and prompt sentence.
+
 ## 2026-09-21 - Foreground capacity window and queued eval guidance (senpi#1908)
 
 ### What changed

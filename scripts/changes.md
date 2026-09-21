@@ -25,7 +25,7 @@
 ### What changed
 
 - `scripts/qa/omp-item8.ts` asserts queued admission and targeted dequeue instead of the removed per-language busy error.
-- `scripts/qa/omp-item8-fixture.ts` observes per-run callbacks and forwards cell ids when instrumenting interrupts.
+- `scripts/qa/omp-item8-fixture.ts` observes per-run callbacks and forwards cell ids when instrumenting interrupts. Its foreground bridge result assertion now narrows run details explicitly, since list controls return cross-language cell metadata instead.
 
 ### Why
 

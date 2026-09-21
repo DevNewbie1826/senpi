@@ -5,7 +5,15 @@ import type {
 	EvalDetachedCellState,
 } from "./detached-cell-manager.ts";
 import { interruptionStateNote } from "./interrupt-note.ts";
-import type { EvalCellResult, EvalControlInput, EvalToolDetails, EvalToolInput } from "./types.ts";
+import type {
+	EvalCellResult,
+	EvalControlInput,
+	EvalListDetails,
+	EvalListedCell,
+	EvalResultDetails,
+	EvalToolDetails,
+	EvalToolInput,
+} from "./types.ts";
 
 export class EvalBackgroundCapacityError extends Error {
 	readonly code = "eval_background_capacity_reached";
@@ -21,10 +29,45 @@ export class EvalBackgroundCapacityError extends Error {
 export async function executeEvalControl(
 	cellManager: EvalDetachedCellManager,
 	request: EvalControlInput,
-): Promise<AgentToolResult<EvalToolDetails>> {
+): Promise<AgentToolResult<EvalResultDetails>> {
+	if (request.action === "list") return createEvalListResult(cellManager);
 	const snapshot =
 		request.action === "stop" ? await cellManager.stop(request.cell_id) : cellManager.peek(request.cell_id);
 	return createDetachedControlResult(snapshot);
+}
+
+function createEvalListResult(cellManager: EvalDetachedCellManager): AgentToolResult<EvalListDetails> {
+	const { live, recent } = cellManager.list();
+	const snapshots = [...live, ...recent];
+	const cells: EvalListedCell[] = snapshots.map((snapshot) => {
+		const summary = snapshot.result.details.summary;
+		return {
+			cellId: snapshot.cellId,
+			language: snapshot.language,
+			state: snapshot.state,
+			startedAtMs: snapshot.startedAtMs,
+			...(snapshot.queuedBehind === undefined || snapshot.queuedBehind.length === 0
+				? {}
+				: { queuedBehind: [...snapshot.queuedBehind] }),
+			...(summary ? { summary } : {}),
+		};
+	});
+	const text = snapshots
+		.map((snapshot, index) => {
+			const cell = cells[index];
+			const preview = (cell.summary || snapshot.result.details.cells?.[0]?.code?.slice(0, 60) || "").replace(
+				/\s+/gu,
+				" ",
+			);
+			const elapsed = Math.floor(snapshot.result.details.durationMs / 1000);
+			const queued = cell.queuedBehind === undefined ? "" : ` queued behind ${cell.queuedBehind.join(", ")}`;
+			return `${cell.cellId} ${cell.language} ${cell.state} ${elapsed}s${queued} - ${preview}`;
+		})
+		.join("\n");
+	return {
+		content: [{ type: "text", text: text || "No eval cells are live; recent: none" }],
+		details: { action: "list", cells },
+	};
 }
 
 export function resultAfterDetach(

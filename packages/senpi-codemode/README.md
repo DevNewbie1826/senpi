@@ -250,6 +250,18 @@ when the call had no summary), clearing as soon as the last detached cell settle
 Queued entries are labelled `queued`; an all-queued footer shows `(queued)` instead
 of an elapsed duration. Elapsed time counts only from execution start.
 
+Use `eval({ action: "list" })` without a language or cell id to see live and
+recently settled cells across languages. Each line includes the id, language,
+state, elapsed execution seconds, queue predecessors, and summary (or a short code
+preview); `details.cells` carries the typed cell metadata. Listing never consumes
+completion notifications.
+
+A run with `reset: true` resets only its selected language and is refused with
+`eval_kernel_busy_reset_refused` while any other cell in that language is live,
+including queued cells. The requesting cell fails without changing the kernel or
+cancelling existing work. Stop those cells explicitly or wait for their completion
+notifications before resetting; live cells in other languages do not block reset.
+
 Use `eval({ action: "peek", cell_id })` for its state and buffered output, or
 `eval({ action: "stop", cell_id })` to cancel it. Stopping a queued cell removes it
 without interrupting the active cell; kernel state is retained. Python running-cell stop interrupts the

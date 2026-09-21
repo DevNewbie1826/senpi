@@ -54,18 +54,25 @@ export interface EvalToolInput {
 	readonly reset?: boolean;
 }
 
-export interface EvalControlInput {
-	readonly action: "peek" | "stop";
-	readonly cell_id: string;
+export interface EvalListInput {
+	readonly action: "list";
 }
+
+export type EvalControlInput =
+	| EvalListInput
+	| {
+			readonly action: "peek" | "stop";
+			readonly cell_id: string;
+	  };
 
 export type EvalToolRequest = EvalToolInput | EvalControlInput;
 
 function evalInputProperties<Language extends TSchema>(languageSchema: Language, deadlines: EvalDeadlineSeconds) {
 	return {
 		action: Type.Optional(
-			Type.Union([Type.Literal("run"), Type.Literal("peek"), Type.Literal("stop")], {
-				description: "Defaults to run. peek and stop require cell_id.",
+			Type.Union([Type.Literal("run"), Type.Literal("peek"), Type.Literal("stop"), Type.Literal("list")], {
+				description:
+					"Defaults to run. peek and stop require cell_id. list: live and recently settled cells across languages.",
 			}),
 		),
 		language: Type.Optional(languageSchema),
@@ -83,8 +90,12 @@ function evalInputProperties<Language extends TSchema>(languageSchema: Language,
 				description: onTimeoutFieldDescription(deadlines),
 			}),
 		),
-		reset: Type.Optional(Type.Boolean({ description: "Reset this language kernel before running." })),
-		cell_id: Type.Optional(Type.String({ description: "Detached eval cell id for peek or stop." })),
+		reset: Type.Optional(
+			Type.Boolean({
+				description: "Reset this language kernel before running; refused while that language has live cells.",
+			}),
+		),
+		cell_id: Type.Optional(Type.String({ minLength: 1, description: "Eval cell id for peek or stop." })),
 	};
 }
 
@@ -108,7 +119,14 @@ export function createEvalInputSchema(
 		languages.length === 1
 			? Type.Union([Type.Literal(languages[0])])
 			: Type.Union(languages.map((item) => Type.Literal(item)));
-	return Type.Unsafe<EvalToolRequest>(Type.Object(evalInputProperties(languageSchema, deadlines))) as EvalInputSchema;
+	return Type.Unsafe<EvalToolRequest>(
+		Type.Object(evalInputProperties(languageSchema, deadlines), {
+			anyOf: [
+				{ properties: { action: { enum: ["run", "list"] } } },
+				{ properties: { action: { enum: ["peek", "stop"] } }, required: ["action", "cell_id"] },
+			],
+		}),
+	) as EvalInputSchema;
 }
 export type EvalKernelResult = Extract<KernelToHostMessage, { type: "result" }>;
 export type EvalToolCallMessage = Extract<KernelToHostMessage, { type: "tool-call" }>;
@@ -195,6 +213,22 @@ export type EvalCellResult = {
 	readonly statusEvents?: readonly EvalStatusEvent[];
 	readonly hasMarkdown?: boolean;
 };
+
+export interface EvalListedCell {
+	readonly cellId: string;
+	readonly language: EvalLanguage;
+	readonly state: "queued" | "running" | "detached" | "completed" | "failed" | "cancelled";
+	readonly startedAtMs: number;
+	readonly queuedBehind?: readonly string[];
+	readonly summary?: string;
+}
+
+export interface EvalListDetails {
+	readonly action: "list";
+	readonly cells: readonly EvalListedCell[];
+}
+
+export type EvalResultDetails = EvalToolDetails | EvalListDetails;
 
 export interface EvalToolDetails {
 	readonly language: EvalLanguage;

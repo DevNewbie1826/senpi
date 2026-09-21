@@ -19,6 +19,7 @@ import { CellHandler, type CellState } from "./cell-handler.ts";
 import type { EvalDetachedCellManager } from "./detached-cell-manager.ts";
 import { EvalBackgroundCapacityError, resultAfterDetach, resultForDetachedState } from "./detached-eval-result.ts";
 import { buildEvalExecutionEventPayload, type EvalExecutionSettleOutcome } from "./eval-execution-event.ts";
+import { EvalKernelResetRefusedError } from "./eval-kernel-reset-refused-error.ts";
 import { evalTimeoutBehavior } from "./eval-request.ts";
 import type { CreateEvalToolOptions, EvalCellInvocation } from "./eval-tool-options.ts";
 import { describeTimeoutState } from "./interrupt-note.ts";
@@ -231,6 +232,14 @@ async function executeCell(
 				() => activeHandler.liveResult(),
 				(error) => execution.cancel(error),
 			);
+			if (invocation.input.reset) {
+				const liveCells = cellManager.liveCells(invocation.input.language, { except: invocation.cellId });
+				if (liveCells.length > 0)
+					throw new EvalKernelResetRefusedError(
+						invocation.input.language,
+						liveCells.map((live) => live.cellId),
+					);
+			}
 			// Includes a steer already queued at execute start or received while acquiring the kernel.
 			onReady();
 			if ("setContext" in options.kernelManager && typeof options.kernelManager.setContext === "function") {

@@ -1,6 +1,7 @@
 import type { AgentToolResult } from "@code-yeongyu/senpi";
 import type { EvalDetachedCellSnapshot, EvalDetachedCellState } from "./detached-cell-manager.ts";
 import { resultForDetachedState } from "./detached-eval-result.ts";
+import { EvalKernelResetRefusedError } from "./eval-kernel-reset-refused-error.ts";
 import type { EvalKernel, EvalToolDetails, EvalToolInput } from "./types.ts";
 
 export interface DetachedCellResultSource {
@@ -29,6 +30,7 @@ export function snapshotDetachedCell(cell: DetachedCellResultSource, nowMs: numb
 	return {
 		cellId: cell.cellId,
 		language: cell.input.language,
+		startedAtMs: cell.startedAtMs,
 		state,
 		...(queuedBehind === undefined ? {} : { queuedBehind }),
 		outputTail: detachedOutputTail(result),
@@ -72,7 +74,11 @@ export function detachedErrorResult(cell: DetachedCellResultSource, error: Error
 			},
 			...current.content.filter((part) => part.type === "image"),
 		],
-		details: { ...current.details, isError: true },
+		details: {
+			...current.details,
+			isError: true,
+			...(error instanceof EvalKernelResetRefusedError ? { code: error.code } : {}),
+		},
 	};
 }
 

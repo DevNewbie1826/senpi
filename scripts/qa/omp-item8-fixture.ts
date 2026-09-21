@@ -150,7 +150,8 @@ export async function createFixture(collision = false) {
 						const result = await tool.execute(id, args, signal, update, context);
 						if (id === activeCellId) {
 							events.push({ event: "foreground_result", result });
-							foreground.resolve(result);
+							assert(!("action" in result.details), "foreground bridge execution must return run details");
+							foreground.resolve({ ...result, details: result.details });
 						}
 						return result;
 					},
