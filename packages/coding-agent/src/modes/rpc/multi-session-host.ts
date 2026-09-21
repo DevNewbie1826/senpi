@@ -3,6 +3,7 @@ import { createConnection, createServer, type Server } from "node:net";
 import { dirname, join } from "node:path";
 import type { CreateAgentSessionRuntimeFactory } from "../../core/agent-session-runtime.ts";
 import { envValue } from "../../core/brand.ts";
+import { HostMcpRegistry } from "../../core/extensions/builtin/mcp/host-registry.ts";
 import {
 	flushRawStdout,
 	takeOverStdout,
@@ -167,6 +168,7 @@ export function createHostCore(
 			: new RpcSessionRegistry({
 					agentDir: options.agentDir,
 					createRuntime: options.createRuntime,
+					mcpRegistry: new HostMcpRegistry(),
 					now: policy.now,
 					closeGraceMs: idle.closeGraceMs ?? parseIdleExitMs(process.env[RPC_CLOSE_GRACE_MS_ENV]) ?? 10_000,
 					// Two generations of this daemon can be alive at once during a handoff; the claims

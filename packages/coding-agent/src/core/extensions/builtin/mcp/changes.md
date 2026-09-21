@@ -1,5 +1,27 @@
 # mcp Extension Changes
 
+## 2026-09-21 - Host-owned connection leases with sharing disabled (#1915)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts` adds object-owner reference counts, immediate final-detach disposal, owner enumeration and a typed unknown-owner error. `shareable` returns false for every configuration.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts` obtains connections through an injected registry, or a new instance-owned registry for standalone services, and detaches leases during existing disposal.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/service-types.ts` carries the optional registry in `McpSessionOptions`.
+
+### Why
+
+- `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts`, `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts` and `packages/coding-agent/src/core/extensions/builtin/mcp/service-types.ts` establish explicit ownership before any future connection sharing. Equal configurations still create separate connections for different services.
+
+### Why an extension could not handle it
+
+- Connection construction and disposal in `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts` are private to the builtin. The lease contract in `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts` and injection option in `packages/coding-agent/src/core/extensions/builtin/mcp/service-types.ts` must reach that owner.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/mcp/service.ts`: constructor, `#syncFromConfig` and `disposeEntryConnection`.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/service-types.ts`: `McpSessionOptions`.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/host-registry.ts`: future sharing policy and lifecycle routing. This change does not enable sharing or alter idle, reconnect, cache, keep-alive or elicitation behavior.
+
 ## 2026-09-21 - Catalog cache writes bind to the attach-time agent dir (senpi#1904)
 
 ### What changed

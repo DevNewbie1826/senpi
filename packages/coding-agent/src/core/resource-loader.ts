@@ -19,6 +19,9 @@ import {
 	globalDefaultExtensionFactories,
 	globalDefaultExtensionIds,
 } from "./extensions/builtin/index.ts";
+import type { HostMcpRegistry } from "./extensions/builtin/mcp/host-registry.ts";
+import { createMcpExtension } from "./extensions/builtin/mcp/index.ts";
+import { McpService } from "./extensions/builtin/mcp/service.ts";
 import {
 	clearExtensionCache,
 	createExtensionRuntime,
@@ -340,6 +343,7 @@ export interface DefaultResourceLoaderOptions {
 	additionalThemePaths?: string[];
 	additionalHookPaths?: string[];
 	extensionFactories?: InlineExtension[];
+	mcpRegistry?: HostMcpRegistry;
 	noExtensions?: boolean;
 	noSkills?: boolean;
 	noPromptTemplates?: boolean;
@@ -451,7 +455,18 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.additionalPromptTemplatePaths = options.additionalPromptTemplatePaths ?? [];
 		this.additionalThemePaths = options.additionalThemePaths ?? [];
 		this.additionalHookPaths = options.additionalHookPaths ?? [];
-		this.builtinExtensionFactories = builtinExtensions;
+		this.builtinExtensionFactories =
+			options.mcpRegistry === undefined
+				? builtinExtensions
+				: builtinExtensions.map((extension) =>
+						extension.id === "mcp"
+							? {
+									...extension,
+									factory: (pi) =>
+										createMcpExtension(new McpService({ mcpRegistry: options.mcpRegistry }))(pi),
+								}
+							: extension,
+					);
 		this.extensionFactories = options.extensionFactories ?? [];
 		this.noExtensions = options.noExtensions ?? false;
 		this.noSkills = options.noSkills ?? false;

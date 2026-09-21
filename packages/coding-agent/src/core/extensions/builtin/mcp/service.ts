@@ -18,6 +18,7 @@ import type { McpSessionRegistration } from "./expose/session.ts";
 import type { McpServerExposureStatus } from "./expose/status.ts";
 import { cleanupMcpOutputArtifacts, McpOutputArtifacts } from "./guard/output-guard.ts";
 import { markMcpConnectionNeedsAuth } from "./health.ts";
+import { HostMcpRegistry, shareable } from "./host-registry.ts";
 import { configureMcpConnectionLifecycle, disposeMcpConnectionLifecycle } from "./idle.ts";
 import { refreshMcpInstructionsForSession } from "./instructions.ts";
 import { createMcpLogger } from "./log.ts";
@@ -96,6 +97,12 @@ export class McpService {
 	readonly #connections = new Map<string, McpConnectionEntry>();
 	readonly #connectionKeysByName = new Map<string, string>();
 	readonly #outputArtifacts = new McpOutputArtifacts();
+
+	readonly #registry: HostMcpRegistry;
+
+	constructor(options: Pick<McpSessionOptions, "mcpRegistry"> = {}) {
+		this.#registry = options.mcpRegistry ?? new HostMcpRegistry();
+	}
 
 	async attachSession(
 		event: SessionStartEvent,
@@ -284,7 +291,7 @@ export class McpService {
 		const entries = [...this.#connections.values()];
 		this.#connections.clear();
 		this.#connectionKeysByName.clear();
-		await Promise.all(entries.map((entry) => disposeEntryConnection(entry)));
+		await Promise.all(entries.map((entry) => disposeEntryConnection(entry, this.#registry, this)));
 		await cleanupMcpOutputArtifacts(this.#outputArtifacts);
 	}
 
@@ -376,7 +383,7 @@ export class McpService {
 			if (key === entry.key) continue;
 			this.#connections.delete(entry.key);
 			this.#connectionKeysByName.delete(entry.name);
-			disposals.push(disposeEntryConnection(entry));
+			disposals.push(disposeEntryConnection(entry, this.#registry, this));
 		}
 		await Promise.all(disposals);
 
@@ -394,14 +401,20 @@ export class McpService {
 				serverName: name,
 			});
 			for (const warning of detectLiteralBearerWarnings(name, server.config)) logger.warn(warning);
-			const connection = new ServerConnection({
+			const connectionOptions = {
 				authProvider: authPlan.provider,
 				config: server.config,
 				env: options.env,
 				elicitationUiProvider: () => this.getMcpElicitationUi(),
 				logger,
 				serverName: name,
-			});
+			};
+			const connection = this.#registry.attach(
+				key,
+				this,
+				() => new ServerConnection(connectionOptions),
+				shareable(server.config),
+			);
 			const cachedCatalog = useCache ? getValidCachedServer(cache, name, server.configHash) : undefined;
 			const entry: McpConnectionEntry = {
 				agentDir: options.agentDir,
@@ -807,12 +820,16 @@ export function shouldDisposeMcpService(reason: SessionShutdownEvent["reason"]):
 	return reason === "quit" || reason === "reload";
 }
 
-async function disposeEntryConnection(entry: McpConnectionEntry): Promise<void> {
+async function disposeEntryConnection(
+	entry: McpConnectionEntry,
+	registry: HostMcpRegistry,
+	owner: object,
+): Promise<void> {
 	entry.disposeListChanged?.();
 	entry.disposeWireStatus?.();
 	disposeMcpReconnect(entry.connection);
 	disposeMcpConnectionLifecycle(entry.connection);
-	await entry.connection.dispose();
+	await registry.detach(entry.key, owner);
 }
 
 export function resetMcpServiceForTests(): void {
