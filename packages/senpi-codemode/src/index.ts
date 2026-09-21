@@ -114,6 +114,9 @@ export default function senpiCodemode(pi: CodemodeExtensionAPI, options: SenpiCo
 		statusTicker.sync(entries);
 	};
 	const emitWakeSourceState = (state: WakeSourceState): void => {
+		// Same dual publication as the settle payload below: the in-process bus
+		// feeds the TUI footer, the rpc channel feeds out-of-process consumers.
+		pi.rpc?.emit(WAKE_SOURCE_STATE_EVENT, state);
 		pi.events?.emit(WAKE_SOURCE_STATE_EVENT, state);
 	};
 	const registerEvalForRuntime = (
