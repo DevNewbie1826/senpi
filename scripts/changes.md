@@ -20,6 +20,25 @@
 
 - `parseArguments` and the run loop in `run-workspaces.mjs`; the `spawnPackageManager` signature in `package-manager.mjs`.
 
+## 2026-09-21 - Queued eval admission QA (senpi#1908)
+
+### What changed
+
+- `scripts/qa/omp-item8.ts` asserts queued admission and targeted dequeue instead of the removed per-language busy error.
+- `scripts/qa/omp-item8-fixture.ts` observes per-run callbacks and forwards cell ids when instrumenting interrupts.
+
+### Why
+
+- The steering QA must exercise the same queue and callback contract as the shipped eval tool.
+
+### Why an extension could not handle it
+
+- These are repository-owned executable QA scenarios, not extension behavior.
+
+### Expected merge conflict zones
+
+- LOW: the steering QA scenario and its fixture.
+
 ## 2026-09-21 - The lock generators allowlist the bumped @google/genai (senpi#1895)
 
 ### What changed

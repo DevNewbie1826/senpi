@@ -26,6 +26,8 @@ anchor most suites).
 - Detached execution is a first-class state machine — snapshot, notification
   queue, spill-file notice, result conversion — never folded into ordinary
   cell execution.
+- Cells enter `queued`, then `running`; detachment is orthogonal. Per-run kernel callbacks own output, never the latest language-level callback. Queued cells consume no run budget; the hard limit remains wall-clock from submission. Elapsed execution time starts at `runStartedAtMs`.
+- A global detached-cell cap (default 15) leaves excess cells foreground; queued stop dequeues without interrupting the active cell or losing state.
 - Unicode tree glyphs and status icons are intentional UI conventions.
 
 ## ANTI-PATTERNS

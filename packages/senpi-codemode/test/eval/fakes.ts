@@ -59,12 +59,10 @@ export class FakeKernel implements EvalKernel {
 		this.onMessage?.(message);
 	}
 
-	async run(input: {
-		cellId: string;
-		code: string;
-		timeoutMs?: number;
-	}): Promise<Extract<KernelToHostMessage, { type: "result" }>> {
+	async run(input: EvalKernelRunInput): Promise<Extract<KernelToHostMessage, { type: "result" }>> {
 		this.runs.push(input);
+		input.onStarted?.();
+		if (input.onMessage) this.onMessage = input.onMessage;
 		for (const message of this.messages) {
 			if (message.type !== "result") this.onMessage?.(message);
 		}
@@ -99,11 +97,11 @@ export class FakeKernel implements EvalKernel {
 		this.replies.push(message);
 	}
 
-	cancelQueued(): boolean {
+	cancelQueued(_cellId: string, _reason: string): boolean {
 		return false;
 	}
 
-	queueSnapshot() {
+	queueSnapshot(): ReturnType<EvalKernel["queueSnapshot"]> {
 		return { activeCellId: this.deferredRun ? (this.runs.at(-1)?.cellId ?? null) : null, queuedCellIds: [] };
 	}
 
@@ -163,6 +161,7 @@ export class PendingInterruptKernel implements EvalKernel {
 
 	async run(input: EvalKernelRunInput): Promise<KernelResult> {
 		this.activeCellId = input.cellId;
+		input.onStarted?.();
 		this.runStarted.resolve(undefined);
 		try {
 			return await this.runResult.promise;
@@ -202,6 +201,7 @@ export class KernelOwnedTimeoutKernel implements EvalKernel {
 		const timeoutMs = input.timeoutMs;
 		if (timeoutMs === undefined) throw new Error("expected a kernel timeout");
 		this.activeCellId = input.cellId;
+		input.onStarted?.();
 		this.runStarted.resolve(undefined);
 		return await new Promise<KernelResult>((resolve) => {
 			setTimeout(() => {

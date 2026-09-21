@@ -61,6 +61,26 @@ The host pid must be present in the kernel's environment at spawn time and the w
 
 - LOW: agent option/result mapping, reserved dispatch catalog forwarding, and the four language helper adapters and docs.
 
+## 2026-09-21 - Capped detached set and queued kernel admission (senpi#1908)
+
+### What changed
+
+- `src/tool/detached-cell-{manager,contract,state,snapshot,status}.ts`, `managed-cell.ts`, and `terminal-snapshot-store.ts` track queued/running execution separately from detachment, cap detached cells globally, list live/recent cells, and dequeue queued stops without interrupting active work.
+- `src/tool/{eval-tool,eval-tool-options,run-eval-cell,cell-runtime,detached-eval-result,eval-execution-event,types,render}.ts` admit same-language work, bind per-run callbacks, start budgets on kernel activation, expose `queued_ms` and queue predecessors, and render queued state.
+- `src/config/settings.ts`, `src/index.ts`, `src/extension/eval-status.ts`, and `src/prompt/eval-prompt-template.ts` wire the default-15 cap and document submission-time hard limits versus execution-time budgets.
+
+### Why
+
+- Detached cells must not reject subsequent same-language work or consume its budget while it waits. Cell-specific callbacks prevent a later submission from stealing earlier output.
+
+### Why an extension could not handle it
+
+- The extension owns this cell state machine, kernel admission boundary, and renderer contract.
+
+### Expected merge conflict zones
+
+- MEDIUM: detached-cell manager, run-eval-cell, result/status rendering, and deadline fixtures.
+
 ## 2026-09-17 - Reject cell declarations that would replace kernel globals (senpi#1784)
 
 ### What changed

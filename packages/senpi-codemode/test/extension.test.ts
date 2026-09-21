@@ -90,6 +90,7 @@ class DisposableManager implements CodemodeSessionManager {
 		return {
 			run: async (input) => {
 				activeCellId = input.cellId;
+				input.onStarted?.();
 				this.runStarted.resolve();
 				return await new Promise((resolve) => {
 					controller.signal.addEventListener(

@@ -34,6 +34,7 @@ export interface CreateEvalToolOptions {
 	 * replaces it. Rendered into the tool schema and description; also seeds a self-created manager.
 	 */
 	readonly runBudgetSeconds?: number;
+	readonly maxDetachedCells?: number;
 	readonly executeTool: ExecuteTool;
 	readonly listTools?: () => readonly EvalSchemaToolInfo[];
 	readonly complete?: (request: CompletionRequest, ctx: ExtensionContext) => Promise<CompletionResult>;

@@ -33,6 +33,7 @@ class PythonNamedKernel implements EvalKernel {
 	}
 
 	async run(input: EvalKernelRunInput) {
+		input.onStarted?.();
 		return { type: "result" as const, cellId: input.cellId, ok: true as const, durationMs: 0 };
 	}
 

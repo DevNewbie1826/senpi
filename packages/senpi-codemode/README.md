@@ -93,6 +93,7 @@ Configuration is loaded in this order:
   "foregroundWindowSeconds": 60,
   "runBudgetSeconds": 300,
   "hardLimitSeconds": 1800,
+  "maxDetachedCells": 15,
   "parallelPoolWidth": 4,
   "taskTools": {
     "task": "task",
@@ -110,9 +111,10 @@ Configuration is loaded in this order:
 | --- | --- | --- |
 | `languages` | `py`/`js` enabled; `rb`/`jl` disabled | Selects desired languages before interpreter detection. |
 | `cellTimeoutSeconds` | `30` | Idle time an interactive call blocks the turn before the cell detaches. Print/json calls never detach. |
-| `foregroundWindowSeconds` | `60` | Caps `cellTimeoutSeconds` and the grace a bridge-parked cell gets before it detaches, so an interactive call never blocks the turn longer than this. Env override: `SENPI_CODEMODE_FOREGROUND_SECONDS`. |
-| `runBudgetSeconds` | `300` | Kill deadline for a cell's own execution time - child processes, network, timers, CPU. Time parked in host tool calls (`agent()`, `tool.*`) is not charged, and the budget keeps counting after the cell detaches. A per-call `timeout` replaces it for that cell. Env override: `SENPI_CODEMODE_RUN_BUDGET_SECONDS`. |
-| `hardLimitSeconds` | `1800` | Wall-clock kill deadline for a cell, parked or not; a per-call `timeout` above it raises it. Env override: `SENPI_CODEMODE_HARD_LIMIT_SECONDS`. |
+| `foregroundWindowSeconds` | `60` | Caps `cellTimeoutSeconds` and the grace a bridge-parked cell gets before it detaches, when detached capacity is available. Env override: `SENPI_CODEMODE_FOREGROUND_SECONDS`. |
+| `runBudgetSeconds` | `300` | Kill deadline for a cell's own execution time - child processes, network, timers, CPU. Time queued or parked in host tool calls (`agent()`, `tool.*`) is not charged, and the budget keeps counting after the cell detaches. A per-call `timeout` replaces it for that cell. Env override: `SENPI_CODEMODE_RUN_BUDGET_SECONDS`. |
+| `hardLimitSeconds` | `1800` | Wall-clock kill deadline from submission, including queue and parked time; a per-call `timeout` above it raises it. Env override: `SENPI_CODEMODE_HARD_LIMIT_SECONDS`. |
+| `maxDetachedCells` | `15` | Global detached-cell capacity across all kernels. At capacity, new cells stay foreground until settlement or a kill deadline. |
 | `parallelPoolWidth` | `4` | Maximum concurrent `parallel()` thunks. |
 | `taskTools.task` | `"task"` | Registered tool name used by `agent()`. |
 | `taskTools.output` | `"task_output"` | Registered tool name used by `output()`. |
@@ -215,22 +217,23 @@ without a `summary` fails with a teaching error.
 `eval` accepts `on_timeout: "detach"|"error"`. The default is `"detach"` in
 interactive TUI, RPC, and app-server sessions; print and JSON one-shot runs
 default to `"error"` so their result is never silently detached. A detached
-cell keeps only its own language kernel busy. A new same-language call returns
-a busy error with its cell id and output tail; calls in other languages continue
-normally. Do not re-run the cell.
+cell keeps only its own language kernel busy. New same-language cells are admitted
+into its FIFO queue; calls in other languages continue normally. Queued cells may
+also detach, within the global `maxDetachedCells` cap. At capacity, cells remain
+foreground rather than being cancelled. Do not re-run a detached cell.
 
 Queued steering also detaches an eligible interactive foreground call, including
 one paused in a host tool bridge, without cancelling its computation. If the
-language's detached slot is occupied, steering leaves the call waiting. Follow-up
+global detached cap is reached, steering leaves the call waiting. Follow-up
 messages, explicit `on_timeout: "error"`, and print/JSON calls do not trigger this
 transition; caller abort and existing deadlines retain their cancellation behavior.
 
 Every cell, detached or not, is bounded by two kill deadlines. The run budget
 (`runBudgetSeconds`, or the call's `timeout`) charges only the cell's own
-execution time and is paused while a host tool call is in flight, so a cell
+execution time and is paused while queued or while a host tool call is in flight, so a cell
 waiting on `agent()` survives while a runaway child process or loop does not.
 The hard limit (`hardLimitSeconds`, raised by a larger `timeout`) is wall-clock
-and bounds parked cells too. A cell killed by either deadline reports which one
+from submission and bounds queued and parked cells too. A cell killed by either deadline reports which one
 in its result or completion notification, together with whether kernel state
 survived; the tool schema states the configured numbers. The `timeout` value
 never changes the idle detach deadline: that is `cellTimeoutSeconds` capped by
@@ -239,9 +242,11 @@ never changes the idle detach deadline: that is `cellTimeoutSeconds` capped by
 While any cell is detached, the interactive footer shows a highlighted
 `↗ <language> · <summary>` status on the extension status line (the cell id
 when the call had no summary), clearing as soon as the last detached cell settles.
+Queued entries are labelled `queued`; elapsed time counts only from execution start.
 
 Use `eval({ action: "peek", cell_id })` for its state and buffered output, or
-`eval({ action: "stop", cell_id })` to cancel it. Python stop interrupts the
+`eval({ action: "stop", cell_id })` to cancel it. Stopping a queued cell removes it
+without interrupting the active cell; kernel state is retained. Python running-cell stop interrupts the
 existing kernel and preserves variables. JavaScript stop is cooperative first:
 the worker rejects the cell's pending bridge `tool.*` calls and kills the
 `Bun.spawn` children it started, and a cell that settles within the 2 s grace

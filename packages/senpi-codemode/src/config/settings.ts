@@ -22,6 +22,7 @@ export const codemodeSettingsSchema = Type.Object(
 		foregroundWindowSeconds: Type.Optional(Type.Number({ minimum: 1 })),
 		runBudgetSeconds: Type.Optional(Type.Number({ minimum: 1 })),
 		hardLimitSeconds: Type.Optional(Type.Number({ minimum: 1 })),
+		maxDetachedCells: Type.Optional(Type.Integer({ minimum: 1 })),
 		parallelPoolWidth: Type.Optional(Type.Number({ minimum: 1 })),
 		taskTools: Type.Optional(
 			Type.Object(
@@ -80,6 +81,8 @@ export interface CodemodeSettings {
 	readonly runBudgetSeconds: number;
 	/** Wall-clock kill deadline for a single cell; bounds detached and bridge-parked cells too. */
 	readonly hardLimitSeconds: number;
+	/** Maximum detached cells across all language kernels. */
+	readonly maxDetachedCells?: number;
 	readonly parallelPoolWidth: number;
 	readonly taskTools?: CodemodeTaskTools;
 	readonly outputSink?: CodemodeOutputSink;
@@ -87,6 +90,7 @@ export interface CodemodeSettings {
 }
 
 export type ResolvedCodemodeSettings = CodemodeSettings & {
+	readonly maxDetachedCells: number;
 	readonly taskTools: CodemodeTaskTools;
 	readonly outputSink: CodemodeOutputSink;
 	readonly statusEvents: boolean;
@@ -129,6 +133,8 @@ export const FOREGROUND_WINDOW_ENVIRONMENT_FLAG = "SENPI_CODEMODE_FOREGROUND_SEC
  */
 export const DEFAULT_RUN_BUDGET_SECONDS = 300;
 
+export const DEFAULT_MAX_DETACHED_CELLS = 15;
+
 export const RUN_BUDGET_ENVIRONMENT_FLAG = "SENPI_CODEMODE_RUN_BUDGET_SECONDS";
 
 // OMP settings-schema.ts:3211-3299 has language/path settings only; eval.ts:427
@@ -144,6 +150,7 @@ export const defaultCodemodeSettings: ResolvedCodemodeSettings = {
 	foregroundWindowSeconds: DEFAULT_FOREGROUND_WINDOW_SECONDS,
 	runBudgetSeconds: DEFAULT_RUN_BUDGET_SECONDS,
 	hardLimitSeconds: DEFAULT_HARD_LIMIT_SECONDS,
+	maxDetachedCells: DEFAULT_MAX_DETACHED_CELLS,
 	parallelPoolWidth: 4,
 	taskTools: {
 		task: "task",
@@ -250,6 +257,7 @@ function mergeSettings(input: CodemodeSettingsInput): ResolvedCodemodeSettings {
 		foregroundWindowSeconds: input.foregroundWindowSeconds ?? defaultCodemodeSettings.foregroundWindowSeconds,
 		runBudgetSeconds: input.runBudgetSeconds ?? defaultCodemodeSettings.runBudgetSeconds,
 		hardLimitSeconds: input.hardLimitSeconds ?? defaultCodemodeSettings.hardLimitSeconds,
+		maxDetachedCells: input.maxDetachedCells ?? DEFAULT_MAX_DETACHED_CELLS,
 		parallelPoolWidth: input.parallelPoolWidth ?? defaultCodemodeSettings.parallelPoolWidth,
 		taskTools: {
 			task: input.taskTools?.task ?? defaultCodemodeSettings.taskTools.task,

@@ -5,7 +5,7 @@ import type {
 	EvalDetachedCellState,
 } from "./detached-cell-manager.ts";
 import { interruptionStateNote } from "./interrupt-note.ts";
-import type { EvalCellResult, EvalControlInput, EvalLanguage, EvalToolDetails, EvalToolInput } from "./types.ts";
+import type { EvalCellResult, EvalControlInput, EvalToolDetails, EvalToolInput } from "./types.ts";
 
 export async function executeEvalControl(
 	cellManager: EvalDetachedCellManager,
@@ -55,21 +55,23 @@ export function resultForDetachedState(
 	result: AgentToolResult<EvalToolDetails>,
 	state: EvalDetachedCellState,
 	durationMs: number,
+	queuedBehind?: readonly string[],
 ): AgentToolResult<EvalToolDetails> {
 	const details = result.details;
 	const cells = details.cells ?? [];
 	const nextCells =
 		cells.length === 0
 			? []
-			: cells.map((cell, index) =>
-					index === 0
-						? {
-								...cell,
-								durationMs: terminalDuration(cell, state, durationMs),
-								status: cellStatus(state),
-							}
-						: { ...cell },
-				);
+			: cells.map((cell, index) => {
+					if (index !== 0) return { ...cell };
+					const { queuedBehind: _previousQueue, ...current } = cell;
+					return {
+						...current,
+						durationMs: terminalDuration(cell, state, durationMs),
+						status: cellStatus(state),
+						...(queuedBehind === undefined ? {} : { queuedBehind }),
+					};
+				});
 	return {
 		content: result.content.map((part) => ({ ...part })),
 		details: {
@@ -102,19 +104,6 @@ export function resultForDetachedState(
 	};
 }
 
-export function detachedKernelBusyError(
-	snapshot: EvalDetachedCellSnapshot,
-	idleLanguages: readonly EvalLanguage[] = [],
-): Error {
-	const tail = snapshot.outputTail.length === 0 ? "(no output yet)" : snapshot.outputTail;
-	const peek = `eval({ action: "peek", cell_id: "${snapshot.cellId}" })`;
-	const idleHint =
-		idleLanguages.length === 0 ? "" : ` or continue this step in an idle kernel: ${idleLanguages.join(", ")}`;
-	return new Error(
-		`The ${snapshot.language} eval kernel is busy running detached cell ${snapshot.cellId} - peek with ${peek}${idleHint}. Do not re-run the busy cell. Current output tail:\n${tail}`,
-	);
-}
-
 function textContent(result: AgentToolResult<EvalToolDetails>): string {
 	return result.content
 		.filter((part) => part.type === "text")
@@ -133,6 +122,8 @@ function terminalDuration(
 
 function cellStatus(state: EvalDetachedCellState): EvalCellResult["status"] {
 	switch (state) {
+		case "queued":
+			return "queued";
 		case "running":
 			return "running";
 		case "detached":

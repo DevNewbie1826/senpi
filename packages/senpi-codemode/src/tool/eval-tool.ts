@@ -1,8 +1,8 @@
 import type { ToolDefinition } from "@code-yeongyu/senpi";
-import { DEFAULT_FOREGROUND_WINDOW_SECONDS } from "../config/settings.ts";
+import { DEFAULT_FOREGROUND_WINDOW_SECONDS, DEFAULT_MAX_DETACHED_CELLS } from "../config/settings.ts";
 import { buildEvalPrompt } from "../prompt/eval-prompt.ts";
 import { EvalDetachedCellManager } from "./detached-cell-manager.ts";
-import { detachedKernelBusyError, executeEvalControl } from "./detached-eval-result.ts";
+import { executeEvalControl } from "./detached-eval-result.ts";
 import { clampEvalSummary, isEvalControlRequest, parseEvalRequest } from "./eval-request.ts";
 import type { CreateEvalToolOptions } from "./eval-tool-options.ts";
 import { runEvalCell } from "./run-eval-cell.ts";
@@ -42,6 +42,7 @@ export function createEvalTool(options: CreateEvalToolOptions): ToolDefinition<E
 	const cellManager =
 		options.cellManager ??
 		new EvalDetachedCellManager({
+			maxDetachedCells: options.maxDetachedCells ?? options.settings?.maxDetachedCells ?? DEFAULT_MAX_DETACHED_CELLS,
 			...(options.artifactsDir === undefined ? {} : { artifactsDir: options.artifactsDir }),
 			...(options.hardLimitSeconds === undefined ? {} : { hardLimitSeconds: options.hardLimitSeconds }),
 			...(options.runBudgetSeconds === undefined ? {} : { runBudgetSeconds: options.runBudgetSeconds }),
@@ -73,13 +74,6 @@ export function createEvalTool(options: CreateEvalToolOptions): ToolDefinition<E
 				throw new RangeError(
 					`Unsupported eval language "${request.language}". Enabled languages: ${languages.join(", ")}`,
 				);
-			const busy = cellManager.busyFor(request.language);
-			if (busy !== undefined) {
-				const idleLanguages = languages.filter(
-					(language) => language !== request.language && cellManager.busyFor(language) === undefined,
-				);
-				throw detachedKernelBusyError(busy, idleLanguages);
-			}
 			options.executionTracker?.assertEvalExecutionAllowed();
 			const lifecycleController = new AbortController();
 			const combinedSignal = signal

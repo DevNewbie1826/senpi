@@ -43,6 +43,7 @@ describe("detached cell registry retention", () => {
 		const total = TERMINAL_SNAPSHOT_CAP + 8;
 		for (let i = 0; i < total; i++) {
 			const cell = manager.create(`cell-${i}`, { language: "js", code: String(i), summary: `cell ${i}` });
+			manager.markRunning(cell);
 			manager.complete(cell, managerResult(i));
 		}
 
@@ -71,9 +72,11 @@ describe("detached cell registry retention", () => {
 		const total = TERMINAL_SNAPSHOT_CAP + 8;
 		for (let i = 0; i < total; i++) {
 			const cell = manager.create(`cell-${i}`, { language: "js", code: String(i), summary: `cell ${i}` });
+			manager.markRunning(cell);
 			manager.complete(cell, managerResult(i));
 		}
 		const recreated = manager.create("cell-0", { language: "js", code: "return 1", summary: "recreated" });
+		manager.markRunning(recreated);
 		manager.complete(recreated, managerResult(999));
 		expect(manager.peek("cell-0").state).toBe("completed");
 	});

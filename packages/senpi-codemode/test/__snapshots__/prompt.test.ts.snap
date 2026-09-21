@@ -12,7 +12,7 @@ Batch a step's independent calls in one cell with \`parallel(thunks)\`.
 
 \`language\`: \`"py"\` IPython kernel, \`"js"\` persistent JavaScript VM, \`"rb"\` persistent Ruby kernel, \`"jl"\` persistent Julia kernel.
 
-A cell that outlives the foreground window detaches: it keeps its language kernel busy (another language can continue) and completes as one notification with its value or error and buffered output. Its own execution time is capped at 300s — time inside host tool calls is not charged; raise \`timeout\` only for a declared long run — and a killed js cell that cannot settle restarts its kernel with every global lost. Do not re-run a detached cell; read or cancel it with \`eval({ action: "peek", cell_id })\` / \`eval({ action: "stop", cell_id })\`.
+A cell that outlives the foreground window detaches when detached capacity is available; otherwise it stays foreground until settlement or a kill deadline. Same-language cells queue behind it; another language can continue. A detached cell completes as one notification with its value or error and buffered output. Its own execution time is capped at 300s — queue time and time inside host tool calls are not charged; the hard limit stays wall-clock from submission; raise \`timeout\` only for a declared long run — and a killed js cell that cannot settle restarts its kernel with every global lost. Do not re-run a detached cell; read or cancel it with \`eval({ action: "peek", cell_id })\` / \`eval({ action: "stop", cell_id })\`.
 
 Python runs on a live event loop: use top-level \`await\`; \`asyncio.run(…)\` raises.
 JS runs under Node.js worker: top-level \`await\`/\`return\` work; \`fetch\`/\`Buffer\` available.
@@ -81,7 +81,7 @@ Batch a step's independent calls in one cell with \`parallel(thunks)\`.
 
 \`language\`: \`"js"\` persistent JavaScript VM.
 
-A cell that outlives the foreground window detaches: it keeps its language kernel busy (another language can continue) and completes as one notification with its value or error and buffered output. Its own execution time is capped at 300s — time inside host tool calls is not charged; raise \`timeout\` only for a declared long run — and a killed js cell that cannot settle restarts its kernel with every global lost. Do not re-run a detached cell; read or cancel it with \`eval({ action: "peek", cell_id })\` / \`eval({ action: "stop", cell_id })\`.
+A cell that outlives the foreground window detaches when detached capacity is available; otherwise it stays foreground until settlement or a kill deadline. Same-language cells queue behind it; another language can continue. A detached cell completes as one notification with its value or error and buffered output. Its own execution time is capped at 300s — queue time and time inside host tool calls are not charged; the hard limit stays wall-clock from submission; raise \`timeout\` only for a declared long run — and a killed js cell that cannot settle restarts its kernel with every global lost. Do not re-run a detached cell; read or cancel it with \`eval({ action: "peek", cell_id })\` / \`eval({ action: "stop", cell_id })\`.
 
 JS runs under Node.js worker: top-level \`await\`/\`return\` work; \`fetch\`/\`Buffer\` available.
 
@@ -139,7 +139,7 @@ Batch a step's independent calls in one cell with \`parallel(thunks)\`.
 
 \`language\`: \`"py"\` IPython kernel, \`"js"\` persistent JavaScript VM.
 
-A cell that outlives the foreground window detaches: it keeps its language kernel busy (another language can continue) and completes as one notification with its value or error and buffered output. Its own execution time is capped at 300s — time inside host tool calls is not charged; raise \`timeout\` only for a declared long run — and a killed js cell that cannot settle restarts its kernel with every global lost. Do not re-run a detached cell; read or cancel it with \`eval({ action: "peek", cell_id })\` / \`eval({ action: "stop", cell_id })\`.
+A cell that outlives the foreground window detaches when detached capacity is available; otherwise it stays foreground until settlement or a kill deadline. Same-language cells queue behind it; another language can continue. A detached cell completes as one notification with its value or error and buffered output. Its own execution time is capped at 300s — queue time and time inside host tool calls are not charged; the hard limit stays wall-clock from submission; raise \`timeout\` only for a declared long run — and a killed js cell that cannot settle restarts its kernel with every global lost. Do not re-run a detached cell; read or cancel it with \`eval({ action: "peek", cell_id })\` / \`eval({ action: "stop", cell_id })\`.
 
 Python runs on a live event loop: use top-level \`await\`; \`asyncio.run(…)\` raises.
 JS runs under Node.js worker: top-level \`await\`/\`return\` work; \`fetch\`/\`Buffer\` available.

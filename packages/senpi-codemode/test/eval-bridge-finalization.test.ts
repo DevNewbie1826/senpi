@@ -25,7 +25,9 @@ class BridgeKernel implements EvalKernel {
 		this.#throwOnReply = throwOnReply;
 	}
 
-	async run(_input: EvalKernelRunInput): Promise<EvalResult> {
+	async run(input: EvalKernelRunInput): Promise<EvalResult> {
+		input.onStarted?.();
+		this.onMessage = input.onMessage ?? this.onMessage;
 		this.onMessage?.({ type: "tool-call", callId: "bridge-call", toolName: "demo", args: {} });
 		if (this.#result) return this.#result;
 		return await new Promise<EvalResult>(() => {});

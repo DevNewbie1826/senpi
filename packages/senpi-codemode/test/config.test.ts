@@ -21,7 +21,7 @@ describe("codemode settings", () => {
 			await mkdir(join(homeDir, ".senpi", "agent"), { recursive: true });
 			await writeFile(
 				join(projectDir, ".senpi", "codemode.json"),
-				JSON.stringify({ languages: { py: false, rb: true }, parallelPoolWidth: 9 }),
+				JSON.stringify({ languages: { py: false, rb: true }, parallelPoolWidth: 9, maxDetachedCells: 2 }),
 			);
 			await writeFile(
 				join(homeDir, ".senpi", "agent", "codemode.json"),
@@ -40,6 +40,7 @@ describe("codemode settings", () => {
 				runBudgetSeconds: 300,
 				hardLimitSeconds: 1800,
 				parallelPoolWidth: 9,
+				maxDetachedCells: 2,
 				taskTools: { task: "task", output: "task_output" },
 				outputSink: { headBytes: 20480, maxColumns: 768 },
 				statusEvents: true,
@@ -71,6 +72,7 @@ describe("codemode settings", () => {
 				runBudgetSeconds: 300,
 				hardLimitSeconds: 1800,
 				parallelPoolWidth: 4,
+				maxDetachedCells: 15,
 				taskTools: { task: "task", output: "task_output" },
 				outputSink: { headBytes: 20480, maxColumns: 768 },
 				statusEvents: true,

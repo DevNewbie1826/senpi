@@ -301,6 +301,8 @@ function cellPresentation(status: CellStatus, spinnerFrame: number | undefined):
 	switch (status) {
 		case "pending":
 			return { label: "pending", icon: "○", color: "muted" };
+		case "queued":
+			return { label: "queued", icon: "○", color: "muted" };
 		case "running":
 			return { label: "running", icon: spinner(spinnerFrame), color: "warning" };
 		case "detached":
@@ -337,6 +339,8 @@ function cellHeader(cell: EvalCellResult, environment: RenderEnvironment, badges
 	const presentation = cellPresentation(cell.status, environment.spinnerFrame);
 	const runtimeBadge = cell.runtime === undefined ? "" : ` (${formatRuntimeBadge(cell.language, cell.runtime)})`;
 	let header = `eval ${cell.language}${runtimeBadge} ${presentation.label} ${presentation.icon}`;
+	if (cell.queuedBehind !== undefined && cell.queuedBehind.length > 0)
+		header += ` · queued behind ${cell.queuedBehind.map(sanitizeTerminalLabel).join(", ")}`;
 	const throughputBadge = badges.throughput === undefined ? undefined : formatThroughputBadge(badges.throughput);
 	if (throughputBadge !== undefined) header += ` · ${throughputBadge}`;
 	const elapsedMs = badges.throughput?.wallDurationMs ?? cellElapsedMs(cell, environment);
