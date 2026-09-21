@@ -1097,10 +1097,33 @@ def _watch_parent(initial_ppid: int) -> None:
             return
 
 
+def _watch_named_parent(parent_pid: int) -> None:
+    # The ppid watch above can only observe a change from the ppid captured at boot. A
+    # host that died before the interpreter reached that capture is already replaced in
+    # getppid() by the posthumous value, so no transition ever fires. The host passes its
+    # own pid at spawn (SENPI_PY_KERNEL_PARENT_PID) precisely so this loss is detectable:
+    # poll the named pid instead of the ppid and take the whole group down once it is gone.
+    while True:
+        time.sleep(0.5)
+        try:
+            os.kill(parent_pid, 0)
+        except ProcessLookupError:
+            _terminate_process_group()
+            return
+
+
 def _start_parent_watch() -> None:
     if os.name != "posix":
         return
     Thread(target=_watch_parent, args=(os.getppid(),), name="senpi-parent-watch", daemon=True).start()
+    named_parent = os.environ.get("SENPI_PY_KERNEL_PARENT_PID")
+    if named_parent and named_parent.isdigit():
+        Thread(
+            target=_watch_named_parent,
+            args=(int(named_parent),),
+            name="senpi-named-parent-watch",
+            daemon=True,
+        ).start()
 
 
 def main() -> None:

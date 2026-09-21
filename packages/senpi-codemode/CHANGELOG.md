@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Python eval kernel: a kernel whose host process died mid-cell now exits instead of being orphaned forever. ([#1659](https://github.com/code-yeongyu/senpi/issues/1659))
+
 ### Removed
 
 ## [2026.9.20] - 2026-09-20
