@@ -92,6 +92,9 @@
 		"rimraf": "6.1.3",
 		"shell-quote": "1.10.0",
 		"vite": "8.2.2",
+		"vitest-evals": {
+			"vitest": "5.0.1"
+		},
 		"ws": "8.21.3",
 		"gaxios": {
 			"rimraf": "6.1.3"

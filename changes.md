@@ -1,19 +1,20 @@
 # changes — senpi-monorepo root
 
-## Pin the shared Vitest runner and retain the evals peer contract (2026-09-21)
+## Unify the shared and evals Vitest runners (2026-09-21)
 
 ### What changed
 
 - `package.json` pins the root development runner and its V8 coverage provider to 5.0.1 so the hoisted runner can load coverage.
 - `.gitignore` excludes the `.vitest/` artifact directory.
-- `package-lock.json` and `bun.lock` resolve the migrated runners and V8 coverage packages while retaining Vitest 4.1.11 for evals.
-- `bun.lock` uses configuration version 1, selecting Bun's isolated workspace linker so vitest-evals resolves the evals workspace's Vitest 4 peer.
+- `package-lock.json` and `bun.lock` resolve Vitest and V8 coverage 5.0.1 across every workspace, including evals.
+- `package.json` overrides vitest-evals 0.17.0's Vitest peer edge to 5.0.1.
+- `bun.lock` retains configuration version 0 and the existing hoisted install layout.
 
 ### Why
 
-- PTY and codemode invoke the hoisted runner without declaring it. A root pin keeps them on Vitest 5 under both npm and Bun; otherwise npm hoists Vitest 4 to satisfy vitest-evals.
-- vitest-evals 0.17.0 requires Vitest `>=4 <5`. The evals workspace retains 4.1.11 until a newer compatible harness is published.
-- Bun's old hoisted layout places vitest-evals beside root Vitest 5 despite that peer range. Isolated linking preserves the compatible peer instance without changing any dependency version or overriding the peer contract.
+- PTY and codemode invoke the hoisted runner without declaring it. A root pin makes their shared runner version explicit under both npm and Bun.
+- vitest-evals 0.17.0 declares Vitest `>=4 <5`. Its npm peer override makes the single-major installation explicit; runtime tests and TypeScript checks verify compatibility instead of preserving a split runner graph.
+- Bun hoists the harness beside the root runner even when a lock entry requests workspace nesting. Keeping every runner on 5.0.1 avoids mixed TaskMeta types without changing the native workflows' root dependency paths.
 
 ### Why an extension could not handle it
 

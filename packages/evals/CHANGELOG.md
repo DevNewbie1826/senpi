@@ -4,4 +4,4 @@
 
 ### Changed
 
-- Retained Vitest 4.1.11 and its matching V8 coverage provider with vitest-evals 0.17.0 while the other workspaces migrate to Vitest 5. The latest eval harness requires Vitest below 5. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
+- Updated Vitest and V8 coverage to 5.0.1, with an explicit npm peer override for vitest-evals 0.17.0 so the harness and workspace share one runner. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
