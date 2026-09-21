@@ -219,6 +219,32 @@ describe("ensureHost", () => {
 		20_000,
 	);
 
+	it.skipIf(process.platform === "win32")(
+		"starts a fresh generation beside a foreign generation whose socket entry nobody serves",
+		async () => {
+			// The other shape of #1936: the entry is still THERE, but no process listens behind it - a
+			// predecessor that died without unlinking, or a successor whose rename never landed. The
+			// registered process is alive and holds only its private bind. A connection is refused, so
+			// the path is as free as a missing one, and the ensure must not stay locked out on it.
+			const qa = await scratch("foreign-stale-entry");
+			const stranded = await startManagedProcess(qa, { writer: "foreign" });
+			await leaveStaleEntry(qa.socket);
+			const paths = daemonPaths(qa);
+			const before = await readHostRegistration(paths);
+			if (before === undefined) throw new Error("fixture registration missing");
+
+			const result = await ensureFixtureHost(qa);
+
+			expect(result.reused).toBe(false);
+			expect(result.pid).not.toBe(stranded.pid);
+			expect(await processMatchesPidFile(stranded.pidFile, readProcessStartTime)).toBe(true);
+			expect(await readHostRegistration(paths)).toMatchObject({ generation: 1, record: { pid: result.pid } });
+			await expect(access(join(paths.generationsDir, before.instanceId))).resolves.toBeUndefined();
+			expect((await protocolInfo(qa.socket)).data).toMatchObject({ serverVersion: VERSION });
+		},
+		20_000,
+	);
+
 	it("cleans a stale dead pidfile and starts fresh", async () => {
 		const qa = await scratch("stale-pidfile");
 		const paths = daemonPaths(qa);
@@ -784,6 +810,31 @@ async function startManagedProcess(qa: Qa, options: { writer: Writer; ignoreTerm
 		? "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"
 		: "setInterval(() => {}, 1000)";
 	return register(qa, spawn(process.execPath, ["-e", script], { detached: true, stdio: "ignore" }), options.writer);
+}
+
+/**
+ * A socket entry with nobody behind it: a listener bound the path and was SIGKILLed, which leaves
+ * the filesystem entry in place (only a clean close unlinks it). Connecting to it is refused.
+ */
+async function leaveStaleEntry(socketPath: string): Promise<void> {
+	const script = [
+		'const net = require("node:net"), fs = require("node:fs");',
+		"try { fs.unlinkSync(process.env.STALE_SOCKET) } catch {}",
+		'net.createServer(() => {}).listen(process.env.STALE_SOCKET, () => process.stdout.write("listening\\n"));',
+		"setInterval(() => {}, 1000);",
+	].join(" ");
+	const child = spawn(process.execPath, ["-e", script], {
+		stdio: ["ignore", "pipe", "ignore"],
+		env: { ...process.env, STALE_SOCKET: socketPath },
+	});
+	await new Promise<void>((resolve, reject) => {
+		child.stdout?.once("data", () => resolve());
+		child.once("exit", (code) => reject(new Error(`stale-entry listener exited before listening (code ${code})`)));
+	});
+	const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+	child.kill("SIGKILL");
+	await exited;
+	await access(socketPath);
 }
 
 /**

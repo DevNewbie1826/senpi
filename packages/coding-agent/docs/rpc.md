@@ -207,10 +207,11 @@ are what this decision encodes; the other two are what a client must not undo el
   `ensureHost` records a `writer: { pid, startTime }` stamp in its pidfile and stops the host it names only when
   that stamp is this process (the start time is what keeps a recycled pid from inheriting the right). A pidfile
   written by anyone else fails the ensure with `HostEnsureRefusedError { reason: "foreign_writer" }` and the host
-  keeps running. That refusal is about signalling, so it holds only while the public path still holds a socket
-  entry: a registration that names a live process whose entry is GONE (it was replaced by another socket and the
-  replacement later exited) describes a generation nobody can reach, and binding a fresh generation to the free
-  path touches nothing of it. The ensure then starts one beside it, numbered after the stranded generation, which
+  keeps running. That refusal is about signalling, so it holds only while something still accepts connections at
+  the public path: a registration that names a live process whose entry is GONE (it was replaced by another socket
+  and the replacement later exited) or whose entry nobody listens behind (a dead listener left it, a successor's
+  rename never landed) describes a generation nobody can reach, and binding a fresh generation to the free path
+  touches nothing of it. The ensure then starts one beside it, numbered after the stranded generation, which
   keeps its registration until it exits; refusing there locked every client out until that process happened to
   end (#1936). A named pipe has no entry to lose, so win32 keeps refusing.
 - **I2 - compatibility is protocol version + capabilities, never semver equality.** An ordinal that cannot be

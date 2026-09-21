@@ -185,11 +185,12 @@ async function ensureHostLocked(
 		if (!startedByUs) {
 			// I1: the socket is silent, but the process behind it is alive. Only the process that WROTE
 			// this record may end it - anyone else refuses rather than signalling somebody else's host.
-			if (await publicEntryStands(socket)) throw new HostEnsureRefusedError(socket, "foreign_writer", protocol);
-			// A foreign record whose public entry is GONE names a generation nobody can reach: its entry
-			// was replaced (so it is already draining, #1893) or removed. Refusing here locked every
-			// client out until that process happened to exit (#1936). Binding a fresh generation to the
-			// free path signals nothing, so that is what happens - the stranded one keeps its record.
+			if (await publicEndpointAccepts(socket)) throw new HostEnsureRefusedError(socket, "foreign_writer", protocol);
+			// A foreign record whose public endpoint accepts NOTHING names a generation nobody can reach:
+			// its entry was replaced (so it is already draining, #1893) or removed, or a dead listener
+			// left the entry behind. Refusing here locked every client out until that process happened
+			// to exit (#1936). Binding a fresh generation there signals nothing, so that is what happens -
+			// the stranded one keeps its record.
 			stranded = registered;
 		} else {
 			// Silent is not the same as gone. A host serving many sessions can miss a probe budget
@@ -212,17 +213,28 @@ async function ensureHostLocked(
 }
 
 /**
- * Whether the public path still holds a socket entry - the one thing that says a registered process
- * still OWNS the endpoint. A named pipe has no entry to lose and an abstract socket has no path, so
- * both read as standing; so does an entry this process cannot stat, because an owner that cannot be
- * ruled out is one this ensure must not bind over.
+ * Only the connect matters here, never an answer: the kernel completes it from the listen backlog
+ * without the host's event loop, so a live owner under load still accepts within this budget.
  */
-async function publicEntryStands(socket: string): Promise<boolean> {
+const FOREIGN_ENDPOINT_PROBE_TIMEOUT_MS = 2_000;
+
+/**
+ * Whether SOMETHING still accepts connections at the public path - the one fact that says a
+ * registered process may still own the endpoint. A missing entry and an entry nobody listens
+ * behind (connection refused) both answer no; an accepted connection, however silent, answers yes.
+ * A named pipe has no entry to lose and an abstract socket has no path, so both read as owned;
+ * so does an entry this process cannot stat, because an owner that cannot be ruled out is one
+ * this ensure must not bind over.
+ */
+async function publicEndpointAccepts(socket: string): Promise<boolean> {
 	if (process.platform === "win32" || socket.startsWith("\0")) return true;
-	return statSocketIdentity(socket).then(
-		(identity) => identity !== undefined,
-		() => true,
+	const entry = await statSocketIdentity(socket).then(
+		(identity) => (identity === undefined ? "absent" : "present"),
+		() => "unknown",
 	);
+	if (entry === "absent") return false;
+	if (entry === "unknown") return true;
+	return probeSocketReachable(socket, FOREIGN_ENDPOINT_PROBE_TIMEOUT_MS);
 }
 
 /** `fallback` belongs to clients that can live without a host; an ensure must produce one or fail. */
