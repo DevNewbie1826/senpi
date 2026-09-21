@@ -6,6 +6,7 @@ import { resolveConfigValue } from "../resolve-config-value.ts";
 import { type CredentialBlock, classifyCredentialFailure } from "./classify.ts";
 import { discoverEnvSlots } from "./env-slots.ts";
 import { type RunSlot, runCredentialFailover } from "./failover.ts";
+import { isCommittedRotationOutput, isRotationStreamStart, rotationErrorFromEvent } from "./rotation-events.ts";
 import { acquireHalfOpenLease, type CredentialSlotRepository, type CredentialSlotState } from "./state-store.ts";
 
 /** The exact hash the claude-sdk-oauth affinity oracle uses, so pools never remap. */
@@ -206,17 +207,12 @@ export type CredentialRotationOptions = {
 	) => AsyncIterable<AssistantMessageEvent> | Promise<AsyncIterable<AssistantMessageEvent>>;
 };
 
-function errorFromEvent(event: AssistantMessageEvent): unknown {
-	if (event.type !== "error") return undefined;
-	const message = event.error.errorMessage ?? "provider stream error";
-	return new Error(message);
-}
-
 /**
  * In-lane credential rotation for one provider request. Selection follows the
- * HRW order for the affinity key; only the `start` bookkeeping event counts as
- * pre-commit, so any delta bars silent rotation (default-DENY) and failures
- * after output carry the turn-retry suppression marker.
+ * HRW order for the affinity key. Rotation and same-slot retry stay transparent
+ * while only announcement frames have reached the caller; the first delta bars
+ * them, and a failure after it is forwarded as the provider's own terminal
+ * event for the session layer to recover from.
  */
 export function streamWithCredentialRotation(
 	options: CredentialRotationOptions,
@@ -239,8 +235,9 @@ export function streamWithCredentialRotation(
 			return winner;
 		},
 		runAttempt,
-		isCommittedOutput: (event) => event.type !== "start",
-		errorFromEvent,
+		isCommittedOutput: isCommittedRotationOutput,
+		isStreamStart: isRotationStreamStart,
+		errorFromEvent: rotationErrorFromEvent,
 		classify: (error, context) =>
 			classifyCredentialFailure(error, {
 				...context,
