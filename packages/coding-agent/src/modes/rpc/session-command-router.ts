@@ -8,6 +8,7 @@ import {
 	SESSION_CONTEXT_CAPABILITY,
 	SESSION_KIND_CAPABILITY,
 } from "./custom-capability.ts";
+import { HOST_MEMORY_SAMPLE_MS } from "./host-memory-sampler.ts";
 import { protocolIdentity } from "./protocol-identity.ts";
 import { sessionAutoTitleError, sessionContextError, sessionKindError } from "./rpc-input-validation.ts";
 import type { RpcCommand, RpcResponse, RpcSessionClosedReason } from "./rpc-types.ts";
@@ -92,7 +93,15 @@ export class SessionCommandRouter {
 	private readonly releasedConnections = new Set<string>();
 	private readonly registry: Pick<
 		RpcSessionRegistry,
-		"openSession" | "peek" | "getForCommand" | "beginClose" | "close" | "closeMarked" | "list" | "size"
+		| "openSession"
+		| "peek"
+		| "getForCommand"
+		| "beginClose"
+		| "close"
+		| "closeMarked"
+		| "list"
+		| "size"
+		| "setWorkerAdmission"
 	>;
 	private readonly writer: SessionEventWriter;
 	private readonly defaults: Pick<
@@ -119,7 +128,15 @@ export class SessionCommandRouter {
 	constructor(
 		registry: Pick<
 			RpcSessionRegistry,
-			"openSession" | "peek" | "getForCommand" | "beginClose" | "close" | "closeMarked" | "list" | "size"
+			| "openSession"
+			| "peek"
+			| "getForCommand"
+			| "beginClose"
+			| "close"
+			| "closeMarked"
+			| "list"
+			| "size"
+			| "setWorkerAdmission"
 		>,
 		writer: SessionEventWriter,
 		defaults: Pick<RpcSessionLaunchProfile, "cwd" | "permissionPreset" | "creationModel" | "initialThinkingLevel">,
@@ -191,6 +208,14 @@ export class SessionCommandRouter {
 	 * HALF the configured window, which returns their memory to the process sooner.
 	 * Deliberately the only lever: the host never refuses or kills a session for memory.
 	 */
+	/**
+	 * Above the refuse watermark the host declines to CREATE worker sessions until the next
+	 * sample can clear it; everything it already holds keeps being served (#1905).
+	 */
+	setMemoryCritical(critical: boolean, rssMb: number): void {
+		this.registry.setWorkerAdmission(critical ? { rssMb, retry_after_ms: HOST_MEMORY_SAMPLE_MS } : undefined);
+	}
+
 	setMemoryPressure(pressure: boolean): void {
 		this.memoryPressure = pressure;
 	}

@@ -68,6 +68,7 @@ export class RpcSessionRegistryError extends Error {
 		| "session_path_in_use"
 		| "session_reservation_limit"
 		| "invalid_path"
+		| "host_memory_pressure"
 		| "open_failed";
 	/** Machine-readable context for the wire (`errorData`): who holds a path, when to retry. */
 	readonly detail?: Readonly<Record<string, unknown>>;
@@ -93,6 +94,15 @@ export interface RpcSessionRegistryOptions {
 	 * that is the only host of its agent directory.
 	 */
 	pathReservations?: SessionPathReservations;
+}
+
+/**
+ * Why the host currently declines to CREATE a worker session: it is above its RSS refuse
+ * watermark. Carried verbatim to the client as `errorData` so it knows when to retry.
+ */
+export interface WorkerAdmissionRefusal {
+	readonly rssMb: number;
+	readonly retry_after_ms: number;
 }
 
 /** Host-side lifecycle policy for one `open_session`, distinct from the session's launch profile. */
@@ -158,6 +168,7 @@ export class RpcSessionRegistry {
 	private readonly options: RpcSessionRegistryOptions;
 	private readonly now: () => number;
 	readonly closeGraceMs: number;
+	private workerRefusal: WorkerAdmissionRefusal | undefined;
 
 	constructor(options: RpcSessionRegistryOptions) {
 		this.options = options;
@@ -179,6 +190,15 @@ export class RpcSessionRegistry {
 	/** Number of live entries, including ones still opening or closing. */
 	get size(): number {
 		return this.entries.size;
+	}
+
+	/**
+	 * While set, an open that would CREATE a worker session is refused with
+	 * `host_memory_pressure`; attaches to a live path and interactive opens are unaffected.
+	 * The only memory-driven refusal on the in-process path - never an occupancy count.
+	 */
+	setWorkerAdmission(refusal: WorkerAdmissionRefusal | undefined): void {
+		this.workerRefusal = refusal;
 	}
 
 	async openSession(profile: RpcSessionLaunchProfile, options?: RpcSessionOpenOptions): Promise<OpenRpcSession> {
@@ -219,6 +239,8 @@ export class RpcSessionRegistry {
 				attached: true,
 			};
 		}
+		if (this.workerRefusal && profile.sessionKind === "worker")
+			throw new RpcSessionRegistryError("host_memory_pressure", undefined, { ...this.workerRefusal });
 		if (sessionPath) {
 			// Taken SYNCHRONOUSLY, before any await: a concurrent open for the same path must find the
 			// reservation already held, not a window between the decision and the record of it.

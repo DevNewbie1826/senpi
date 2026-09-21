@@ -17,6 +17,67 @@
 
 - `releaseOwnedSession` and attach-on-open. Keep eviction, worker runtimes and positive attachment counts unchanged.
 
+## 2026-09-21 — a loop stall no longer cuts live peers, teardown cannot leak a scope, and a critical host refuses new workers (#1905)
+
+### What changed
+
+Three changes on the shared in-process host.
+
+- `socket-event-fanout.ts` + `loop-blocked-time.ts` (new) + `loop-lag-watchdog.ts`: the dead-peer
+  budget (`DEFAULT_STALL_MS`, 30 s) counts loop-SERVED time. The watchdog deposits every measured
+  drift into a process-wide ledger; when the stall deadline fires it asks how much blocked time
+  landed inside its window and re-arms for that much (capped at one budget) instead of cutting. Only
+  a window the loop fully served with no drain ends in `SocketEventQueueStallError`.
+- `session-teardown.ts`: `closeScopeOnce` awaits `disposeOnce()` before `scope.close()`, so the
+  grace-deadline path no longer closes the provider scope beside a still-running disposal.
+  `config-reload/session-scoped-callback.ts` (new, used for the watch engine's `onRealChange` /
+  `onError`) makes a callback bound to a session scope a no-op once that scope closed;
+  `@earendil-works/pi-ai/node/provider-scope` gained `activeProviderScope()` for it.
+- `host-memory-sampler.ts` + `session-registry.ts` + `session-command-router.ts` +
+  `multi-session-host.ts` (wiring) + `worker-session-registry.ts` (no-op `setWorkerAdmission`):
+  a second watermark, `SENPI_RPC_HOST_RSS_REFUSE_MB` (default twice `SENPI_RPC_HOST_RSS_WARN_MB`),
+  raises `onCritical(critical, rssMb)`; the router forwards it as `registry.setWorkerAdmission(...)`,
+  and an `openSession` that would CREATE a `kind: "worker"` session while it is set throws
+  `RpcSessionRegistryError("host_memory_pressure", ..., { rssMb, retry_after_ms })`, which the
+  router answers as the stable code `host_memory_pressure`.
+- `rpc-types.ts`: `RPC_ERROR_HOST_MEMORY_PRESSURE` joins `RpcErrorCode`. Attaches to a live path,
+  interactive opens and every existing session are untouched. The stderr pressure line names the
+  policy in force.
+
+### Why
+
+One host lost every child of every attached session and then died. Its loop blocked for up
+to 893 s; on unblock the wall-clock stall timer ran before the pending drain I/O and cut every
+connection with queued bytes (`peer did not drain 358520 queued bytes within 30000ms`), so every
+host-session child ended with `transport_gone` while its session kept running. Sessions torn down
+during that window hit the grace deadline; their scope was closed beside the running disposal, the
+binding's dispose refused with `Provider scope is closed`, and each dead session's config-reload
+watch engine - and its watch Worker thread - stayed alive, throwing from its debounce timer on every
+filesystem event (149 unhandled errors). RSS grew unbounded past 9 GB into a Bun SIGSEGV in a JSC
+Worker thread (three crash reports, uptimes 3.6 h / 15.3 h / 16 h).
+
+A future refactor must not break: the stall budget is served time, never wall time - a deadline
+that fires after a long block must re-arm, not cut. `scope.close()` runs after disposal settles on
+EVERY teardown path. `host_memory_pressure` is the only memory-driven refusal on the in-process
+path, it keys on RSS (never a session count), it applies only to CREATING a worker session, and the
+client's answer is to wait and retry - never to start a second host or a per-child process. Pinned by
+`test/suite/regressions/issue-1905-*.test.ts` (stall verdict, teardown order, closed-scope callback,
+worker admission).
+
+### Why an extension could not handle it
+
+All three live under the host's own loop, transport and registry: an extension cannot see the
+socket dead-peer timer, the teardown order of a session it belongs to, or the registry's admission
+decision.
+
+### Expected merge conflict zones
+
+`socket-event-fanout.ts` (`waitForDrainOrStall`), `loop-lag-watchdog.ts` (`tick`),
+`session-teardown.ts` (`closeScopeOnce`), `host-memory-sampler.ts` (constructor and `sample`),
+`session-registry.ts` (`openSession` admission check, `RpcSessionRegistryError.code` union),
+`session-command-router.ts` (registry `Pick`, `setMemoryCritical`), `multi-session-host.ts`
+(`startHostObservers`), `rpc-types.ts` (`RpcErrorCode`).
+
 ## 2026-09-21 — a superseded generation drains itself, and the daemon directory is pruned (#1893)
 
 **What:** five changes that together end a generation nobody can reach.

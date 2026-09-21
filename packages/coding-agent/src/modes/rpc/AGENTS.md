@@ -67,7 +67,8 @@ One machine-wide host holds every client's sessions, so these hold for every sur
 ### The no-sync rule
 
 - The in-process runtime puts every session on ONE loop: a synchronous wait taken on the session path is an outage for every client. `execSync`, `execFileSync`, `spawnSync`, `Bun.spawnSync`, `Bun.sleepSync` and `Atomics.wait` are banned on that call graph; `test/suite/no-sync-in-session-path.test.ts` fails on any call site the checked-in ledger does not already record, and reports sync fs against the same ledger.
-- The in-process path has NO session cap. If a change makes the shared daemon refuse an `open_session` for occupancy, it is a defect, not a policy - `too_many_sessions` belongs to `worker-session-registry.ts` alone.
+- The in-process path has NO session cap. If a change makes the shared daemon refuse an `open_session` for occupancy, it is a defect, not a policy - `too_many_sessions` belongs to `worker-session-registry.ts` alone. The ONE memory-driven refusal is `host_memory_pressure` (senpi#1905): above `SENPI_RPC_HOST_RSS_REFUSE_MB` the registry declines to CREATE a `kind: "worker"` session and nothing else - attaches, interactive opens and existing sessions are served. It keys on RSS, never on a count.
+- The socket dead-peer budget counts loop-SERVED time (`loop-blocked-time.ts`): a host stall must never cut a live peer. A session's provider scope closes only after its disposal settles (`session-teardown.ts`), and a config-reload callback bound to a closed scope is a no-op (`session-scoped-callback.ts`).
 - Capacity is memory and threads: roughly 1 thread / 2 fds / 5-8 MB per open session, the thread coming from the `config-reload` builtin's per-session watch Worker (senpi#1794). Never claim it is flat.
 
 ## WHERE TO LOOK
