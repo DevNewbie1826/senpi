@@ -1,3 +1,21 @@
+## 2026-09-21 - Transcript explains transport drops and never renders the replay marker (senpi#1628)
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/assistant-render-descriptors.ts`: the `error` branch renders through pi-ai's `describeProviderFailureForUser` (stall wording delegated, WebSocket interruptions worded for a person, no recovery advice while a retry may still run); the raw `Error: ...` fallback and the `aborted` branch pass the text through `stripTurnRetrySuppressionPrefix`.
+
+### Why
+
+- `packages/coding-agent/src/modes/interactive/components/assistant-render-descriptors.ts` printed `Error: senpi:no-turn-retry:WebSocket error` after a Codex WebSocket drop - the session-internal replay marker in front of a bare transport verdict, and nothing about what to do next.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/interactive/components/assistant-render-descriptors.ts` is the transcript renderer; an extension can add entries but cannot rewrite how an assistant message's terminal error is drawn.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/interactive/components/assistant-render-descriptors.ts`: the pi-ai import block and the `error`/`aborted` cases of the stop-reason switch.
+
 ## 2026-09-21 - Bind extension user edits locally and through the interactive host
 
 ### What changed

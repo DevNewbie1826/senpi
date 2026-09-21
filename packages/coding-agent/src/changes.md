@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-21 - Print mode explains transport drops and never prints the replay marker (senpi#1628)
+
+### What changed
+
+- `packages/coding-agent/src/modes/print-mode.ts`: the text-mode error line goes through pi-ai's `describeProviderFailureForUser` (stall wording delegated, WebSocket interruptions worded for a person) and the raw fallback is passed through `stripTurnRetrySuppressionPrefix`.
+
+### Why
+
+- `packages/coding-agent/src/modes/print-mode.ts` printed the assistant's `errorMessage` verbatim, so a Codex WebSocket drop ended a `-p` run with `senpi:no-turn-retry:WebSocket error` on stderr - an internal classifier token in front of a transport verdict.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/print-mode.ts` owns the one-shot exit path; no extension event runs between the final assistant message and the stderr write.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/print-mode.ts`: the pi-ai import line and the text-mode error branch.
+
 ## 2026-09-21 - Announce supersession and park attached RPC sessions (#1933)
 
 ### What changed
