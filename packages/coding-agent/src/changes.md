@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-21 - Preserve host MCP registry injection in CLI runtime creation (#1915)
+
+### What changed
+
+- `packages/coding-agent/src/main.ts` forwards the runtime factory's optional MCP registry to session services.
+
+### Why
+
+- `packages/coding-agent/src/main.ts` recreates services during session replacement; the host registry must follow the runtime factory rather than a single initial session.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/main.ts` owns CLI runtime construction before extension loading.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/main.ts`: `createCliRuntimeFactory` arguments and `createAgentSessionServices` options. Sharing remains disabled.
+
 ## 2026-09-21 - Export retained-session attachment events (#1902)
 
 ### What changed

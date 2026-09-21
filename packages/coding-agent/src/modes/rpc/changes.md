@@ -1,3 +1,23 @@
+## 2026-09-21 - Own one MCP registry per in-process host (#1915)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/multi-session-host.ts` creates one registry for each in-process host.
+- `packages/coding-agent/src/modes/rpc/session-registry.ts` wraps the runtime factory once to inject the same registry on opens and session replacements.
+
+### Why
+
+- `packages/coding-agent/src/modes/rpc/multi-session-host.ts` owns the host lifetime; `packages/coding-agent/src/modes/rpc/session-registry.ts` retains that ownership across session replacement without changing attachment or parked/resumed semantics.
+
+### Why an extension could not handle it
+
+- Host construction in `packages/coding-agent/src/modes/rpc/multi-session-host.ts` and runtime-factory retention in `packages/coding-agent/src/modes/rpc/session-registry.ts` precede extension execution.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/multi-session-host.ts`: `createHostCore` in-process registry options.
+- `packages/coding-agent/src/modes/rpc/session-registry.ts`: options and constructor. Worker runtime selection and session policies are unchanged.
+
 ## 2026-09-21 - Pause periodic work on retained detach (#1902)
 
 ### What changed

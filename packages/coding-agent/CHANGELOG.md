@@ -8,6 +8,8 @@
 
 ### Changed
 
+- MCP connection ownership now passes through a host registry. Connections remain separate per session; sharing is disabled, and connection lifecycle behavior is unchanged. ([#1915](https://github.com/code-yeongyu/senpi/issues/1915))
+
 ### Fixed
 
 ### Removed

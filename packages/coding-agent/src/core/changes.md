@@ -1,5 +1,27 @@
 # changes
 
+## 2026-09-21 - Thread the host MCP registry into session resources (#1915)
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session-runtime.ts` adds an optional registry to the runtime factory input.
+- `packages/coding-agent/src/core/agent-session-services.ts` forwards the registry to the resource loader.
+- `packages/coding-agent/src/core/resource-loader.ts` constructs the MCP builtin with a fresh service using that registry. Other builtin factories retain their order and identity.
+
+### Why
+
+- `packages/coding-agent/src/core/agent-session-runtime.ts`, `packages/coding-agent/src/core/agent-session-services.ts` and `packages/coding-agent/src/core/resource-loader.ts` form the explicit host-to-session injection path. No module-global registry or provider-scope lookup is needed; production connection sharing remains disabled.
+
+### Why an extension could not handle it
+
+- The runtime factory contract in `packages/coding-agent/src/core/agent-session-runtime.ts`, service composition in `packages/coding-agent/src/core/agent-session-services.ts` and builtin construction in `packages/coding-agent/src/core/resource-loader.ts` are host-owned startup boundaries.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/agent-session-runtime.ts`: `CreateAgentSessionRuntimeFactory`.
+- `packages/coding-agent/src/core/agent-session-services.ts`: options and resource-loader construction.
+- `packages/coding-agent/src/core/resource-loader.ts`: options and builtin factory selection.
+
 ## 2026-09-21 - Dispatch retained attachment lifecycle (#1902)
 
 ### What changed

@@ -743,7 +743,15 @@ export function createCliRuntimeFactory(
 	const resolvedSkillPaths = resolveCliPaths(cwd, parsed.skills);
 	const resolvedPromptTemplatePaths = resolveCliPaths(cwd, parsed.promptTemplates);
 	const resolvedThemePaths = resolveCliPaths(cwd, parsed.themes);
-	return async ({ cwd, agentDir, sessionManager, sessionStartEvent, projectTrustContext, launchProfile }) => {
+	return async ({
+		cwd,
+		agentDir,
+		sessionManager,
+		sessionStartEvent,
+		projectTrustContext,
+		launchProfile,
+		mcpRegistry,
+	}) => {
 		const isInitialRuntime = sessionStartEvent === undefined;
 		const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];
 		const cachedProjectTrust = projectTrustByCwd.get(cwd);
@@ -761,6 +769,7 @@ export function createCliRuntimeFactory(
 			agentDir,
 			settingsManager: runtimeSettingsManager,
 			...(local.modelRuntime === undefined ? {} : { modelRuntime: local.modelRuntime }),
+			mcpRegistry,
 			modelRuntimeSignal: AbortSignal.timeout(15_000),
 			extensionFlagValues: parsed.unknownFlags,
 			resourceLoaderReloadOptions: shouldResolveProjectTrust

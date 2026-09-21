@@ -7,6 +7,7 @@ import {
 	type CreateAgentSessionRuntimeFactory,
 	createAgentSessionRuntime,
 } from "../../core/agent-session-runtime.ts";
+import type { HostMcpRegistry } from "../../core/extensions/builtin/mcp/host-registry.ts";
 import type { SessionContext, SessionKind, SessionStartEvent } from "../../core/extensions/types.ts";
 import { EMPTY_SESSION_CONTEXT } from "../../core/extensions/types.ts";
 import { SessionManager } from "../../core/session-manager.ts";
@@ -84,6 +85,7 @@ export class RpcSessionRegistryError extends Error {
 export interface RpcSessionRegistryOptions {
 	agentDir: string;
 	createRuntime: CreateAgentSessionRuntimeFactory;
+	mcpRegistry?: HostMcpRegistry;
 	/** Injectable clock (defaults to Date.now) so idle bookkeeping is testable. */
 	now?: () => number;
 	/** Maximum time to wait for graceful runtime teardown before forced release. */
@@ -171,7 +173,14 @@ export class RpcSessionRegistry {
 	private workerRefusal: WorkerAdmissionRefusal | undefined;
 
 	constructor(options: RpcSessionRegistryOptions) {
-		this.options = options;
+		this.options =
+			options.mcpRegistry === undefined
+				? options
+				: {
+						...options,
+						createRuntime: (runtimeOptions) =>
+							options.createRuntime({ ...runtimeOptions, mcpRegistry: options.mcpRegistry }),
+					};
 		this.now = options.now ?? Date.now;
 		this.closeGraceMs = options.closeGraceMs ?? 10_000;
 		this.teardownHost = {
