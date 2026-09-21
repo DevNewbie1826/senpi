@@ -110,7 +110,7 @@ describe("run-workspaces", () => {
 			// When
 			const unknownWorkspace = runDriver(fixture, ["--workspace", "@fixture/nope", "test"]);
 			const noScript = runDriver(fixture, ["--if-present"]);
-			const unknownFlag = runDriver(fixture, ["--parallel", "test"]);
+			const unknownFlag = runDriver(fixture, ["--sequential", "test"]);
 
 			// Then
 			assert.equal(unknownWorkspace.status, 2);
@@ -118,7 +118,7 @@ describe("run-workspaces", () => {
 			assert.equal(noScript.status, 2);
 			assert.match(noScript.stderr, /script name is required/);
 			assert.equal(unknownFlag.status, 2);
-			assert.match(unknownFlag.stderr, /unknown argument: --parallel/);
+			assert.match(unknownFlag.stderr, /unknown argument: --sequential/);
 			assert.deepEqual(await fixture.markers(), []);
 		} finally {
 			await fixture.dispose();
@@ -165,6 +165,7 @@ describe("run-workspaces", () => {
 		assert.deepEqual(parsed, {
 			script: "test",
 			ifPresent: true,
+			parallel: false,
 			workspaces: ["packages/a"],
 			forwarded: ["--if-present", "x"],
 		});

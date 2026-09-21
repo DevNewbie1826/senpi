@@ -119,33 +119,95 @@ export function signalGroup(
 }
 
 /**
- * Spawns `<pm> <args>` in `cwd` with inherited stdio and resolves with the exit
- * status (1 when the child died on a signal or could not be spawned at all).
- *
- * Termination signals are forwarded to the child's process group so a watcher
- * started through a root script dies with Ctrl-C instead of surviving as an
- * orphan; once the child is gone the same signal is re-raised on this process,
- * which then ends the way a plain script would, without running further
- * workspaces.
+ * One set of signal handlers shared by every child of a parallel run. Each
+ * forwarded signal reaches every attached child's process group; the caller
+ * re-raises the recorded signal once all children are gone, so the first child
+ * to exit cannot take the driver down while its siblings are still draining.
  */
-export function spawnPackageManager(pm, args, { cwd, env, label }) {
+export function createSignalFanout() {
+	const children = new Set();
+	let forwarded;
+	const handlers = new Map(
+		FORWARDED_SIGNALS.map((signal) => [
+			signal,
+			() => {
+				forwarded = signal;
+				for (const child of children) signalGroup(child, signal);
+			},
+		]),
+	);
+	for (const [signal, handler] of handlers) process.on(signal, handler);
+	return {
+		attach: (child) => children.add(child),
+		detach: (child) => children.delete(child),
+		/** Removes the handlers and returns the forwarded signal, if any. */
+		release() {
+			for (const [signal, handler] of handlers) process.off(signal, handler);
+			return forwarded;
+		},
+	};
+}
+
+/** Writes every line of `stream` to `target` as `[prefix] line`, flushing a trailing partial line. */
+function prefixLines(stream, prefix, target) {
+	let pending = "";
+	stream.setEncoding("utf8");
+	stream.on("data", (chunk) => {
+		pending += chunk;
+		let newline = pending.indexOf("\n");
+		while (newline >= 0) {
+			target.write(`[${prefix}] ${pending.slice(0, newline)}\n`);
+			pending = pending.slice(newline + 1);
+			newline = pending.indexOf("\n");
+		}
+	});
+	stream.on("end", () => {
+		if (pending.length > 0) target.write(`[${prefix}] ${pending}\n`);
+	});
+}
+
+/**
+ * Spawns `<pm> <args>` in `cwd` and resolves with the exit status (1 when the
+ * child died on a signal or could not be spawned at all).
+ *
+ * Without options the child inherits stdio and owns the signal handling:
+ * termination signals are forwarded to its process group so a watcher started
+ * through a root script dies with Ctrl-C instead of surviving as an orphan, and
+ * once the child is gone the same signal is re-raised on this process, which
+ * then ends the way a plain script would, without running further workspaces.
+ *
+ * `prefix` pipes stdout/stderr and tags every line `[prefix]` so concurrent
+ * children stay attributable. `fanout` (from `createSignalFanout`) replaces the
+ * per-child handlers: the child is attached for the run's shared forwarding and
+ * the caller re-raises after every child has closed.
+ */
+export function spawnPackageManager(pm, args, { cwd, env, label, prefix, fanout }) {
 	const invocation = packageManagerInvocation(pm, args);
 	return new Promise((resolve) => {
 		const detached = process.platform !== "win32";
-		const child = spawn(invocation.command, invocation.args, { cwd, stdio: "inherit", env, shell: false, detached });
+		const stdio = prefix === undefined ? "inherit" : ["inherit", "pipe", "pipe"];
+		const child = spawn(invocation.command, invocation.args, { cwd, stdio, env, shell: false, detached });
+		if (prefix !== undefined) {
+			prefixLines(child.stdout, prefix, process.stdout);
+			prefixLines(child.stderr, prefix, process.stderr);
+		}
 		let forwarded;
 		const handlers = new Map(
-			FORWARDED_SIGNALS.map((signal) => [
-				signal,
-				() => {
-					forwarded = signal;
-					signalGroup(child, signal);
-				},
-			]),
+			fanout
+				? []
+				: FORWARDED_SIGNALS.map((signal) => [
+						signal,
+						() => {
+							forwarded = signal;
+							signalGroup(child, signal);
+						},
+					]),
 		);
 		for (const [signal, handler] of handlers) process.on(signal, handler);
+		fanout?.attach(child);
 		const release = () => {
 			for (const [signal, handler] of handlers) process.off(signal, handler);
+			fanout?.detach(child);
 		};
 		child.on("error", (error) => {
 			release();
