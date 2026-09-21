@@ -55,6 +55,7 @@ import {
 	type OpenAISettings,
 	type PromptCacheKeepAliveSettings,
 	type PromptCacheSettings,
+	type ProviderConcurrencySettings,
 	type ThinkingBudgetsSettings,
 } from "./settings-shapes.ts";
 import {
@@ -142,6 +143,7 @@ export interface ExperimentalSettings {
 }
 
 export interface Settings {
+	providers?: Record<string, ProviderConcurrencySettings>;
 	lastChangelogVersion?: string;
 	changelogSeen?: Record<string, string>;
 	defaultProvider?: string;
@@ -624,6 +626,7 @@ export class SettingsManager {
 	private settingsPaths: SettingsPaths;
 	private selectedSources = new Map<SettingsScope, SettingsSourceSelection>();
 	private sourceListeners: SettingsSourceListener[] = [];
+	private providerSettingsListeners = new Set<() => void>();
 
 	private constructor(
 		storage: SettingsStorage,
@@ -806,6 +809,25 @@ export class SettingsManager {
 		return structuredClone(this.projectSettings);
 	}
 
+	getProviderSettings(): Record<string, ProviderConcurrencySettings> {
+		return structuredClone(this.settings.providers ?? {});
+	}
+
+	getProviderConcurrencyLimit(providerId: string): number {
+		const value = this.settings.providers?.[providerId]?.maxConcurrency;
+		return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : Infinity;
+	}
+
+	subscribeToProviderSettings(listener: () => void): () => void {
+		this.providerSettingsListeners.add(listener);
+		return () => this.providerSettingsListeners.delete(listener);
+	}
+
+	private updateSettings(settings: Settings): void {
+		this.settings = settings;
+		for (const listener of this.providerSettingsListeners) listener();
+	}
+
 	getPromptCacheGoalBackstopMaxSeconds(): number {
 		return (
 			this.projectSettings.promptCache?.goalBackstopMaxSeconds ??
@@ -849,7 +871,7 @@ export class SettingsManager {
 		if (!trusted) {
 			this.projectSettings = {};
 			this.projectSettingsLoadError = null;
-			this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+			this.updateSettings(deepMergeSettings(this.globalSettings, this.projectSettings));
 			return;
 		}
 
@@ -860,7 +882,7 @@ export class SettingsManager {
 		if (projectLoad.error) {
 			this.recordError("project", projectLoad.error);
 		}
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.updateSettings(deepMergeSettings(this.globalSettings, this.projectSettings));
 	}
 
 	async reload(): Promise<void> {
@@ -890,7 +912,7 @@ export class SettingsManager {
 			this.recordError("project", projectLoad.error);
 		}
 
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.updateSettings(deepMergeSettings(this.globalSettings, this.projectSettings));
 	}
 
 	getSelectedSettingsSources(): SettingsSourceSelection[] {
@@ -917,7 +939,7 @@ export class SettingsManager {
 
 	/** Apply additional overrides on top of current settings */
 	applyOverrides(overrides: Partial<Settings>): void {
-		this.settings = deepMergeSettings(this.settings, overrides);
+		this.updateSettings(deepMergeSettings(this.settings, overrides));
 	}
 
 	/** Mark a global field as modified during this session */
@@ -1016,7 +1038,7 @@ export class SettingsManager {
 	}
 
 	private save(): void {
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.updateSettings(deepMergeSettings(this.globalSettings, this.projectSettings));
 
 		if (this.globalSettingsLoadError) {
 			return;
@@ -1034,7 +1056,7 @@ export class SettingsManager {
 	private saveProjectSettings(settings: Settings): void {
 		this.assertProjectTrustedForWrite();
 		this.projectSettings = structuredClone(settings);
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.updateSettings(deepMergeSettings(this.globalSettings, this.projectSettings));
 
 		if (this.projectSettingsLoadError) {
 			return;

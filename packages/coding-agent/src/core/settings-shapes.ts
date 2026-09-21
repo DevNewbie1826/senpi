@@ -50,3 +50,7 @@ export interface MarkdownSettings {
 export interface OpenAISettings {
 	serviceTier?: "auto" | "flex" | "priority";
 }
+
+export interface ProviderConcurrencySettings {
+	maxConcurrency?: number; // default: unlimited; 0 disables the cap
+}
