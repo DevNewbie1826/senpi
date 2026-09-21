@@ -31,6 +31,7 @@ import {
 	refreshSettingsContentSnapshots,
 	updateSettingsContentSnapshot,
 } from "./routine-settings.ts";
+import { bindSessionScopedCallback } from "./session-scoped-callback.ts";
 import {
 	ConfigReloadWatchEngine,
 	createFsWatchEventSource,
@@ -124,16 +125,6 @@ export class ConfigReloadHandoffRegistry<T> {
 }
 
 const reloadHandoffs = new ConfigReloadHandoffRegistry<ReloadHandoff>();
-
-function bindExternalCallback<TArgs extends unknown[], TResult>(
-	callback: (...args: TArgs) => TResult,
-): (...args: TArgs) => TResult {
-	try {
-		return bindToProviderScope(callback);
-	} catch {
-		return callback;
-	}
-}
 
 export interface ConfigReloadExtensionOptions {
 	readonly agentDir?: string;
@@ -350,8 +341,8 @@ export function configReloadExtension(pi: ExtensionAPI, options: ConfigReloadExt
 			debounceMs: settings.debounceMs,
 			clock: options.clock,
 			hashFile: options.hashFile,
-			onRealChange: bindExternalCallback(enqueueChange),
-			onError: bindExternalCallback((error, path) => {
+			onRealChange: bindSessionScopedCallback(enqueueChange),
+			onError: bindSessionScopedCallback((error, path) => {
 				logger.error("watcher_error", { path, message: errorMessage(error) });
 			}),
 		});

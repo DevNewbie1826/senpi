@@ -1,4 +1,5 @@
 import { parseIdleExitMs } from "./host-lifecycle.ts";
+import { recordLoopBlockedMs } from "./loop-blocked-time.ts";
 import type { RpcHostStalledEvent } from "./rpc-types.ts";
 import { type SessionAttribution, sessionActivityMark, sessionActivitySince } from "./session-attribution.ts";
 
@@ -86,6 +87,7 @@ export class LoopLagWatchdog {
 		this.expectedTickAt = now + LOOP_LAG_TICK_MS;
 		this.activityMark = sessionActivityMark();
 		const driftMs = Math.round(now - expectedAt);
+		recordLoopBlockedMs(driftMs);
 		if (driftMs <= this.warnMs) return;
 		const attribution = sessionActivitySince(previousMark);
 		if (driftMs > this.errorMs)

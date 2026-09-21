@@ -80,9 +80,15 @@ export function closeMarkedSession(host: SessionTeardownHost, handle: string): P
 		disposePromise = Promise.resolve(entry.runtime?.dispose());
 		return disposePromise;
 	};
+	// The scope is what the runtime's shutdown handlers still look providers up in, so it
+	// closes only once disposal has settled - however disposal ended, and on the grace path
+	// too. Closing it beside a running disposal made every scope-bound callback of the
+	// session throw "Provider scope is closed" and leaked the watchers dispose was about to
+	// stop (senpi#1905).
 	const closeScopeOnce = async (): Promise<void> => {
 		if (scopeClosed) return;
 		scopeClosed = true;
+		await disposeOnce().catch(() => undefined);
 		await entry.scope.close?.();
 	};
 	const release = (): void => {

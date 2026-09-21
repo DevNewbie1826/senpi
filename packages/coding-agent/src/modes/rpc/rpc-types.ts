@@ -190,6 +190,12 @@ export const RPC_ERROR_INVALID_SESSION_CONTEXT = "invalid_session_context";
 export const RPC_ERROR_INVALID_SESSION_KIND = "invalid_session_kind";
 /** A launch-profile field on `open_session` (currently `auto_title`) was the wrong type. */
 export const RPC_ERROR_INVALID_LAUNCH_PROFILE = "invalid_launch_profile";
+/**
+ * The host is above its RSS refuse watermark and declined to create a NEW worker session;
+ * `errorData { rssMb, retry_after_ms }` says when to ask again. Existing sessions, attaches
+ * to a live path and interactive opens are never refused for memory.
+ */
+export const RPC_ERROR_HOST_MEMORY_PRESSURE = "host_memory_pressure";
 // edit_assistant_message failures (mirror AssistantEditError.code / SessionStreamingError.code)
 export const RPC_ERROR_STREAMING = "streaming";
 export const RPC_ERROR_ENTRY_NOT_FOUND = "not_found";
@@ -210,6 +216,7 @@ export type RpcErrorCode =
 	| typeof RPC_ERROR_INVALID_SESSION_CONTEXT
 	| typeof RPC_ERROR_INVALID_SESSION_KIND
 	| typeof RPC_ERROR_INVALID_LAUNCH_PROFILE
+	| typeof RPC_ERROR_HOST_MEMORY_PRESSURE
 	| typeof RPC_ERROR_STREAMING
 	| typeof RPC_ERROR_ENTRY_NOT_FOUND
 	| typeof RPC_ERROR_NOT_ASSISTANT

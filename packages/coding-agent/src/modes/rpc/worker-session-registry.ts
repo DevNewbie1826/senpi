@@ -39,6 +39,12 @@ export class WorkerSessionRegistry {
 		return this.entries.size;
 	}
 
+	/**
+	 * Memory admission is the in-process registry's concern: a worker-runtime session runs in
+	 * its own isolate and this registry already bounds occupancy with `too_many_sessions`.
+	 */
+	setWorkerAdmission(): void {}
+
 	async openSession(profile: RpcSessionLaunchProfile, options?: RpcSessionOpenOptions): Promise<OpenRpcSession> {
 		if (!isAbsolute(profile.cwd) || (profile.sessionPath !== undefined && !isAbsolute(profile.sessionPath)))
 			throw new RpcSessionRegistryError("invalid_path");
