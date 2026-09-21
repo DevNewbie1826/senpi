@@ -27,6 +27,8 @@ export interface WorkerSnapshot {
 	/** Every canonical path this worker's live session writers still own. */
 	liveSessionPaths: readonly string[];
 	busy: boolean;
+	/** Turn/request activity, excluding durable wake-source holds. */
+	handoffBusy?: boolean;
 	streaming: boolean;
 }
 
@@ -58,7 +60,7 @@ export type SessionWorkerToHost =
 			record: object;
 			connection?: string;
 			signal: SharedArrayBuffer;
-			activity: Pick<WorkerSnapshot, "busy" | "streaming">;
+			activity: Pick<WorkerSnapshot, "busy" | "handoffBusy" | "streaming">;
 			snapshot?: WorkerSnapshot;
 	  }
 	| { type: "width"; connection?: string; width: number; signal: SharedArrayBuffer }

@@ -1079,7 +1079,20 @@ export type RpcSessionClosedEvent = {
 	type: "session_closed";
 	sessionId: string;
 	reason?: RpcSessionClosedReason;
+	/** File released by handoff parking; reopen it on the successor. */
+	sessionPath?: string;
 };
+
+/** Sent once to every connection before this generation starts parking for a handoff. */
+export interface RpcHostSupersededEvent {
+	type: "host_superseded";
+	instanceId: string;
+	generation: number;
+	/** Public endpoint of the successor, or null for a drain without a known successor. */
+	successor: { socket: string } | null;
+}
+
+export type RpcHostLifecycleEvent = RpcHostSupersededEvent | RpcHostStalledEvent | RpcHostMemoryPressureEvent;
 
 /** Emitted after the loaded skill, extension, or MCP inventory changes. */
 export interface RpcLoadedSurfacesChangedEvent {

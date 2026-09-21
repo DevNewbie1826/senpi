@@ -244,10 +244,11 @@ client's sessions. A GENERATION HANDOFF replaces the process while its sessions 
    running host keeps serving.
 3. `handoffHost` then registers the successor (its own `generations/<instanceId>/host.pid`, the pointer
    moved onto it, and `settings.json { socket, generation }`) and sends
-   the predecessor SIGUSR1 = DRAIN: stop accepting, keep every connection already proxied, park each
-   retained session as soon as its turn settles, and exit through the ordinary idle path. Attached clients
-   see `session_closed { reason: "handoff_parked" }` for a parked session and reopen it with
-   `open_session { sessionPath }`.
+   the predecessor SIGUSR1 = DRAIN: stop accepting, announce `host_superseded` to every connection,
+   park attached and unattached sessions as their turns and requests settle, then exit independently of
+   connection occupancy. Clients see `session_closed { reason: "handoff_parked", sessionPath }` before
+   their connection closes and reopen with `open_session { sessionPath }` on the successor. Losing
+   ownership of the public socket triggers the same sequence even if SIGUSR1 never arrives.
 
 Two guards decide whether a handoff is attempted at all, and both fail closed:
 
@@ -491,7 +492,7 @@ exposing session content. The one exception is `session_closed` and `session_par
 `kind: "worker"`: they are delivered only to
 the connections attached to that session, so machine-driven work neither appears in nor disappears from a client that never
 asked for it. Every other lifecycle record, and every record of an `interactive` session, keeps today's broadcast. Host-level
-records (`host_stalled`, `host_memory_pressure`) are broadcast the same way and describe the host process rather than a
+records (`host_superseded`, `host_stalled`, `host_memory_pressure`) are broadcast the same way and describe the host process rather than a
 session. Correlated responses and dialog extension UI
 requests (select, confirm, input, and editor) are requester-only; other extension UI state records go to the session's
 attached connections. To observe a foreign session, open it by its existing
@@ -605,6 +606,44 @@ internal directory. The supervisor also exports `SENPI_RPC_HOST_WATCH_PPID` as a
 set only by the supervisor: a host started any other way (plain `senpi --mode rpc --listen …`, embedders, hand-started
 hosts) sees neither variable and is unaffected. A host whose supervisor is alive is never touched by this binding.
 
+### Supersession lifecycle: `host_superseded`
+
+Before parking for a generation handoff, the old host sends every connected client one unsolicited record:
+
+```json
+{"type":"host_superseded","instanceId":"old-host-uuid","generation":0,"successor":{"socket":"/tmp/agent/rpc.sock"}}
+```
+
+`instanceId` and `generation` identify the OLD host, matching its `get_protocol_info` response. `successor.socket`
+identifies the public socket, never the supervisor's private hop. `successor` is `null` when a drain is requested
+without a known replacement. This record has no request id or session handle; older clients can ignore it.
+
+1. The announcement is queued on every connection before handoff parking changes any session.
+2. Every parkable session, attached or unattached, is parked immediately. A session is **parkable** when no agent
+   run, bash/tool execution, compaction, queued session work, or in-flight host request remains. Accepted opens,
+   binding creation, close requests, and steer delivery must finish. This is the ordinary busy predicate with
+   **durable wake-source holds excluded**: persistent monitors, scheduled continuations and goal-loop holds do not
+   pin an old generation. They resume from the persisted session when reopened, as after a restart. Ordinary idle
+   eviction retains its broader activity predicate, including all wake sources.
+3. Active sessions keep serving their existing connections and park when their turns and requests settle. Each
+   released handle emits `session_closed { sessionId, reason: "handoff_parked", sessionPath }` after releasing its
+   file. This is not a session deletion: reopen `sessionPath` on the successor to obtain a new routing handle.
+   The connection closes after its last attached session parks; a connection shared with another active session
+   stays open until that session also settles. A command racing parking on the old connection is either served
+   or answered by that terminal record and close, never `unknown_session` for the parked handle. New opens on a
+   draining connection are refused with `host_draining`.
+4. The **supervisor** starts `SENPI_RPC_HANDOFF_GRACE_MS` at supersession (default **600000 ms / 10 minutes**).
+   This is a soft grace, not an abort deadline or a delay before parking. At expiry it reports outstanding work
+   and requests another drain pass. Sessions still mid-turn or handling requests remain alive even beyond grace;
+   no turn is cut short. Parkable sessions never wait for grace. A bare socket host has no supervisor grace timer,
+   but follows the same announce/park/settle sequence.
+5. Once every session has parked and its terminal records have drained, the generation exits even if an observer
+   or client never voluntarily disconnects. Neither the normal idle timeout nor persistent-host mode can pin it.
+
+A client may react to `host_superseded` early, but the old generation retains each file until its work settles;
+`session_path_in_use` on the successor remains a retryable response until parking releases that claim. A client
+that ignores the announcement still receives the terminal record and connection close.
+
 ### Shared host occupancy (idle eviction, retention, empty-host exit)
 
 **The daemon does not cap sessions.** On the in-process runtime - the default for a `--listen` socket host, i.e. the
@@ -625,8 +664,8 @@ What the host does enforce are lifecycle windows, and they only ever return memo
   `session_parked { sessionId, sessionPath }` and there is no `close_session` response, because nothing closed the session -
   the routing handle was released while the session itself stays on disk and reopens with `open_session { sessionPath }`
   (as a NEW handle). A client that does not know `session_parked` ignores it and learns the handle is gone from its next
-  command's `unknown_session`. A GENERATION HANDOFF parks the same sessions for the same reason, but names itself in
-  the record it emits: `session_closed { sessionId, reason: "handoff_parked" }`, so a client can tell "the host handed
+  command's `unknown_session`. A GENERATION HANDOFF also parks attached sessions, using the distinct activity
+  predicate below, and emits `session_closed { sessionId, reason: "handoff_parked", sessionPath }`, so a client can tell "the host handed
   over, reopen by path" from "this session ended". An explicit `close_session` is `reason: "client_close"`; the host
   process exiting is `reason: "host_shutdown"` (even for a retained session - the process is going away, so this is not
   a park). `reason` is optional on the wire; a client that does not know a
@@ -842,6 +881,7 @@ In the response `error` field, machine-matchable:
 - `session_reservation_limit` (this worker already holds 64 live session paths; the open or session replacement was refused without disturbing the existing session)
 - `missing_session_id` (session-scoped command without `sessionId` in multi mode)
 - `multi_session_disabled` (`open_session` in classic mode)
+- `host_draining` (`open_session` on a connection whose generation is parking for a handoff; the successor already owns the public path, so re-resolve it and open there rather than retrying this connection)
 - `invalid_path` (relative `sessionPath`/`cwd`)
 - `open_failed: <detail>`
 - `invalid_session_context: <detail>` (`open_session.context` past a documented cap: more than 32 keys, a key that does not match `^[a-z][a-z0-9_]*$`, a non-string or >16 KiB value, or more than 32 KiB of JSON in total; the detail names the cap and its byte budget)

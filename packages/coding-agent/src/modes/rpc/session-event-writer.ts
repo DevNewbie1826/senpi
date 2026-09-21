@@ -4,8 +4,7 @@ import { MEDIA_PLACEHOLDERS_CAPABILITY } from "./custom-capability.ts";
 import { serializeJsonLine } from "./jsonl.ts";
 import { omitInlineMedia } from "./media-placeholders.ts";
 import type {
-	RpcHostMemoryPressureEvent,
-	RpcHostStalledEvent,
+	RpcHostLifecycleEvent,
 	RpcOpenQueuedEvent,
 	RpcSessionClosedEvent,
 	RpcSessionClosedReason,
@@ -214,6 +213,12 @@ export class SessionEventWriter {
 		else this.workerSessions.delete(sessionId);
 	}
 
+	/** Drain just this connection before closing it after its last handoff park. */
+	async flushConnection(id: string): Promise<void> {
+		const target = this.fanout.get(id);
+		if (target) await settleActors([target.actor]);
+	}
+
 	/** Execute a connection's command with its response destination in context. */
 	withConnection<T>(id: string, task: () => T): T {
 		return this.connectionContext.run(id, task);
@@ -365,10 +370,18 @@ export class SessionEventWriter {
 		this.requestFlush();
 	}
 
-	broadcastHostRecord(record: RpcHostStalledEvent | RpcHostMemoryPressureEvent): void {
+	broadcastHostRecord(record: RpcHostLifecycleEvent): void {
 		// Reconstruct so desktop `refresh-senpi-events.ts` sees literal `type:` sites in this file.
 		let wire: RpcRecord;
 		switch (record.type) {
+			case "host_superseded":
+				wire = {
+					type: "host_superseded",
+					instanceId: record.instanceId,
+					generation: record.generation,
+					successor: record.successor,
+				};
+				break;
 			case "host_stalled":
 				wire = {
 					type: "host_stalled",
@@ -397,14 +410,19 @@ export class SessionEventWriter {
 	 * Existing records retain FIFO order; this response is therefore that
 	 * session's final stdout record.
 	 */
-	closeSession(sessionId: string, response: object, reason?: RpcSessionClosedReason): void {
+	closeSession(sessionId: string, response: object, reason?: RpcSessionClosedReason, sessionPath?: string): void {
 		if (this.sealedSessions.has(sessionId)) return;
 		this.sealedSessions.add(sessionId);
 		this.fanout.forgetSession(sessionId);
 		const targetId = this.connectionContext.getStore();
 		// `reason` tells an attached client WHY the handle ended, so a park it can reopen by path is
 		// not read as a session that is gone. Absent unless the caller names one; clients tolerate that.
-		const lifecycle: RpcSessionClosedEvent = { type: "session_closed", sessionId, ...(reason && { reason }) };
+		const lifecycle: RpcSessionClosedEvent = {
+			type: "session_closed",
+			sessionId,
+			...(reason && { reason }),
+			...(sessionPath && { sessionPath }),
+		};
 		if (this.fanout.isEmpty()) this.appendSessionRecord(sessionId, lifecycle);
 		else if (this.workerSessions.has(sessionId))
 			this.fanout.deliverToSession(sessionId, serializeJsonLine(lifecycle));
