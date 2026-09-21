@@ -6,7 +6,11 @@
  * - `senpi --mode json "prompt"` - JSON event stream
  */
 
-import { describeProviderStallForUser, type ImageContent } from "@earendil-works/pi-ai";
+import {
+	describeProviderFailureForUser,
+	type ImageContent,
+	stripTurnRetrySuppressionPrefix,
+} from "@earendil-works/pi-ai";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
 import { flushRawStdout, waitForRawStdoutBackpressure, writeRawStdout } from "../core/output-guard.ts";
 import { killTrackedDetachedChildren } from "../utils/shell.ts";
@@ -168,10 +172,14 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 			if (lastMessage?.role === "assistant") {
 				const assistantMsg = lastMessage;
 				if (assistantMsg.stopReason === "error" || assistantMsg.stopReason === "aborted") {
-					// A provider-stream stall keeps the watchdog wording on the message for
-					// the retry classifier; stdout gets the plain-language version instead.
-					const stall = describeProviderStallForUser(assistantMsg.errorMessage);
-					console.error(stall ?? (assistantMsg.errorMessage || `Request ${assistantMsg.stopReason}`));
+					// A provider-stream stall or transport drop keeps the classifier wording
+					// on the message; stderr gets the plain-language version instead.
+					const described = describeProviderFailureForUser(assistantMsg.errorMessage);
+					console.error(
+						described ??
+							(stripTurnRetrySuppressionPrefix(assistantMsg.errorMessage ?? "") ||
+								`Request ${assistantMsg.stopReason}`),
+					);
 					exitCode = 1;
 				} else {
 					for (const content of assistantMsg.content) {

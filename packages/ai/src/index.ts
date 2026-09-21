@@ -127,6 +127,7 @@ export {
 	PROMPT_CACHE_TTL_SHORT_SECONDS,
 	resolvePromptCacheTtlSeconds,
 } from "./utils/prompt-cache-ttl.ts";
+export * from "./utils/provider-failure-description.ts";
 export * from "./utils/retry.ts";
 export * from "./utils/server-fallback-receipt.ts";
 export * from "./utils/stop-details.ts";

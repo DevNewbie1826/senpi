@@ -449,7 +449,7 @@ export interface ProviderStallDescriptionOptions {
 	recovery?: "no-fallback-configured" | "chain-exhausted";
 }
 
-function formatStallDuration(timeoutMs: number): string {
+export function formatStallDuration(timeoutMs: number): string {
 	if (timeoutMs < 1000) return `${timeoutMs}ms`;
 	if (timeoutMs < 120_000) return `${Math.round(timeoutMs / 100) / 10}s`;
 	return `${Math.round(timeoutMs / 6000) / 10}m`;
