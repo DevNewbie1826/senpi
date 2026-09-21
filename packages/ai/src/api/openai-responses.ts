@@ -30,6 +30,7 @@ import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
 import { buildBaseOptions, clampMaxForOpenAI, OPENAI_RESPONSES_RESERVED_BODY_KEYS } from "./simple-options.ts";
 import { startWebSocketLiveness } from "./websocket-liveness.ts";
+import { createWebSocketTransportFailure } from "./websocket-transport-failure.ts";
 
 const OPENAI_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
 const OPENAI_BETA_RESPONSES_WEBSOCKETS = "responses_websockets=2026-02-06";
@@ -591,6 +592,7 @@ async function connectWebSocket(url: string, headers: Headers, signal?: AbortSig
 		let socket: WebSocketLike;
 
 		const cleanup = () => {
+			transportFailure.dispose();
 			socket.removeEventListener("open", onOpen);
 			socket.removeEventListener("error", onError);
 			socket.removeEventListener("close", onClose);
@@ -602,6 +604,7 @@ async function connectWebSocket(url: string, headers: Headers, signal?: AbortSig
 			cleanup();
 			reject(error);
 		};
+		const transportFailure = createWebSocketTransportFailure(settleReject);
 		const onOpen: WebSocketListener = () => {
 			if (settled) return;
 			settled = true;
@@ -609,10 +612,10 @@ async function connectWebSocket(url: string, headers: Headers, signal?: AbortSig
 			resolve(socket);
 		};
 		const onError: WebSocketListener = (event) => {
-			settleReject(extractWebSocketError(event));
+			transportFailure.onError(event);
 		};
 		const onClose: WebSocketListener = (event) => {
-			settleReject(extractWebSocketCloseError(event));
+			transportFailure.onClose(event);
 		};
 		const onAbort = () => {
 			if (settled) return;
@@ -694,27 +697,6 @@ async function acquireWebSocket(
 	};
 }
 
-function extractWebSocketError(event: unknown): Error {
-	if (event && typeof event === "object" && "message" in event) {
-		const message = (event as { message?: string }).message;
-		if (typeof message === "string" && message.length > 0) {
-			return new Error(message);
-		}
-	}
-	return new Error("WebSocket error");
-}
-
-function extractWebSocketCloseError(event: unknown): Error {
-	if (event && typeof event === "object") {
-		const code = "code" in event ? (event as { code?: number }).code : undefined;
-		const reason = "reason" in event ? (event as { reason?: string }).reason : undefined;
-		const codeText = typeof code === "number" ? ` ${code}` : "";
-		const reasonText = typeof reason === "string" && reason.length > 0 ? ` ${reason}` : "";
-		return new Error(`WebSocket closed${codeText}${reasonText}`.trim());
-	}
-	return new Error("WebSocket closed");
-}
-
 async function decodeWebSocketData(data: unknown): Promise<string | null> {
 	if (typeof data === "string") return data;
 	if (data instanceof ArrayBuffer) {
@@ -766,17 +748,22 @@ async function* parseWebSocket(socket: WebSocketLike, signal?: AbortSignal): Asy
 			} catch {}
 		})();
 	};
-	const onError: WebSocketListener = (event) => {
-		failed = extractWebSocketError(event);
+	const transportFailure = createWebSocketTransportFailure((error) => {
+		if (!failed) failed = error;
 		done = true;
 		wake();
+	});
+	const onError: WebSocketListener = (event) => {
+		transportFailure.onError(event);
 	};
 	const onClose: WebSocketListener = (event) => {
-		if (!sawCompletion && !failed) {
-			failed = extractWebSocketCloseError(event);
+		if (sawCompletion) {
+			transportFailure.dispose();
+			done = true;
+			wake();
+			return;
 		}
-		done = true;
-		wake();
+		transportFailure.onClose(event);
 	};
 	const onAbort = () => {
 		failed = new Error("Request was aborted");
@@ -805,6 +792,7 @@ async function* parseWebSocket(socket: WebSocketLike, signal?: AbortSignal): Asy
 		if (!sawCompletion) throw new Error("WebSocket stream closed before response.completed");
 	} finally {
 		liveness.stop();
+		transportFailure.dispose();
 		socket.removeEventListener("message", onMessage);
 		socket.removeEventListener("error", onError);
 		socket.removeEventListener("close", onClose);

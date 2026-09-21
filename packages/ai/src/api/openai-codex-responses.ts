@@ -70,6 +70,7 @@ import {
 	OPENAI_RESPONSES_RESERVED_BODY_KEYS,
 } from "./simple-options.ts";
 import { startWebSocketLiveness } from "./websocket-liveness.ts";
+import { createWebSocketTransportFailure } from "./websocket-transport-failure.ts";
 
 // ============================================================================
 // Configuration
@@ -84,7 +85,6 @@ const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 // endpoint (the same endpoint the official Codex client compresses against).
 const REQUEST_COMPRESSION_ZSTD_LEVEL = 3;
 const CODEX_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
-const WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE = 1009;
 const CODEX_PREVIOUS_RESPONSE_STALE_CODES = new Set(["codex_previous_response_stale"]);
 const WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE = "websocket_connection_limit_reached";
 const PREVIOUS_RESPONSE_NOT_FOUND_CODE = "previous_response_not_found";
@@ -1044,20 +1044,6 @@ function isWebSocketConstructor(value: unknown): value is WebSocketConstructor {
 	return typeof value === "function";
 }
 
-class WebSocketCloseError extends Error {
-	readonly code?: number;
-	readonly reason?: string;
-	readonly wasClean?: boolean;
-
-	constructor(message: string, options?: { code?: number; reason?: string; wasClean?: boolean }) {
-		super(message);
-		this.name = "WebSocketCloseError";
-		this.code = options?.code;
-		this.reason = options?.reason;
-		this.wasClean = options?.wasClean;
-	}
-}
-
 function getWebSocketReadyState(socket: WebSocketLike): number | undefined {
 	const readyState = (socket as { readyState?: unknown }).readyState;
 	return typeof readyState === "number" ? readyState : undefined;
@@ -1158,6 +1144,7 @@ async function connectWebSocket(
 				clearTimeout(timeout);
 				timeout = undefined;
 			}
+			transportFailure.dispose();
 			socket.removeEventListener("open", onOpen);
 			socket.removeEventListener("error", onError);
 			socket.removeEventListener("close", onClose);
@@ -1172,6 +1159,7 @@ async function connectWebSocket(
 			}
 			reject(error);
 		};
+		const transportFailure = createWebSocketTransportFailure((error) => fail(error));
 		const onOpen: WebSocketListener = () => {
 			if (settled) return;
 			settled = true;
@@ -1179,10 +1167,10 @@ async function connectWebSocket(
 			resolve(socket);
 		};
 		const onError: WebSocketListener = (event) => {
-			fail(extractWebSocketError(event));
+			transportFailure.onError(event);
 		};
 		const onClose: WebSocketListener = (event) => {
-			fail(extractWebSocketCloseError(event));
+			transportFailure.onClose(event);
 		};
 		const onAbort = () => {
 			fail(new Error("Request was aborted"), "aborted");
@@ -1296,46 +1284,6 @@ async function acquireWebSocket(
 	};
 }
 
-function extractWebSocketError(event: unknown): Error {
-	if (event && typeof event === "object") {
-		const message = "message" in event ? (event as { message?: unknown }).message : undefined;
-		if (typeof message === "string" && message.length > 0) {
-			return new Error(message);
-		}
-
-		const nestedError = "error" in event ? (event as { error?: unknown }).error : undefined;
-		if (nestedError instanceof Error && nestedError.message.length > 0) {
-			return nestedError;
-		}
-		if (nestedError && typeof nestedError === "object" && "message" in nestedError) {
-			const nestedMessage = (nestedError as { message?: unknown }).message;
-			if (typeof nestedMessage === "string" && nestedMessage.length > 0) {
-				return new Error(nestedMessage);
-			}
-		}
-	}
-	return new Error("WebSocket error");
-}
-
-function extractWebSocketCloseError(event: unknown): Error {
-	if (event && typeof event === "object") {
-		const code = "code" in event ? (event as { code?: unknown }).code : undefined;
-		const reason = "reason" in event ? (event as { reason?: unknown }).reason : undefined;
-		const wasClean = "wasClean" in event ? (event as { wasClean?: unknown }).wasClean : undefined;
-		const codeText = typeof code === "number" ? ` ${code}` : "";
-		let reasonText = typeof reason === "string" && reason.length > 0 ? ` ${reason}` : "";
-		if (!reasonText && code === WEBSOCKET_MESSAGE_TOO_BIG_CLOSE_CODE) {
-			reasonText = " message too big";
-		}
-		return new WebSocketCloseError(`WebSocket closed${codeText}${reasonText}`.trim(), {
-			code: typeof code === "number" ? code : undefined,
-			reason: typeof reason === "string" && reason.length > 0 ? reason : undefined,
-			wasClean: typeof wasClean === "boolean" ? wasClean : undefined,
-		});
-	}
-	return new Error("WebSocket closed");
-}
-
 async function decodeWebSocketData(data: unknown): Promise<string | null> {
 	if (typeof data === "string") return data;
 	if (data instanceof ArrayBuffer) {
@@ -1405,23 +1353,23 @@ async function* parseWebSocket(
 		})();
 	};
 
-	const onError: WebSocketListener = (event) => {
-		failed = extractWebSocketError(event);
+	const transportFailure = createWebSocketTransportFailure((error) => {
+		if (!failed) failed = error;
 		done = true;
 		wake();
+	});
+	const onError: WebSocketListener = (event) => {
+		transportFailure.onError(event);
 	};
 
 	const onClose: WebSocketListener = (event) => {
 		if (sawCompletion) {
+			transportFailure.dispose();
 			done = true;
 			wake();
 			return;
 		}
-		if (!failed) {
-			failed = extractWebSocketCloseError(event);
-		}
-		done = true;
-		wake();
+		transportFailure.onClose(event);
 	};
 
 	const onAbort = () => {
@@ -1473,6 +1421,7 @@ async function* parseWebSocket(
 		}
 	} finally {
 		liveness.stop();
+		transportFailure.dispose();
 		socket.removeEventListener("message", onMessage);
 		socket.removeEventListener("error", onError);
 		socket.removeEventListener("close", onClose);
