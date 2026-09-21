@@ -27,7 +27,6 @@ from threading import Lock, Thread
 from typing import Any, Callable, Union
 from urllib.parse import unquote
 
-SESSION_ID = ""
 CONNECTION: dict[str, Any] = {}
 USER_NS: dict[str, Any] = {"__name__": "__main__", "__doc__": None, "__builtins__": __builtins__}
 LOOP = asyncio.new_event_loop()
@@ -1056,10 +1055,9 @@ def elapsed(start: float) -> int:
 
 
 def handle(message: dict[str, Any]) -> bool:
-    global SESSION_ID, CONNECTION
+    global CONNECTION
     message_type = message.get("type")
     if message_type == "init":
-        SESSION_ID = str(message.get("sessionId", ""))
         connection = message.get("connection")
         if not isinstance(connection, dict):
             emit({"type": "init-failed", "error": {"message": "missing bridge connection"}})
