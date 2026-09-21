@@ -1,5 +1,23 @@
 # senpi-codemode fork changes
 
+## 2026-09-21 - Remove write-only Python prelude session state
+
+### What changed
+
+- `packages/senpi-codemode/src/kernels/py/prelude.py`: remove the unused `SESSION_ID` initializer, global declaration and init-frame assignment.
+
+### Why
+
+- `packages/senpi-codemode/src/kernels/py/prelude.py`: the internal variable had no readers in the package or its tests and was not exposed in the cell namespace. The init frame and `PI_SESSION_ID` environment contract remain unchanged.
+
+### Why an extension could not handle it
+
+- `packages/senpi-codemode/src/kernels/py/prelude.py`: the write-only state belongs to the embedded runner, so its removal is internal to that asset.
+
+### Expected merge conflict zones
+
+- LOW: `packages/senpi-codemode/src/kernels/py/prelude.py`, module globals and the init branch of `handle`.
+
 
 ## 2026-09-21 - Busy py kernel retires when its host died before boot finished (senpi#1659)
 
