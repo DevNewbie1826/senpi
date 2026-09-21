@@ -1,5 +1,26 @@
 # changes — senpi-monorepo root
 
+## Refresh the dependency pins and pin past the reachable advisories (2026-09-21)
+
+### What changed
+
+- `package.json`: the root `overrides` block moves `fast-uri` to 3.1.8, `brace-expansion` to 5.0.12 and `@anthropic-ai/sdk` to 0.127.0, and gains `express-rate-limit` 8.7.0, `hono` 4.13.8, `ip-address` 10.7.2, `qs` 6.16.0 and a nested `@earendil-works/gondolin` > `undici` 6.28.1. `@types/node` moves to 26.6.2, `@biomejs/biome` to 2.5.14 and `tsx` to 4.23.13.
+- `biome.json`: the `$schema` URL follows the Biome pin to 2.5.14.
+- `packages/telemetry/package.json`: `@types/node` moves to 26.6.2.
+
+### Why
+
+- Every advisory `npm audit` and `bun audit` could reach came in through a transitive edge the fork does not declare: `fast-uri` and `ajv`, and the `@modelcontextprotocol/sdk` subtree that carries `hono`, `qs` and `express-rate-limit` > `ip-address`. `scripts/regenerate-bun-lock-isolated.mjs` seeds its island with the committed `bun.lock`, so re-resolving only the npm lock left Bun on the vulnerable copies; declaring the versions as overrides moves both lockfiles together without drifting the 56 unrelated transitives a from-scratch Bun resolution touched.
+- `tsx` stops at 4.23.13 because 4.23.14 and 4.23.15 were both published 2026-09-20, inside the `.npmrc` `min-release-age=2` window npm enforces.
+
+### Why an extension could not handle it
+
+- Dependency resolution and formatter configuration are read by the package manager and the toolchain before any extension is loaded.
+
+### Expected merge conflict zones
+
+- LOW: the `overrides` block and the devDependency versions, on every upstream manifest bump.
+
 ## Make B.AI credentials available to development environments (2026-09-18)
 
 ### What changed

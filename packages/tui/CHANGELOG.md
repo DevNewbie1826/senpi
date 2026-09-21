@@ -8,6 +8,8 @@
 
 ### Changed
 
+- Updated the bundled dependencies: marked 18.0.11 -> 18.0.13 and get-east-asian-width 1.6.0 -> 1.7.0. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
+
 ### Fixed
 
 ### Removed

@@ -8,6 +8,8 @@
 
 ### Changed
 
+- Updated the bundled dependencies: typebox 1.3.27 -> 1.3.34, ignore 7.0.8 -> 7.0.9 and yaml 2.9.0 -> 2.9.1. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
+
 ### Fixed
 
 ### Removed

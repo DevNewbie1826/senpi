@@ -29,6 +29,24 @@
 - `packages/ai/scripts/generate-image-models.ts`: the import block and `main()`. Upstream
   edits to this generator touch the same `writeFileSync` tail.
 
+## 2026-09-21 - Refresh the provider SDK pins (senpi#1895)
+
+### What changed
+
+- `packages/ai/package.json`: `@anthropic-ai/sdk` 0.123.0 -> 0.127.0, `@aws-sdk/client-bedrock-runtime` 3.1127.0 -> 3.1136.0, `@google/genai` 2.21.0 -> 2.23.0, `@bufbuild/protobuf` 2.14.0 -> 2.15.0, `@smithy/types` 4.17.2 -> 4.18.0, `typebox` 1.3.27 -> 1.3.34, `yaml` 2.9.0 -> 2.9.1 and `@types/node` 26.2.0 -> 26.6.2.
+
+### Why
+
+- The provider SDKs are fork-owned exact pins and the surface this package is built on; each moves to the newest release in the same minor that satisfies `min-release-age=2`. The `@anthropic-ai/sdk` line in the 2026-08-21 entry below ("stays at 0.91.1") is historical: the browser-bundle blocker it records is handled by the `anthropic-sdk-node-builtins` plugin in `scripts/check-browser-smoke.mjs`.
+
+### Why an extension could not handle it
+
+- Manifest dependency versions are resolved by the package manager before any extension loads.
+
+### Expected merge conflict zones
+
+- LOW: the dependency version block, on every upstream release bump.
+
 ## 2026-09-18 - The catalog check tolerates a shard the aggregator no longer lists
 
 ### What changed

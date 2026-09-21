@@ -2,6 +2,24 @@
 
 Tracker for `packages/evals` divergence from upstream `badlogic/pi-mono`.
 
+## Refresh the evals dependency pins (2026-09-21)
+
+### What changed
+
+- `packages/evals/package.json`: `vitest-evals` 0.16.1 -> 0.17.0 and `@types/node` 26.2.0 -> 26.6.2.
+
+### Why
+
+- The eval harness pins are fork-owned and move to the newest release in the same minor that satisfies `min-release-age=2`. `vitest` deliberately stays on 4.1.11: 5.x is a separate migration across this repository.
+
+### Why an extension could not handle it
+
+- Manifest dependency versions are resolved by the package manager before any extension loads.
+
+### Expected merge conflict zones
+
+- LOW: the dependency version block, on every upstream release bump.
+
 ## Evals manifest re-diverges from upstream dcd4619 (2026-08-25)
 
 ### What changed

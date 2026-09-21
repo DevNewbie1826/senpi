@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-21 - Refresh the agent dependency pins (senpi#1895)
+
+### What changed
+
+- `packages/agent/package.json`: `typebox` 1.3.27 -> 1.3.34, `ignore` 7.0.8 -> 7.0.9, `yaml` 2.9.0 -> 2.9.1 and `@types/node` 26.2.0 -> 26.6.2.
+
+### Why
+
+- These are the fork's own exact pins, refreshed to the newest release in the same minor that satisfies the repository's `min-release-age=2` window. Upstream carries different ranges, so the versions have to be re-asserted here.
+
+### Why an extension could not handle it
+
+- Manifest dependency versions are resolved by the package manager before any extension loads.
+
+### Expected merge conflict zones
+
+- LOW: the dependency version block, on every upstream release bump.
+
 ## 2026-09-16 - Ship the tree-sitter grammar assets with the package (senpi#1685)
 
 ### What changed
