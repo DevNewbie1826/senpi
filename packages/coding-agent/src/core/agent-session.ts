@@ -9118,7 +9118,7 @@ export class AgentSession {
 
 		const targetEntry = this.sessionManager.getEntry(targetId);
 		if (!targetEntry) {
-			throw new Error(`Entry ${targetId} not found`);
+			throw new AssistantEditError("not-found", `Entry ${targetId} not found`);
 		}
 
 		// Collect entries to summarize (from old leaf to common ancestor)

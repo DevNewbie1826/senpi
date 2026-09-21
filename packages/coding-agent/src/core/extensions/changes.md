@@ -42,7 +42,6 @@
 
 - Session event union, event-subscription overloads and public type exports.
 
-||||||| parent of 1c5fd8af9 (feat(extensions): edit a user message and navigate the tree)
 ## 2026-09-21 - User-message edits and backward-compatible entry-addressed navigation
 
 ### What changed

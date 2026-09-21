@@ -132,9 +132,10 @@ type RpcSessionCommand =
 			  }
 			| {
 					/**
-					 * Node to move the leaf to, verbatim - no selection rule is applied. The original
-					 * spelling, kept for the TUI and every shipped client; answers the legacy
-					 * `{ cancelled, editorText? }` payload. New clients address `entryId`.
+					 * Original spelling, kept for the TUI and shipped clients. Applies the same selection
+					 * rule as `entryId`: user/custom targets select their PARENT and return `editorText`,
+					 * other targets select themselves, and a root user target yields `leafId: null`.
+					 * Answers the legacy `{ cancelled, leafId, editorText? }` payload. New clients use `entryId`.
 					 */
 					targetId: string;
 					entryId?: never;
