@@ -256,10 +256,9 @@ export type ForkHandler = (
 	options?: { position?: "before" | "at"; withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
 ) => Promise<{ cancelled: boolean }>;
 
-export type NavigateTreeHandler = (
-	targetId: string,
-	options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string },
-) => Promise<{ cancelled: boolean }>;
+export type NavigateTreeHandler = ExtensionCommandContextActions["navigateTree"];
+
+export type EditUserMessageHandler = ExtensionCommandContextActions["editUserMessage"];
 
 export type EditAssistantMessageHandler = (
 	entryId: string,
@@ -463,6 +462,7 @@ export class ExtensionRunner {
 	private forkHandler: ForkHandler = async () => ({ cancelled: false });
 	private navigateTreeHandler: NavigateTreeHandler = async () => ({ cancelled: false });
 	private editAssistantMessageHandler: EditAssistantMessageHandler = async () => ({ cancelled: false });
+	private editUserMessageHandler: EditUserMessageHandler = async () => ({ cancelled: false });
 	private switchSessionHandler: SwitchSessionHandler = async () => ({ cancelled: false });
 	private reloadHandler: ReloadHandler | undefined;
 	private reloadRequestPromise: Promise<void> | undefined;
@@ -626,6 +626,7 @@ export class ExtensionRunner {
 			this.forkHandler = actions.fork;
 			this.navigateTreeHandler = actions.navigateTree;
 			this.editAssistantMessageHandler = actions.editAssistantMessage;
+			this.editUserMessageHandler = actions.editUserMessage;
 			this.switchSessionHandler = actions.switchSession;
 			this.reloadHandler = actions.reload;
 			return;
@@ -636,6 +637,7 @@ export class ExtensionRunner {
 		this.forkHandler = async () => ({ cancelled: false });
 		this.navigateTreeHandler = async () => ({ cancelled: false });
 		this.editAssistantMessageHandler = async () => ({ cancelled: false });
+		this.editUserMessageHandler = async () => ({ cancelled: false });
 		this.switchSessionHandler = async () => ({ cancelled: false });
 		this.reloadHandler = undefined;
 	}
@@ -1305,11 +1307,17 @@ export class ExtensionRunner {
 		};
 		context.navigateTree = (targetId, options) => {
 			this.assertActive();
-			return this.navigateTreeHandler(targetId, options);
+			if (typeof targetId === "string") return this.navigateTreeHandler(targetId, options);
+			const { entryId, ...navigationOptions } = targetId;
+			return this.navigateTreeHandler(entryId, navigationOptions);
 		};
 		context.editAssistantMessage = (entryId, text, options) => {
 			this.assertActive();
 			return this.editAssistantMessageHandler(entryId, text, options);
+		};
+		context.editUserMessage = (entryId, text, options) => {
+			this.assertActive();
+			return this.editUserMessageHandler(entryId, text, options);
 		};
 		context.switchSession = (sessionPath, options) => {
 			this.assertActive();

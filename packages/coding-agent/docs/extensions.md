@@ -1372,6 +1372,19 @@ Options:
 - `customInstructions`: Custom instructions for the summarizer
 - `replaceInstructions`: If true, `customInstructions` replaces the default prompt instead of being appended
 - `label`: Label to attach to the branch summary entry (or target entry if not summarizing)
+- `expectedLeafId`: The leaf observed when choosing the target. A moved leaf rejects with `AssistantEditError` (`reason: "stale-leaf"`, `code: "stale_leaf"`) before navigation.
+
+The positional form remains supported. You can also put the selected message's `entryId` and all options in the first argument:
+
+```typescript
+await ctx.navigateTree({
+  entryId: selectedEntry.id,
+  expectedLeafId: observedLeafId,
+  summarize: false,
+});
+```
+
+Both forms use the same tree-selection rule: user/custom entries select their parent; other entries select themselves. A root prompt selects an empty conversation. Address the selection by `entry.id`, never by `leafId`: extension metadata can advance the leaf beyond the message. Keep the observed leaf as the concurrency token rather than re-reading it when submitting a delayed action.
 
 ### ctx.editAssistantMessage(entryId, text, options?)
 
@@ -1390,6 +1403,22 @@ Options:
 - `summarize` / `customInstructions`: summarize the abandoned branch like `ctx.navigateTree`
 
 Rejections are typed: `SessionStreamingError` (`code: "streaming"`) while a response streams, and `AssistantEditError` with `reason` `not-found` / `not-assistant` / `empty` / `stale-leaf` (`code` gives the wire spelling). `unchanged: true` means the text matched the original and nothing was appended.
+
+### ctx.editUserMessage(entryId, text, options?)
+
+Replace a user prompt with an edited copy, preserving its attachments. The copy is appended under the original prompt's parent; the original prompt and its replies remain on an abandoned branch. No agent turn starts. Like assistant edits, this fires `session_before_tree` (cancellable) and `session_tree` and is available in RPC, print, and interactive command contexts, including host-backed interactive sessions.
+
+```typescript
+const result = await ctx.editUserMessage(selectedEntry.id, "The corrected prompt.", {
+  expectedLeafId: observedLeafId,
+  summarize: false,
+});
+// result: { cancelled: boolean; unchanged?: boolean; entryId?: string }
+```
+
+The option object is identical to `ctx.editAssistantMessage`: `summarize`, `customInstructions`, and `expectedLeafId`. The token is forwarded unchanged. Rejections are `UserEditError` with `reason` `not-found` / `not-user` / `empty` / `stale-leaf` (`code`: `not_found` / `not_user` / `empty` / `stale_leaf`), or `SessionStreamingError` (`code: "streaming"`). `unchanged: true` means nothing was appended; `cancelled: true` means the edit was cancelled.
+
+On an edit, `result.entryId` identifies the new message, not necessarily the current leaf: a `session_tree` extension can append metadata after the message. Use the message ID for later edits/selections and the separately observed leaf only for concurrency checks.
 
 ### ctx.switchSession(sessionPath, options?)
 

@@ -89,11 +89,20 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 						customInstructions: navigateOptions?.customInstructions,
 						replaceInstructions: navigateOptions?.replaceInstructions,
 						label: navigateOptions?.label,
+						expectedLeafId: navigateOptions?.expectedLeafId,
 					});
 					return { cancelled: result.cancelled };
 				},
 				editAssistantMessage: async (entryId, text, editOptions) => {
 					const result = await session.editAssistantMessage(entryId, text, {
+						summarize: editOptions?.summarize,
+						customInstructions: editOptions?.customInstructions,
+						expectedLeafId: editOptions?.expectedLeafId,
+					});
+					return { cancelled: result.cancelled, unchanged: result.unchanged, entryId: result.entryId };
+				},
+				editUserMessage: async (entryId, text, editOptions) => {
+					const result = await session.editUserMessage(entryId, text, {
 						summarize: editOptions?.summarize,
 						customInstructions: editOptions?.customInstructions,
 						expectedLeafId: editOptions?.expectedLeafId,

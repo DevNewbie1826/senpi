@@ -586,6 +586,15 @@ export interface ProviderRequestPreparation {
 	transformHeaders(headers: ProviderHeaders): Promise<ProviderHeaders>;
 }
 
+export interface ExtensionTreeNavigationOptions {
+	summarize?: boolean;
+	customInstructions?: string;
+	replaceInstructions?: boolean;
+	label?: string;
+	/** The caller's last observed leaf, not the selected message's entry ID. */
+	expectedLeafId?: string;
+}
+
 /**
  * Extended context for command handlers.
  * Includes session control methods only safe in user-initiated commands.
@@ -609,10 +618,10 @@ export interface ExtensionCommandContext extends ExtensionContext {
 		options?: { position?: "before" | "at"; withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
 	): Promise<{ cancelled: boolean }>;
 
-	/** Navigate to a different point in the session tree. */
+	/** Navigate by entry ID; the positional targetId form remains supported unchanged. */
 	navigateTree(
-		targetId: string,
-		options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string },
+		targetId: string | ({ entryId: string } & ExtensionTreeNavigationOptions),
+		options?: ExtensionTreeNavigationOptions,
 	): Promise<{ cancelled: boolean }>;
 
 	/**
@@ -622,6 +631,17 @@ export interface ExtensionCommandContext extends ExtensionContext {
 	 * Rejects with the same typed errors as `AgentSession.editAssistantMessage`.
 	 */
 	editAssistantMessage(
+		entryId: string,
+		text: string,
+		options?: { summarize?: boolean; customInstructions?: string; expectedLeafId?: string },
+	): Promise<{ cancelled: boolean; unchanged?: boolean; entryId?: string }>;
+
+	/**
+	 * Replace a user prompt with an edited copy, preserving attachments and the abandoned branch.
+	 * Uses the same options as editAssistantMessage; starts no turn. Rejects with UserEditError
+	 * (not-found, not-user, empty, stale-leaf) or SessionStreamingError, unchanged from core.
+	 */
+	editUserMessage(
 		entryId: string,
 		text: string,
 		options?: { summarize?: boolean; customInstructions?: string; expectedLeafId?: string },
@@ -2493,7 +2513,7 @@ export interface LoadedHookSources {
 
 /**
  * Actions for ExtensionCommandContext (ctx.* in command handlers).
- * Only needed for interactive mode where extension commands are invokable.
+ * Bound by interactive, print, and RPC modes where extension commands are invokable.
  */
 export interface ExtensionCommandContextActions {
 	waitForIdle: () => Promise<void>;
@@ -2506,15 +2526,13 @@ export interface ExtensionCommandContextActions {
 		entryId: string,
 		options?: { position?: "before" | "at"; withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
 	) => Promise<{ cancelled: boolean }>;
-	navigateTree: (
-		targetId: string,
-		options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string },
-	) => Promise<{ cancelled: boolean }>;
+	navigateTree: (targetId: string, options?: ExtensionTreeNavigationOptions) => Promise<{ cancelled: boolean }>;
 	editAssistantMessage: (
 		entryId: string,
 		text: string,
 		options?: { summarize?: boolean; customInstructions?: string; expectedLeafId?: string },
 	) => Promise<{ cancelled: boolean; unchanged?: boolean; entryId?: string }>;
+	editUserMessage: ExtensionCommandContext["editUserMessage"];
 	switchSession: (
 		sessionPath: string,
 		options?: { withSession?: (ctx: ReplacedSessionContext) => Promise<void> },

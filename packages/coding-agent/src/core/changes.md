@@ -18,6 +18,55 @@
 
 - Runtime lifecycle dispatch adjacent to `emitBeforeSwitch`; no TUI lifecycle changes.
 
+||||||| parent of 5f652dcfa (feat(coding-agent): edit a user message in place as a tree branch)
+||||||| parent of 1ab53e09e (feat(rpc): dispatch user-message edits and tree navigation)
+## 2026-09-21 - Selecting the current prompt still moves to its parent
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session.ts`: removed `_navigateTree`'s early return for
+  `targetId === oldLeafId`, so the existing user/custom selection rule also applies to the current
+  leaf. A root prompt resets the leaf to null; a nested prompt selects its parent. Both return
+  editor text and run the normal cancellation, summary, lifecycle-event, and session-state path.
+
+### Why
+
+- `packages/coding-agent/src/core/agent-session.ts` previously treated selecting the latest prompt
+  as a no-op. Retrying that prompt then appended it under itself, duplicating it in model context.
+  The RPC regressions cover root and non-root retries through the subsequent turn, preserving the
+  abandoned tree while submitting the prompt exactly once.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/core/agent-session.ts` returned before `session_before_tree` and before
+  the shared selection/state-restoration logic. An extension or RPC-only leaf rewrite cannot repair
+  that short-circuit consistently across the TUI and other callers.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/agent-session.ts`: `_navigateTree` immediately after the expected-leaf
+  guard. The existing assistant-edit and tree-selection suites pass unchanged before and after.
+
+## 2026-09-21 - Edit a user message in place as a tree branch
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session.ts`: `editUserMessage(entryId, text, options)` sits beside `editAssistantMessage` and routes through the same private `_navigateTree`, so the streaming guard, the `expectedLeafId` stale check, branch summaries and the `session_before_tree` / `session_tree` events are shared rather than re-implemented. It validates a `message` entry with `role === "user"`, rejects blank text, short-circuits identical text as `{ unchanged: true }`, and otherwise moves the leaf to the target's PARENT and appends the edited prompt there as the new leaf. `_navigateTree`'s `replacement` widens from `AssistantMessage` to `AssistantMessage | UserMessage`; a replacement still suppresses `editorText`, because an edited prompt is written into the session instead of an editor. No turn starts.
+- `packages/coding-agent/src/core/edited-user-message.ts` (new): `buildEditedUserMessage()` keeps the trimmed text and carries every non-text block over verbatim - a prompt's attachments are the user's own input, so unlike an edited assistant response nothing is dropped - plus `userTextEquals()`, `assertExpectedUserLeaf()`, and `UserEditError` with reasons `empty | not-user | not-found | stale-leaf` mapped to the wire codes `empty | not_user | not_found | stale_leaf`. Streaming refusal reuses `SessionStreamingError`.
+
+### Why
+
+- A client can already edit an assistant response in place; a prompt still required the interactive `/tree` selector, which only puts the text back in the editor. This gives non-interactive callers the same in-file branch semantics `docs/sessions.md` documents for selecting a user message, without `fork`/`clone` creating a second session file, and without deleting the original branch.
+
+### Why an extension could not handle it
+
+- The guard ordering (streaming, then leaf token, then target validation) and the leaf move itself run inside the core mutation, ahead of `session_before_tree`; an extension cannot append the replacement under the target's parent.
+
+### Expected merge conflict zones
+
+- LOW: the `editAssistantMessage` / `_navigateTree` heads in `agent-session.ts` (one added method and one widened parameter type); the fork-only `edited-user-message.ts`.
+- Coverage: `test/suite/tree-edit-user-message.test.ts`.
+
 ## 2026-09-20 - A fallback rung too small for the transcript is repaired, not rejected (senpi#1873)
 
 ### What changed

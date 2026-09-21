@@ -112,6 +112,117 @@ reclaimed from. A generation record that cannot be parsed is never pruned: an en
 it right now. Pinned by `test/suite/regressions/1893-superseded-generation-drain.test.ts` (real
 supervisor, socket taken over with no signal) and `1893-generation-records-and-claims.test.ts`.
 
+||||||| parent of e51eff445 (feat(rpc): type the user-message edit and tree navigation commands)
+||||||| parent of 1ab53e09e (feat(rpc): dispatch user-message edits and tree navigation)
+||||||| parent of 1c5fd8af9 (feat(extensions): edit a user message and navigate the tree)
+## 2026-09-21 - Extension user-edit binding and client leaf visibility
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts`: binds the extension user-edit action beside assistant edits and forwards navigation's `expectedLeafId` unchanged.
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts`: declares `navigateTree`'s already-shipped `leafId: string | null`, accepts the concurrency token, and adds the user-edit client method needed by the interactive host proxy.
+
+### Why
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts`: an RPC-hosted extension must have the same capability and typed core refusals as print and interactive extensions.
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts`: a wire leaf that library callers cannot read is an incomplete API. The user-edit response preserves both `entry.id` (message address) and the potentially different metadata-advanced `leafId` (concurrency token).
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts` owns mode action binding.
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts` owns the public client's commands and decoded return types.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts`: extension `commandContextActions` beside navigation and assistant editing; dispatch is unchanged.
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts`: result imports, navigation signature, and message-edit methods.
+
+## 2026-09-21 - Dispatch user-message edits and entry-addressed tree selection
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts` dispatches `edit_user_message`
+  through the same session-owned binding as assistant edits. It projects edited, unchanged,
+  cancelled, and aborted results, maps core errors through their `.code` accessor, and includes
+  the current leaf on successes (`data.leafId`) and refusals (`errorData.leafId`).
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts` replaces the temporary `entryId`
+  refusal with core tree selection and its navigated/cancelled payload. Both addressing spellings
+  forward `expectedLeafId` unchanged; both/neither addressing remain errors. The legacy
+  `targetId` call and response shape remain intact.
+- Core selection chooses the parent of user/custom entries, including a null parent at the root.
+  Contrary to the earlier type entry's description, the shipped `targetId` path also applies that
+  rule; it is not a verbatim leaf move. `docs/rpc.md` corrects that claim and explains selection of
+  the current prompt after the core early-return fix. Tests preserve the real legacy response and
+  prove that both root and non-root prompt retries resubmit without duplicating the prompt.
+
+### Why
+
+`packages/coding-agent/src/modes/rpc/connection-handler.ts` must make the already-typed edit and
+selection operations reachable and let a stale client resynchronize without another request.
+
+### Why an extension could not handle it
+
+`packages/coding-agent/src/modes/rpc/connection-handler.ts` owns protocol dispatch and the routed
+session binding; an extension cannot implement these top-level command and error envelopes.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts`: message-edit cases, tree-navigation
+  dispatch, core error imports, and error response details.
+
+## 2026-09-21 - `edit_user_message`, and `navigate_tree` addressed by `entryId`
+
+### What changed
+
+- `rpc-types.ts` adds the `edit_user_message` command beside `edit_assistant_message`
+  (`{ entryId, text, expectedLeafId?, summarize?, customInstructions? }`) and its response member
+  carrying the new `EditUserMessageResult` - `edited | unchanged | cancelled`, mirroring
+  `EditAssistantMessageResult` field for field, `leafId` nullable on the two non-edited outcomes.
+- `navigate_tree` gains a second way to name its target: the shipped `targetId` moves the leaf to
+  that node verbatim, while the new `entryId` asks the host to apply the `/tree` selection rule of
+  `docs/sessions.md` (a user or custom target selects its PARENT and returns its text as
+  `editorText`; any other kind selects the entry itself; the root user message resets the leaf to
+  an empty conversation, `leafId: null`). The command is ONE union member intersected with
+  `{ entryId } | { targetId }`, so exactly one spelling is legal per record and `case
+  "navigate_tree"` still narrows to a single shape. Both spellings accept `expectedLeafId`.
+- `NavigateTreeResult` (`navigated | cancelled`) is the `entryId` payload; the shipped
+  `{ cancelled, editorText?, aborted?, summaryEntry? }` payload still answers `targetId`, so the
+  response member's `data` is the union of the two. Both now report `leafId: string | null` - the
+  shipped payload gained it additively, and `connection-handler.ts` fills it from
+  `sessionManager.getLeafId()`, so either spelling resynchronizes a client in one round trip.
+- `RPC_ERROR_NOT_USER = "not_user"` joins the ONE shared `RpcErrorCode` union beside
+  `RPC_ERROR_NOT_ASSISTANT`. The failure response stays the single catch-all member with
+  `errorCode?: string` - there is no per-command narrowing in this protocol, and introducing one
+  would be a breaking change to every error path. A command's codes are a documented SUBSET.
+- `connection-handler.ts` gains the two addressing refusals (`not both`, `requires entryId or
+  targetId`) that the command type already forbids but inbound JSON can still carry, plus ONE
+  placeholder branch that refuses an `entryId`-addressed navigation with `navigate_tree entryId
+  addressing is not dispatched yet`. The selection-rule dispatch and the `edit_user_message` case
+  land with the handler work: that branch is replaced there, the two refusals above it stay.
+
+### Why
+
+`AgentSession.editUserMessage` exists, but the only way to reach it over RPC would have been the
+interactive `/tree` selector, which no headless client has. A desktop client also cannot compute
+the parent of a user entry safely - it would have to reimplement the selection rule against a
+tree it only sees through `get_entries` - so the rule belongs on the host, reached by naming the
+entry the user clicked. `expectedLeafId` is on both spellings because a navigation is exactly as
+destructive to a stale window as an edit is: the leaf token the client last observed is the only
+thing that refuses a move made against a view another window has already changed.
+
+### Why an extension could not handle it
+
+The command union and the shared error-code union are the protocol itself. An extension cannot
+add a member to the type a client compiles against, and `extension_request` would hide the new
+operations behind an untyped envelope, which is the opposite of the contract a desktop client
+needs to generate its own types from.
+
+### Expected merge conflict zones
+
+- `rpc-types.ts` - the `RpcSessionCommand` / `RpcResponse` union additions and the `RpcErrorCode`
+  members; upstream edits near `edit_assistant_message` and `navigate_tree` meet this change.
+- `connection-handler.ts` - the `case "navigate_tree"` guard.
+
 ## 2026-09-19 — a pathless session now reserves the file it created (#1850)
 
 **What:** `session-registry.ts` `syncRuntimeMetadata()` reconciles when the canonical

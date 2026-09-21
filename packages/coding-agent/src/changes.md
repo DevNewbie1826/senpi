@@ -37,6 +37,25 @@
 
 - LOW: one additive call (plus comment) inside the multi-session dispatch branch in `main.ts`.
 
+||||||| parent of 1c5fd8af9 (feat(extensions): edit a user message and navigate the tree)
+## 2026-09-21 - Print extension user edits and guarded tree navigation
+
+### What changed
+
+- `packages/coding-agent/src/modes/print-mode.ts`: binds `editUserMessage` beside assistant editing and forwards `expectedLeafId` for navigation without re-reading or defaulting the caller's token.
+
+### Why
+
+- `packages/coding-agent/src/modes/print-mode.ts`: print/JSON extension command contexts must expose the same edit capability and typed core errors as RPC and interactive mode.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/print-mode.ts` constructs the host actions before invoking extension commands.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/print-mode.ts`: navigation and assistant-edit neighbours inside `commandContextActions`.
+
 ## 2026-09-20 - Name what the startup timing table measures before the stdin read (senpi#1868 follow-up)
 
 ### What changed

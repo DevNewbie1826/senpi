@@ -6,17 +6,20 @@ import type {
 	AgentSessionEvent,
 	AgentSessionEventListener,
 	AssistantEditResult,
+	UserEditResult,
 } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import type { AgentSessionRuntimeDiagnostic } from "../../core/agent-session-services.ts";
 import { executeBashWithOperations } from "../../core/bash-executor.ts";
+import { SessionStreamingError } from "../../core/edited-assistant-message.ts";
+import { UserEditError } from "../../core/edited-user-message.ts";
 import type { ProjectTrustContext, ReplacedSessionContext } from "../../core/extensions/index.ts";
 import { SessionManager } from "../../core/session-manager.ts";
 import { SettingsManager } from "../../core/settings-manager.ts";
 import type { BashOperations } from "../../core/tools/bash.ts";
 import { QUESTION_CAPABILITY, RENDERED_COMPONENTS_CAPABILITY } from "../rpc/custom-capability.ts";
 import { type EnsuredHost, ensureHost } from "../rpc/host-ensure.ts";
-import { isTransportGoneError, RpcClient, type RpcClientEvent } from "../rpc/rpc-client.ts";
+import { isTransportGoneError, RpcClient, type RpcClientEvent, RpcCommandError } from "../rpc/rpc-client.ts";
 
 /**
  * What this TUI can render for a host: host-side components and the rich
@@ -1014,9 +1017,11 @@ export function createRemoteSessionProxy(
 				return (name: string) => client.setSessionName(name).catch(reportActionFailure("setSessionName"));
 			if (property === "navigateTree")
 				return async (targetId: string, options?: Parameters<AgentSession["navigateTree"]>[1]) => {
-					const result = await transportCall("navigateTree", () => client.navigateTree(targetId, options), {
-						cancelled: true,
-					});
+					const result = await transportCall<Omit<Awaited<ReturnType<RpcClient["navigateTree"]>>, "leafId">>(
+						"navigateTree",
+						() => client.navigateTree(targetId, options),
+						{ cancelled: true },
+					);
 					if (!result.cancelled) await refresh();
 					return result;
 				};
@@ -1031,6 +1036,42 @@ export function createRemoteSessionProxy(
 						summarize: options?.summarize,
 						customInstructions: options?.customInstructions,
 					});
+					if (result.outcome === "unchanged") return { cancelled: false, unchanged: true };
+					if (result.outcome === "cancelled") return { cancelled: true, aborted: result.aborted };
+					await refresh();
+					return { cancelled: false, entryId: result.entry.id };
+				};
+			if (property === "editUserMessage")
+				return async (
+					entryId: string,
+					text: string,
+					options?: Parameters<AgentSession["editUserMessage"]>[2],
+				): Promise<UserEditResult> => {
+					let result: Awaited<ReturnType<RpcClient["editUserMessage"]>>;
+					try {
+						result = await client.editUserMessage(entryId, text, {
+							expectedLeafId: options?.expectedLeafId,
+							summarize: options?.summarize,
+							customInstructions: options?.customInstructions,
+						});
+					} catch (error) {
+						// The proxy implements AgentSession, so restore its typed rejections across the wire.
+						if (error instanceof RpcCommandError) {
+							switch (error.errorCode) {
+								case "streaming":
+									throw new SessionStreamingError();
+								case "not_found":
+									throw new UserEditError("not-found", error.message);
+								case "not_user":
+									throw new UserEditError("not-user", error.message);
+								case "empty":
+									throw new UserEditError("empty", error.message);
+								case "stale_leaf":
+									throw new UserEditError("stale-leaf", error.message);
+							}
+						}
+						throw error;
+					}
 					if (result.outcome === "unchanged") return { cancelled: false, unchanged: true };
 					if (result.outcome === "cancelled") return { cancelled: true, aborted: result.aborted };
 					await refresh();

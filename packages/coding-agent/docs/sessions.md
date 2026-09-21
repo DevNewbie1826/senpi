@@ -115,6 +115,8 @@ Selecting an assistant, tool, compaction, or other non-user entry:
 
 Selecting the root user message resets the leaf to an empty conversation and places the original prompt in the editor.
 
+RPC clients get the same rule without an interactive picker. `navigate_tree` with `entryId` applies this selection behavior on the host and returns the text that would have gone to the editor as `editorText`; `edit_user_message` goes one step further and writes the edited prompt into the session as a new branch. Both are described in [RPC](rpc.md#navigate_tree).
+
 ## `/tree`, `/fork`, and `/clone`
 
 | Feature | `/tree` | `/fork` | `/clone` |
