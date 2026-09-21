@@ -23,6 +23,7 @@
 
 ### Changed
 
+- The ask-user builtin's `schema.ts` re-exports `QuestionRequest` and `QuestionResponse` from the public extension API (`core/extensions/types.ts`) instead of declaring a second, identical copy, so the question tool, the TUI dialog and the RPC bridge share one contract. Type-only; no runtime change. ([#1931](https://github.com/code-yeongyu/senpi/issues/1931))
 - Sessions in the in-process daemon now share connections to the same HTTP or session-independent stdio MCP server. Closing one session leaves other sessions' tools available; catalogs and elicitation stay session-owned. Servers with cwd/session-dependent arguments or environment, including ast-grep, remain separate. Standalone and worker sessions are unchanged. ([#1921](https://github.com/code-yeongyu/senpi/issues/1921))
 
 - Updated the test runner to Vitest 5.0.1. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
