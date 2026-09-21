@@ -28,7 +28,7 @@
 
 ### What changed
 
-- `package.json`: the root `dev` script is `node scripts/run-workspaces.mjs --parallel --workspace packages/ai --workspace packages/coding-agent dev`; the `concurrently` devDependency is removed and `package-lock.json` / `bun.lock` are regenerated the repository way (`bun.lock` stays `configVersion: 0`).
+- `package.json`: the root `dev` script is `node scripts/run-workspaces.mjs --parallel --workspace packages/ai --workspace packages/coding-agent dev`; the `concurrently` devDependency is removed and `shell-quote` 1.10.0 is declared as a root devDependency — three repository scripts import it directly but it only reached `node_modules` as `concurrently`'s transitive dependency (its version was already pinned by the root override). `package-lock.json` / `bun.lock` are regenerated the repository way (`bun.lock` stays `configVersion: 0`).
 
 ### Why
 

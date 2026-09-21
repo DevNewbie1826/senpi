@@ -69,6 +69,7 @@
 		"@vitest/coverage-v8": "5.0.1",
 		"esbuild": "0.28.2",
 		"husky": "9.1.7",
+		"shell-quote": "1.10.0",
 		"shx": "0.4.0",
 		"tsx": "4.23.13",
 		"typescript": "7.0.2",
