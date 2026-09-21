@@ -46,6 +46,13 @@ const BILLING_TEXT =
 const OVERLOAD_TEXT = /overloaded/i;
 const NETWORK_TEXT =
 	/econnreset|econnrefused|etimedout|enotfound|socket hang up|fetch failed|network error|request timed out/i;
+// A WebSocket transport reports its faults as close codes and adapter
+// verdicts rather than HTTP text. 1008 (policy) and 1009 (message too big)
+// describe the request, so replaying it cannot help; every other closure,
+// the runtime's bare error event, and the connect/liveness watchdogs are the
+// transport's fault and earn the same-slot retry a reset does.
+const WEBSOCKET_REQUEST_FAULT_TEXT = /websocket closed 100[89]\b/i;
+const WEBSOCKET_TRANSPORT_FAULT_TEXT = /websocket (?:closed|error|connect timeout|liveness timeout)/i;
 const FAIL_FAST_TEXT =
 	/context[ _-]?(?:length|window)|maximum context|invalid[ _-]?model|model[ _-]?not[ _-]?found|malformed[ _-]?stream|premature[ _-]?(?:close|stream)/i;
 const ABORT_TEXT = /\baborted?\b/i;
@@ -113,6 +120,10 @@ export function classifyCredentialFailure(
 	}
 	if (isOverflowText(text) || status === 400 || status === 404 || FAIL_FAST_TEXT.test(text)) {
 		return { kind: "fail_request" };
+	}
+	if (WEBSOCKET_REQUEST_FAULT_TEXT.test(text)) return { kind: "fail_request" };
+	if (WEBSOCKET_TRANSPORT_FAULT_TEXT.test(text)) {
+		return { kind: "retry_same", maxAttempts: RETRY_SAME_MAX_ATTEMPTS };
 	}
 	if (status === 529 || OVERLOAD_TEXT.test(text) || (status !== undefined && status >= 500 && status < 600)) {
 		return { kind: "retry_same", maxAttempts: RETRY_SAME_MAX_ATTEMPTS };

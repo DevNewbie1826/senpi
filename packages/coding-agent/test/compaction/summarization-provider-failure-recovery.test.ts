@@ -29,9 +29,19 @@ import type { ExtensionContext } from "../../src/core/extensions/index.ts";
 import { createBlockingContext, createCompactionHandlers } from "../helpers/blocking-compaction-harness.ts";
 import { OPENAI_NATIVE_LEGACY_MODEL } from "./openai-remote-test-models.ts";
 
-/** Exactly what `runCredentialFailover` rethrows once any event past `start` reached the caller. */
-function markerBearingFailover(detail = "Codex error: stream ended with an error response"): CredentialFailoverError {
-	return new CredentialFailoverError({ kind: "fail_request" }, new Error(detail), { suppressTurnRetry: true });
+/**
+ * Exactly what the Claude SDK lane rethrows once a visible delta reached the
+ * caller. The generic credential pool stopped stamping the marker in senpi#1628
+ * (it forwards the provider's own terminal event instead), so this shape now
+ * comes from that lane alone.
+ */
+function markerBearingFailover(detail = "Codex error: stream ended with an error response"): Error {
+	return new Error(`${TURN_RETRY_SUPPRESSION_PREFIX}${detail}`);
+}
+
+/** What the generic pool throws when an attempt failed by throwing and no slot is left. */
+function exhaustedFailover(detail = "Codex error: stream ended with an error response"): CredentialFailoverError {
+	return new CredentialFailoverError({ kind: "fail_request" }, new Error(detail));
 }
 
 function partialMessage(model: Model<any>): AssistantMessage {
@@ -80,22 +90,16 @@ function installThrowingSummarizationRuntime(ctx: ExtensionContext, error: unkno
 }
 
 describe("summarization provider failure authorizes the deterministic fallback", () => {
-	it("classifies a marker-bearing credential failover error as a provider failure", () => {
-		expect(classifyRequiredCompactionFallbackFailure(markerBearingFailover())).toBe("summarization-provider-failure");
-		// A pool that never committed output rethrows without the marker; it is just
-		// as terminal for this summary, so it authorizes the same recovery.
-		expect(
-			classifyRequiredCompactionFallbackFailure(
-				new CredentialFailoverError({ kind: "fail_request" }, new Error("all slots blocked"), {
-					suppressTurnRetry: false,
-				}),
-			),
-		).toBe("summarization-provider-failure");
-		// Single-key providers have no rotation wrapper: the same outage arrives as a
-		// bare error carrying the marker minted by another failover lane.
-		expect(
-			classifyRequiredCompactionFallbackFailure(new Error(`${TURN_RETRY_SUPPRESSION_PREFIX}Codex error: boom`)),
-		).toBe("summarization-provider-failure");
+	it("classifies an exhausted credential pool and a marker-bearing lane error as provider failures", () => {
+		// The generic pool rethrows only when an attempt threw and no slot is left;
+		// that is terminal for this summary and authorizes the recovery.
+		expect(classifyRequiredCompactionFallbackFailure(exhaustedFailover("all slots blocked"))).toBe(
+			"summarization-provider-failure",
+		);
+		// The Claude SDK lane still stamps the marker after a visible delta.
+		expect(classifyRequiredCompactionFallbackFailure(markerBearingFailover("Codex error: boom"))).toBe(
+			"summarization-provider-failure",
+		);
 	});
 
 	it("classifies a non-transient summary request error as a provider failure", () => {
@@ -123,58 +127,64 @@ describe("summarization provider failure authorizes the deterministic fallback",
 		).toBeUndefined();
 	});
 
-	it("applies a deterministic checkpoint when the blocking route's summary stream throws a marker error", async () => {
-		const handlers = createCompactionHandlers();
-		const harness = createBlockingContext({ usageTokens: 9_900 });
-		const summarizationCalls = installThrowingSummarizationRuntime(harness.ctx, markerBearingFailover());
-		const branchEntries = harness.ctx.sessionManager.getBranch();
-		const preparation = prepareCompaction(branchEntries, harness.ctx.getCompactionSettings(), true);
-		expect(preparation).toBeDefined();
+	it.each([
+		["a marker-bearing lane error", markerBearingFailover()],
+		["an exhausted credential pool", exhaustedFailover()],
+	] as const)(
+		"applies a deterministic checkpoint when the blocking route's summary stream throws %s",
+		async (_label, thrown) => {
+			const handlers = createCompactionHandlers();
+			const harness = createBlockingContext({ usageTokens: 9_900 });
+			const summarizationCalls = installThrowingSummarizationRuntime(harness.ctx, thrown);
+			const branchEntries = harness.ctx.sessionManager.getBranch();
+			const preparation = prepareCompaction(branchEntries, harness.ctx.getCompactionSettings(), true);
+			expect(preparation).toBeDefined();
 
-		const result = await handlers.sessionBeforeCompact(
-			{
-				type: "session_before_compact",
-				reason: "threshold",
-				willRetry: false,
-				requestId: "issue-1741-marker",
-				preparation: preparation!,
-				branchEntries,
-				signal: new AbortController().signal,
-			},
-			harness.ctx,
-		);
-
-		if (!result) throw new Error("Expected a compaction handler result");
-		// The wedge was `{ cancel: true }`: compaction never applied, so the context
-		// stayed over threshold and the next prompt repeated the identical failure.
-		expect(result).not.toHaveProperty("cancel");
-		expect(result).toMatchObject({
-			compaction: {
-				details: {
-					schema: "senpi.compaction.deterministic-fallback.v1",
-					origin: "required-compaction-recovery",
-					failureKind: "summarization-provider-failure",
+			const result = await handlers.sessionBeforeCompact(
+				{
+					type: "session_before_compact",
+					reason: "threshold",
+					willRetry: false,
+					requestId: "issue-1741-marker",
+					preparation: preparation!,
+					branchEntries,
+					signal: new AbortController().signal,
 				},
-			},
-		});
-		// The marker class is terminal: it must never be re-billed as a retry.
-		expect(summarizationCalls()).toBe(1);
+				harness.ctx,
+			);
 
-		// The next turn proceeds: applying the checkpoint drops the bulk that kept the
-		// session above the threshold while the live request survives.
-		const compaction = result.compaction;
-		if (!compaction) throw new Error("Expected deterministic recovery compaction");
-		harness.sessionManager.appendCompaction(
-			compaction.summary,
-			compaction.firstKeptEntryId,
-			compaction.tokensBefore,
-			compaction.details,
-			true,
-		);
-		const retained = JSON.stringify(harness.sessionManager.buildSessionContext().messages);
-		expect(retained).toContain("Keep latest request");
-		expect(retained).not.toContain("Old assistant context");
-	});
+			if (!result) throw new Error("Expected a compaction handler result");
+			// The wedge was `{ cancel: true }`: compaction never applied, so the context
+			// stayed over threshold and the next prompt repeated the identical failure.
+			expect(result).not.toHaveProperty("cancel");
+			expect(result).toMatchObject({
+				compaction: {
+					details: {
+						schema: "senpi.compaction.deterministic-fallback.v1",
+						origin: "required-compaction-recovery",
+						failureKind: "summarization-provider-failure",
+					},
+				},
+			});
+			// The marker class is terminal: it must never be re-billed as a retry.
+			expect(summarizationCalls()).toBe(1);
+
+			// The next turn proceeds: applying the checkpoint drops the bulk that kept the
+			// session above the threshold while the live request survives.
+			const compaction = result.compaction;
+			if (!compaction) throw new Error("Expected deterministic recovery compaction");
+			harness.sessionManager.appendCompaction(
+				compaction.summary,
+				compaction.firstKeptEntryId,
+				compaction.tokensBefore,
+				compaction.details,
+				true,
+			);
+			const retained = JSON.stringify(harness.sessionManager.buildSessionContext().messages);
+			expect(retained).toContain("Keep latest request");
+			expect(retained).not.toContain("Old assistant context");
+		},
+	);
 
 	it("recovers the blocking route from a non-transient provider error stop", async () => {
 		const handlers = createCompactionHandlers();

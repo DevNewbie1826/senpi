@@ -1,3 +1,4 @@
+import { stripTurnRetrySuppressionPrefix } from "@earendil-works/pi-ai";
 import { type CompactionPreparation, type CompactionResult, estimateTokens } from "../../../compaction/index.ts";
 import {
 	StreamDurationBudgetError,
@@ -197,14 +198,7 @@ export function classifyRequiredCompactionFallbackFailure(
 	return undefined;
 }
 
-/**
- * `senpi:no-turn-retry:` is a session-internal replay-suppression signal read by
- * `_isRetryableError` / `_isHardErrorFallbackEligible`. It must stay on the error
- * object those predicates inspect and must never reach user-visible text.
- */
-export function stripTurnRetrySuppressionPrefix(message: string): string {
-	return message.replaceAll(TURN_RETRY_SUPPRESSION_PREFIX, "");
-}
+export { stripTurnRetrySuppressionPrefix };
 
 const FALLBACK_FAILURE_CAUSE: Record<RequiredCompactionFallbackFailure, string> = {
 	"summarization-timeout": "the summary stream ran out of its time budget",

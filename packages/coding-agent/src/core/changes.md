@@ -1,5 +1,29 @@
 # changes
 
+## 2026-09-21 - A WebSocket drop inside a credential pool no longer kills the turn (senpi#1628)
+
+### What changed
+
+- `packages/coding-agent/src/core/credential-pool/failover.ts`: `runCredentialFailover` guards one thing - the integrity of the single event stream the caller consumes - and no longer decides whether the turn may be replayed. After committed output it yields the provider's own terminal `error` event unchanged (partial content, usage, `provider_transport_failure` diagnostics intact) instead of throwing a synthesized error, and it never stamps `senpi:no-turn-retry:`. `CredentialFailoverError` is thrown only when an attempt threw with no event to forward and no slot is left; its message is the provider's text (the `suppressTurnRetry` option and field are gone). New `isStreamStart` option: once a start frame reached the caller, a replacement attempt's duplicate start is dropped so `agent-loop` keeps one message per stream.
+- `packages/coding-agent/src/core/credential-pool/rotation-events.ts` (new): `isCommittedRotationOutput` treats `start`, `text_start`, `thinking_start` and `toolcall_start` as pre-commit bookkeeping (default-DENY for everything else), `isRotationStreamStart`, `rotationErrorFromEvent`. `rotation-stream.ts` wires them.
+- `packages/coding-agent/src/core/credential-pool/classify.ts`: abnormal WebSocket closure (1006/1001/1011-1014), the runtime's bare `WebSocket error`, and the connect/liveness watchdog verdicts classify as `retry_same`; 1008 and 1009 stay `fail_request`.
+- `packages/coding-agent/src/core/agent-session.ts` `_terminalFailureText`, `modes/print-mode.ts`, `modes/interactive/components/assistant-render-descriptors.ts`: render through pi-ai's `describeProviderFailureForUser` (stall wording delegated, WebSocket interruptions worded for a person) and strip the marker from the raw fallback text. `extensions/builtin/compaction/deterministic-fallback.ts` re-exports pi-ai's `stripTurnRetrySuppressionPrefix` instead of owning a copy; `TURN_RETRY_SUPPRESSION_PREFIX` itself now lives in `packages/ai/src/utils/provider-failure-description.ts` and `auth/pool/failover.ts` re-exports it.
+- `packages/ai/src/api/websocket-transport-failure.ts` (new): a message-less `error` event defers to the `close` frame that follows (`WebSocket closed 1006 Connection ended`), bounded by a 250 ms grace; both Responses adapters use it.
+
+### Why
+
+- A Codex WebSocket drop in a multi-account pool ended the turn with `senpi:no-turn-retry:WebSocket error` and an empty assistant message. The runner rethrew after any event past `start` (a bare `thinking_start` already counted as committed), `lazyStream` turned the throw into a fresh message with no content or diagnostics, and the marker disabled both the same-model retry and the fallback chain that a single-key provider gets for the identical fault. A mid-stream stall with partial output IS retried by the session engine, so the marker made a transport drop strictly worse than a stall. In the plain streaming lanes no tool runs before the message completes, so the only thing in-lane rotation must protect is stream integrity; the Claude SDK lane, where tools execute mid-stream, keeps its own marker.
+
+### Why an extension could not handle it
+
+- The rotation runner, the retry predicates on `AgentSession`, and the transcript/print renderers are core; an extension sees the finished assistant message only after the marker has already suppressed recovery.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/credential-pool/failover.ts`: the attempt loop and the `CredentialFailoverError` constructor.
+- `packages/coding-agent/src/core/agent-session.ts`: the pi-ai import block and `_terminalFailureText`.
+- `packages/coding-agent/src/modes/interactive/components/assistant-render-descriptors.ts`: the `error` branch of the stop-reason switch.
+
 ## 2026-09-21 - Bun keeps its native fetch across HTTP dispatcher setup (#1890)
 
 ### What changed

@@ -1,3 +1,26 @@
+## 2026-09-21 - WebSocket transport faults name their close code and read as plain language (senpi#1628)
+
+### What changed
+
+- `packages/ai/src/api/websocket-transport-failure.ts` (new): `createWebSocketTransportFailure` reports a message-bearing `error` event at once, defers a message-less one to the `close` frame that follows, and falls back to the generic `WebSocket error` after `WEBSOCKET_ERROR_CLOSE_GRACE_MS` (250 ms) so a runtime that never sends `close` still fails. `WebSocketCloseError`, `extractWebSocketCloseError` (with the 1009 "message too big" wording) and `extractWebSocketErrorMessage` live here.
+- `packages/ai/src/api/openai-codex-responses.ts`, `packages/ai/src/api/openai-responses.ts`: the connect and the streaming `error`/`close` listeners go through that helper; each adapter's private extractor pair and the Codex-only close-error class are removed. `parseWebSocket` disposes the pending grace on completion, abort and idle.
+- `packages/ai/src/utils/provider-failure-description.ts` (new): `TURN_RETRY_SUPPRESSION_PREFIX` (moved here from `auth/pool/failover.ts`, which now re-exports it), `stripTurnRetrySuppressionPrefix`, and `describeProviderFailureForUser`, which strips the marker, delegates stall watchdogs to `describeProviderStallForUser`, and words WebSocket closures, bare WebSocket errors and connect timeouts for a person with the same attempts/recovery options as the stall helper.
+- `packages/ai/src/utils/retry.ts`: `formatStallDuration` is exported for the new helper. `packages/ai/src/index.ts` exports the new module.
+
+### Why
+
+- Bun (and Node's undici client) fire an `error` event with no message for an unclean disconnect; only the `close` that follows carries `1006 Connection ended`. Failing on the first event threw the diagnosis away, and the raw text - prefixed with the session-internal `senpi:no-turn-retry:` marker - was what the user read as the outcome of the turn.
+- The marker constant moved into `utils/` because the `./utils/*` entry graph is budgeted at three files; importing it from `auth/pool` pulled the pool engine into every consumer of the description helper.
+
+### Why an extension could not handle it
+
+- The event pair is consumed inside the adapters' socket listeners before any message reaches the stream; an extension only sees the finished assistant message.
+
+### Expected merge conflict zones
+
+- `packages/ai/src/api/openai-codex-responses.ts` and `packages/ai/src/api/openai-responses.ts`: `connectWebSocket` listeners and the `parseWebSocket` `onError`/`onClose` pair, whenever upstream touches the WebSocket transport.
+- `packages/ai/src/auth/pool/failover.ts`: the re-exported marker constant at the top of the file.
+
 ## 2026-09-21 - Regional Kimi Code login (#1890)
 
 ### What changed
