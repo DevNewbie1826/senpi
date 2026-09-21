@@ -6,7 +6,7 @@ export class EvalKernelResetRefusedError extends Error {
 
 	constructor(language: EvalLanguage, liveCellIds: readonly string[]) {
 		super(
-			`Cannot reset the ${language} kernel: live cells ${liveCellIds.join(", ")}. Stop them with eval({ action: "stop", cell_id }) or wait for their notifications, then reset.`,
+			`eval_kernel_busy_reset_refused: Cannot reset the ${language} kernel: live cells ${liveCellIds.join(", ")}. Stop them with eval({ action: "stop", cell_id }) or wait for their notifications, then reset.`,
 		);
 	}
 }

@@ -114,7 +114,7 @@ Configuration is loaded in this order:
 | `foregroundWindowSeconds` | `60` | Submission-based foreground limit, including queue and bridge pauses. The cell detaches if capacity is available; otherwise it is cancelled with `eval_background_capacity_reached`. Env override: `SENPI_CODEMODE_FOREGROUND_SECONDS`. |
 | `runBudgetSeconds` | `300` | Kill deadline for a cell's own execution time - child processes, network, timers, CPU. Time queued or parked in host tool calls (`agent()`, `tool.*`) is not charged, and the budget keeps counting after the cell detaches. A per-call `timeout` replaces it for that cell. Env override: `SENPI_CODEMODE_RUN_BUDGET_SECONDS`. |
 | `hardLimitSeconds` | `1800` | Wall-clock kill deadline from submission, including queue and parked time; a per-call `timeout` above it raises it. Env override: `SENPI_CODEMODE_HARD_LIMIT_SECONDS`. |
-| `maxDetachedCells` | `15` | Global detached-cell capacity across all kernels. At capacity, interactive cells stay foreground until completion or the foreground window elapses; shorter cells finish normally. |
+| `maxDetachedCells` | `15` | Global detached-cell capacity across all kernels, including queued cells. At capacity, interactive cells stay foreground until completion or the foreground window elapses. Env override: `SENPI_CODEMODE_MAX_DETACHED_CELLS`. |
 | `parallelPoolWidth` | `4` | Maximum concurrent `parallel()` thunks. |
 | `taskTools.task` | `"task"` | Registered tool name used by `agent()`. |
 | `taskTools.output` | `"task_output"` | Registered tool name used by `output()`. |
@@ -128,6 +128,9 @@ enables; `0` or `false` disables. Any other value leaves the file setting in
 effect.
 
 Malformed JSON or invalid settings fall back to defaults with a warning.
+The detached-cell environment override uses the run-budget parser: a positive
+base-10 integer wins over the file value; zero, negative, and malformed values
+leave the file value in effect.
 
 ## Cell helpers
 

@@ -61,6 +61,27 @@ The host pid must be present in the kernel's environment at spawn time and the w
 
 - LOW: agent option/result mapping, reserved dispatch catalog forwarding, and the four language helper adapters and docs.
 
+## 2026-09-21 - Configurable detached capacity and multi-job QA (senpi#1908)
+
+### What changed
+
+- `src/config/settings.ts` accepts the numeric `maxDetachedCells` setting (default 15) and resolves `SENPI_CODEMODE_MAX_DETACHED_CELLS` with the run-budget parser. `src/index.ts` and `src/tool/eval-tool.ts` share that resolver; the manager's cap also supplies `buildEvalPrompt`.
+- README and package/kernel/tool guides describe queued same-language execution on one kernel, the global cap, `list`, and `eval_kernel_busy_reset_refused`.
+- `test/config.test.ts` and `test/extension.test.ts` exercise file/default/environment admission and registration; `scripts/qa/eval-multi-job.ts` records a real session with JS/Python barriers, queued cancellation, reset refusal, completion notices and cleanup.
+- `src/tool/eval-kernel-reset-refused-error.ts` includes its stable code in the refusal message, preserving the identifier when the session serializes thrown errors as text.
+
+### Why
+
+- File and environment settings must control both the advertised cap and actual admission after registration.
+
+### Why an extension could not handle it
+
+- This extension owns settings resolution, manager construction, and the eval prompt.
+
+### Expected merge conflict zones
+
+- LOW: settings schema/resolvers, manager creation, and README settings table.
+
 ## 2026-09-21 - Eval list and busy-kernel reset refusal (senpi#1908)
 
 ### What changed

@@ -20,6 +20,25 @@
 
 - `parseArguments` and the run loop in `run-workspaces.mjs`; the `spawnPackageManager` signature in `package-manager.mjs`.
 
+## 2026-09-21 - Real-session multi-job eval QA (senpi#1908)
+
+### What changed
+
+- `scripts/qa/eval-multi-job.ts` drives sequential eval calls through an AgentSession and real JS/Python kernels, using externally released files instead of timing barriers. It captures request/response pairs, completion notifications, typed reset refusal, queued cancellation and verified teardown.
+- A read-only `--codemode-root` selects the pre-adoption implementation for the expected busy-error baseline; `--out` selects the evidence file.
+
+### Why
+
+- Unit admission tests cannot prove that queued cells, cross-language work and session notification wiring agree in a live kernel.
+
+### Why an extension could not handle it
+
+- This is repository-owned verification of the shipped extension.
+
+### Expected merge conflict zones
+
+- LOW: the new QA driver.
+
 ## 2026-09-21 - Queued eval admission QA (senpi#1908)
 
 ### What changed

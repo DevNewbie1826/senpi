@@ -1,6 +1,10 @@
 import type { AgentToolResult, ToolDefinition } from "@code-yeongyu/senpi";
 import type { TUnsafe } from "typebox";
-import { DEFAULT_FOREGROUND_WINDOW_SECONDS, DEFAULT_MAX_DETACHED_CELLS } from "../config/settings.ts";
+import {
+	DEFAULT_FOREGROUND_WINDOW_SECONDS,
+	defaultCodemodeSettings,
+	resolveMaxDetachedCells,
+} from "../config/settings.ts";
 import { buildEvalPrompt } from "../prompt/eval-prompt.ts";
 import { EvalDetachedCellManager } from "./detached-cell-manager.ts";
 import { executeEvalControl } from "./detached-eval-result.ts";
@@ -32,8 +36,7 @@ export function createEvalTool(options: CreateEvalToolOptions) {
 	const maxDetachedCells =
 		options.cellManager?.maxDetachedCells ??
 		options.maxDetachedCells ??
-		options.settings?.maxDetachedCells ??
-		DEFAULT_MAX_DETACHED_CELLS;
+		resolveMaxDetachedCells(options.settings ?? defaultCodemodeSettings);
 	const deadlines = {
 		runBudgetSeconds: options.runBudgetSeconds ?? defaultEvalDeadlineSeconds.runBudgetSeconds,
 		detachAfterSeconds: Math.min(options.cellTimeoutSeconds, foregroundWindowSeconds),

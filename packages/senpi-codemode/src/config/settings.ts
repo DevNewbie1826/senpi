@@ -22,7 +22,7 @@ export const codemodeSettingsSchema = Type.Object(
 		foregroundWindowSeconds: Type.Optional(Type.Number({ minimum: 1 })),
 		runBudgetSeconds: Type.Optional(Type.Number({ minimum: 1 })),
 		hardLimitSeconds: Type.Optional(Type.Number({ minimum: 1 })),
-		maxDetachedCells: Type.Optional(Type.Integer({ minimum: 1 })),
+		maxDetachedCells: Type.Optional(Type.Number({ minimum: 1 })),
 		parallelPoolWidth: Type.Optional(Type.Number({ minimum: 1 })),
 		taskTools: Type.Optional(
 			Type.Object(
@@ -136,6 +136,7 @@ export const DEFAULT_RUN_BUDGET_SECONDS = 300;
 export const DEFAULT_MAX_DETACHED_CELLS = 15;
 
 export const RUN_BUDGET_ENVIRONMENT_FLAG = "SENPI_CODEMODE_RUN_BUDGET_SECONDS";
+export const MAX_DETACHED_CELLS_ENVIRONMENT_FLAG = "SENPI_CODEMODE_MAX_DETACHED_CELLS";
 
 // OMP settings-schema.ts:3211-3299 has language/path settings only; eval.ts:427
 // defaults timeout to 30s, and codemode pins concurrency-bridge.ts:30 width to 4.
@@ -212,6 +213,15 @@ export function resolveForegroundWindowSeconds(settings: CodemodeSettings, env: 
 /** Environment override wins over the settings file; a non-positive or malformed value is ignored. */
 export function resolveRunBudgetSeconds(settings: CodemodeSettings, env: Environment = process.env): number {
 	return positiveSecondsOverride(env[RUN_BUDGET_ENVIRONMENT_FLAG]) ?? settings.runBudgetSeconds;
+}
+
+/** Uses the same positive-integer environment parsing as the run budget. */
+export function resolveMaxDetachedCells(settings: CodemodeSettings, env: Environment = process.env): number {
+	return (
+		positiveSecondsOverride(env[MAX_DETACHED_CELLS_ENVIRONMENT_FLAG]) ??
+		settings.maxDetachedCells ??
+		DEFAULT_MAX_DETACHED_CELLS
+	);
 }
 
 function positiveSecondsOverride(value: string | undefined): number | undefined {
