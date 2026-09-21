@@ -6,12 +6,14 @@
 
 ### Added
 
+- `/login kimi-coding` asks which service hosts the account, **Mainland China (kimi.com)** or **Outside mainland China (kimi.ai)**, for both the subscription sign-in and the API-key path. International accounts authorize at `auth.kimi.ai` and send requests to `api.kimi.ai/coding`; the choice is saved with the credential and survives restarts, token refresh, and env changes. `KIMI_CODE_REGION=global` answers the question for headless setups. Existing credentials keep today's behaviour. ([#1890](https://github.com/code-yeongyu/senpi/issues/1890))
 - `agent()` forwards `isolated`, `apply`, and `merge` when the task host advertises isolation. Hosts that do not still drop those options with the existing warning. A foreground call whose isolation did not apply now raises instead of looking successful; with `handle: true` the isolation result arrives on completion. ([#1910](https://github.com/code-yeongyu/senpi/issues/1910))
 
 ### Changed
 
 ### Fixed
 
+- Streamed model responses no longer stall after the headers when the CLI runs on Bun 1.3.x. HTTP dispatcher setup used to replace Bun's native `fetch` with the bundled undici implementation, whose fetch on that runtime never delivered an SSE body; Bun now keeps its own fetch, and proxy env vars plus the stream idle guards still apply. Node behaviour is unchanged. ([#1890](https://github.com/code-yeongyu/senpi/issues/1890))
 - `senpi host ensure` no longer refuses `foreign_writer` forever when the registered generation is still alive but nothing accepts connections at its public socket path - the entry is gone, or a dead listener left it behind. Nothing serves that path, so a fresh generation is started beside the stranded one, which is never signalled and keeps its registration until it exits. Before, a superseded host draining its last session locked every other client out of the endpoint until it happened to end. ([#1936](https://github.com/code-yeongyu/senpi/issues/1936))
 
 ### Removed

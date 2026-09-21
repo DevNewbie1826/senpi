@@ -38,8 +38,9 @@ function headerRecord(init: RequestInit | undefined): Record<string, string> {
 function interaction(): ProviderAuthInteraction {
 	return {
 		signal: new AbortController().signal,
-		prompt: async () => {
-			throw new Error("Kimi Code login should not prompt");
+		prompt: async (prompt) => {
+			if (prompt.type === "select") return "mainland-cn";
+			throw new Error(`Kimi Code login should not prompt for ${prompt.type}`);
 		},
 		notify: () => {},
 	};

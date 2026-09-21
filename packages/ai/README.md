@@ -458,7 +458,7 @@ Built-in providers resolve these env vars (Node.js; in browsers pass `apiKey` ex
 | Moonshot AI / Moonshot AI (China) | `MOONSHOT_API_KEY` |
 | Hugging Face | `HF_TOKEN` |
 | OpenCode Zen / OpenCode Go | `OPENCODE_API_KEY` |
-| Kimi For Coding | `KIMI_API_KEY` |
+| Kimi For Coding | `KIMI_API_KEY` (+ `KIMI_CODE_REGION`) |
 | Qwen Token Plan (existing catalog) | `QWEN_TOKEN_PLAN_API_KEY` |
 | Qwen Token Plan (Individual) | `QWEN_TOKEN_PLAN_API_KEY` |
 | Qwen Token Plan (China) | `QWEN_TOKEN_PLAN_CN_API_KEY` |

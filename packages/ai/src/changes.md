@@ -1,3 +1,26 @@
+## 2026-09-21 - Regional Kimi Code login (#1890)
+
+### What changed
+
+- `packages/ai/src/auth/oauth/kimi-region.ts` (new): the region table (`mainland-cn` -> `auth.kimi.com` + `api.kimi.com/coding`, `global` -> `auth.kimi.ai` + `api.kimi.ai/coding`, ids and hosts taken from the official Kimi Code CLI's `packages/oauth/src/region.ts`), the select prompt, `resolveKimiCodeEndpoints` (stored host > stored region > env host > env region > default), and `chooseKimiCodeLoginEndpoints` (env answers the prompt when it names a host or region).
+- `packages/ai/src/auth/oauth/kimi-coding.ts`: `login` asks the region unless the env answers it, and stores the choice as credential `env` (`KIMI_CODE_REGION`, or `KIMI_CODE_OAUTH_HOST` for a custom host). `refresh` exchanges at the credential's own host and carries the env forward, because a flat credential is replaced wholesale by `mergeRefreshed`. `toAuth` returns `baseUrl` only for the international region so a `models.json` `baseUrl` override keeps winning for the default one.
+- `packages/ai/src/providers/kimi-coding-auth.ts` (new) replaces `envApiKeyAuth` in `packages/ai/src/providers/kimi-coding.ts`: the API-key login asks the region before the key; `resolve` merges credential env over ambient env (the Cloudflare pattern) and routes by it. The path stays identity-header-free (#1504).
+- `packages/ai/src/auth/pool/slots.ts`: `CredentialSlot.env` carries provider-scoped values per account. `slotFromFlatCredentialNamed` copies a login's env into its slot, `projectSlot` overlays the slot's env on the flat projection, and `projectFlatFields` re-projects it when the mirrored slot is removed, so sibling accounts in different regions never share one.
+
+### Why
+
+- Both hosts serve separate accounts, and the flow only knew `auth.kimi.com` through an env override that nothing persisted: an international subscription could log in with `KIMI_CODE_OAUTH_HOST` set, then refresh at the wrong host and send every request to `api.kimi.com/coding`.
+
+### Why an extension could not handle it
+
+- The flow is a bundled `OAuthAuth` and the api-key auth is a provider field; an extension can register a second provider but cannot add a prompt to the shipped `kimi-coding` login or attach metadata to its stored credential.
+
+### Expected merge conflict zones
+
+- `packages/ai/src/auth/oauth/kimi-coding.ts`: imports, `loginKimiCoding`, and the `refresh` / `toAuth` members of `kimiCodingOAuth`; the device and refresh request bodies are unchanged.
+- `packages/ai/src/auth/pool/slots.ts`: `CredentialSlot`, `slotFromFlatCredential*`, `projectFlatFields`, `projectSlot`.
+- `packages/ai/src/providers/kimi-coding.ts`: the `auth.apiKey` line.
+
 ## 2026-09-19 - A fork-owned provider survives a catalog regeneration
 
 ### What changed
