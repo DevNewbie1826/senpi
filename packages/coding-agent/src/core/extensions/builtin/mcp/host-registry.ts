@@ -1,5 +1,8 @@
-import type { McpServerConfig } from "./config-schema.ts";
 import type { ServerConnection } from "./connection.ts";
+import { SharedMcpConnection, type SharedMcpOptions } from "./shared-connection.ts";
+import { sharedMcpKey } from "./sharing-policy.ts";
+
+export { shareable } from "./sharing-policy.ts";
 
 interface RegistryEntry {
 	readonly connection: ServerConnection;
@@ -18,14 +21,20 @@ export class HostMcpRegistryError extends Error {
 	}
 }
 
-/** Sharing policy is deliberately disabled until shared lifecycle routing is installed. */
-export function shareable(_config: McpServerConfig): boolean {
-	return false;
-}
-
 /** Host-owned connection leases; standalone services construct their own registry. */
 export class HostMcpRegistry {
 	readonly #entries = new Map<string, Set<RegistryEntry>>();
+	readonly #shared = new Map<string, SharedMcpConnection>();
+
+	attachShared(key: string, owner: object, options: SharedMcpOptions): ServerConnection {
+		const identity = sharedMcpKey(options, options.agentDir);
+		let shared = this.#shared.get(identity);
+		if (shared === undefined) {
+			shared = new SharedMcpConnection(options, () => this.#shared.delete(identity));
+			this.#shared.set(identity, shared);
+		}
+		return shared.attach(options, owner, key);
+	}
 
 	attach(key: string, owner: object, factory: () => ServerConnection, canShare = false): ServerConnection {
 		const entries = this.#entries.get(key);
@@ -47,6 +56,12 @@ export class HostMcpRegistry {
 	}
 
 	async detach(key: string, owner: object): Promise<void> {
+		for (const shared of this.#shared.values()) {
+			const lease = [...shared.leases].find((item) => item.key === key && item.owner === owner);
+			if (lease === undefined) continue;
+			await lease.dispose();
+			return;
+		}
 		const entries = this.#entries.get(key);
 		if (!entries) throw new HostMcpRegistryError(key);
 		for (const entry of entries) {
@@ -68,10 +83,24 @@ export class HostMcpRegistry {
 
 	*forEachOwner(key: string): IterableIterator<object> {
 		for (const entry of this.#entries.get(key) ?? []) yield* entry.owners.keys();
+		for (const shared of this.#shared.values()) {
+			for (const lease of shared.leases) if (lease.key === key) yield lease.owner;
+		}
+	}
+
+	async dispose(): Promise<void> {
+		const connections = [...this.#entries.values()].flatMap((entries) =>
+			[...entries].map((entry) => entry.connection),
+		);
+		this.#entries.clear();
+		await Promise.all([
+			...connections.map((connection) => connection.dispose()),
+			...[...this.#shared.values()].map((shared) => shared.dispose()),
+		]);
 	}
 
 	size(): number {
-		let count = 0;
+		let count = this.#shared.size;
 		for (const entries of this.#entries.values()) count += entries.size;
 		return count;
 	}

@@ -16,6 +16,7 @@ import {
 	type ResolvedMcpServer,
 	validateConfig,
 } from "./config-schema.ts";
+import { inheritMcpSharingScope } from "./sharing-policy.ts";
 import { MCP_STARTUP_RACE_MS } from "./startup-race.ts";
 
 export class McpConfigValidationError extends Error {
@@ -168,6 +169,7 @@ function addTrustedServers(
 ): void {
 	for (const [name, server] of Object.entries(servers)) {
 		const config = normalizeServer(server);
+		inheritMcpSharingScope(server, config);
 		result.servers[name] = {
 			config,
 			configHash: hashConfig(config),
@@ -304,7 +306,12 @@ function interpolateConfig(
 	config: RawConfig | undefined,
 	env: Record<string, string | undefined>,
 ): RawConfig | undefined {
-	return interpolateValue(config, "mcp", env) as RawConfig | undefined;
+	const resolved = interpolateValue(config, "mcp", env) as RawConfig | undefined;
+	for (const [name, raw] of Object.entries(config?.mcpServers ?? {})) {
+		const server = resolved?.mcpServers?.[name];
+		if (server !== undefined) inheritMcpSharingScope(raw, server);
+	}
+	return resolved;
 }
 
 function interpolateValue(value: unknown, path: string, env: Record<string, string | undefined>): unknown {

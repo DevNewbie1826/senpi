@@ -10,7 +10,7 @@
 
 ### Changed
 
-- MCP connection ownership now passes through a host registry. Connections remain separate per session; sharing is disabled, and connection lifecycle behavior is unchanged. ([#1915](https://github.com/code-yeongyu/senpi/issues/1915))
+- Sessions in the in-process daemon now share connections to the same HTTP or session-independent stdio MCP server. Closing one session leaves other sessions' tools available; catalogs and elicitation stay session-owned. Servers with cwd/session-dependent arguments or environment, including ast-grep, remain separate. Standalone and worker sessions are unchanged. ([#1921](https://github.com/code-yeongyu/senpi/issues/1921))
 
 - Updated the test runner to Vitest 5.0.1. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
 
