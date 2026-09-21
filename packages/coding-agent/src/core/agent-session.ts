@@ -51,6 +51,7 @@ import type {
 	SimpleStreamOptions,
 	TextContent,
 	Usage,
+	UserMessage,
 } from "@earendil-works/pi-ai/compat";
 import {
 	cleanupSessionResources,
@@ -118,6 +119,12 @@ import {
 	buildEditedAssistantMessage,
 	SessionStreamingError,
 } from "./edited-assistant-message.ts";
+import {
+	assertExpectedUserLeaf,
+	buildEditedUserMessage,
+	UserEditError,
+	userTextEquals,
+} from "./edited-user-message.ts";
 import { areExperimentalFeaturesEnabled } from "./experimental.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
@@ -718,6 +725,9 @@ export interface AssistantEditResult {
 	/** Id of the appended edited assistant entry. */
 	entryId?: string;
 }
+
+/** Result of {@link AgentSession.editUserMessage}; the edited-assistant shape, field for field. */
+export type UserEditResult = AssistantEditResult;
 
 /** Options for AgentSession.prompt() */
 export type PromptDisposition = "handled" | "queued" | "started";
@@ -9053,10 +9063,40 @@ export class AgentSession {
 		return this._navigateTree(entryId, options, replacement);
 	}
 
+	/**
+	 * Replace a prompt with an edited copy. The leaf moves to the target's parent and the edited
+	 * prompt is appended there as the new leaf, so the original and everything after it are
+	 * abandoned exactly like a tree navigation - this is the `/tree` selection rule of
+	 * `docs/sessions.md`, with the edited text written into the session instead of into an editor.
+	 * No turn starts: the new leaf is a prompt with no reply until a caller runs one. Unchanged
+	 * text appends nothing.
+	 */
+	async editUserMessage(entryId: string, text: string, options: TreeNavigationOptions = {}): Promise<UserEditResult> {
+		if (this.isStreaming) {
+			throw new SessionStreamingError();
+		}
+		// Stale tokens fail before the unchanged short-circuit: a stale window never learns "unchanged".
+		// `_navigateTree` re-checks the same token; nothing awaits in between, so the two agree.
+		assertExpectedUserLeaf(options.expectedLeafId, this.sessionManager.getLeafId());
+		const targetEntry = this.sessionManager.getEntry(entryId);
+		if (!targetEntry) {
+			throw new UserEditError("not-found", `Entry ${entryId} not found`);
+		}
+		if (targetEntry.type !== "message" || targetEntry.message.role !== "user") {
+			throw new UserEditError("not-user", `Entry ${entryId} is not a user message`);
+		}
+		// Build first so an empty replacement is rejected even when the original carries no text.
+		const replacement = buildEditedUserMessage(targetEntry.message, text);
+		if (userTextEquals(targetEntry.message, text)) {
+			return { cancelled: false, unchanged: true };
+		}
+		return this._navigateTree(entryId, options, replacement);
+	}
+
 	private async _navigateTree(
 		targetId: string,
 		options: TreeNavigationOptions,
-		replacement?: AssistantMessage,
+		replacement?: AssistantMessage | UserMessage,
 	): Promise<AssistantEditResult> {
 		if (this.isStreaming) {
 			throw new SessionStreamingError();
@@ -9198,7 +9238,8 @@ export class AgentSession {
 			let editorText: string | undefined;
 
 			if (replacement) {
-				// Edited assistant message: leaf = parent, the edited copy is appended below
+				// Edited message (assistant or user): leaf = parent, the edited copy is appended below.
+				// A user target keeps no editorText: its text is written into the session, not an editor.
 				newLeafId = targetEntry.parentId;
 			} else if (targetEntry.type === "message" && targetEntry.message.role === "user") {
 				// User message: leaf = parent (null if root), text goes to editor
