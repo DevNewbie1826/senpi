@@ -97,7 +97,7 @@ interface AgentSession {
   isStreaming: boolean;
 
   // In-place tree navigation within the current session file
-  navigateTree(targetId: string, options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string }): Promise<{ editorText?: string; cancelled: boolean }>;
+  navigateTree(targetId: string, options?: { intent?: "select" | "resume"; summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string; expectedLeafId?: string }): Promise<{ editorText?: string; cancelled: boolean }>;
 
   // Compaction
   compact(customInstructions?: string): Promise<CompactionResult>;
@@ -112,6 +112,8 @@ interface AgentSession {
 ```
 
 `session.navigateTree()` rejects with `SessionStreamingError` while an agent response is streaming, even with `summarize: false`. It does not queue navigation or return `{ cancelled: true }` for that conflict. Wait for the response to finish (for example, with `await session.waitForIdle()`) and retry. Rejection leaves the active branch unchanged.
+
+`session.navigateTree(id, { intent: "resume", expectedLeafId })` resumes at that exact entry, including user/custom messages, with no `editorText` and no automatic turn. Omitted intent (or `"select"`) keeps retry selection: user/custom targets select their parent and return editor text. Both intents share lifecycle, cancellation, summaries and the unchanged leaf-token guard. For exact resumption, generated summary/label entries are recorded without replacing the requested leaf; the summary is not part of the resumed context. See [RPC tree navigation](rpc.md#navigate_tree) for the corresponding wire contract.
 
 Session replacement APIs such as new-session, resume, fork, and import live on `AgentSessionRuntime`, not on `AgentSession`.
 

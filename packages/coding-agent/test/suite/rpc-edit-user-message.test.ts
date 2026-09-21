@@ -280,6 +280,258 @@ describe("RPC edit_user_message", () => {
 	});
 });
 
+// #1926: exact-leaf resumption must not change the released retry-selection contract.
+describe.each(["entryId", "targetId"] as const)("RPC navigate_tree intent via %s", (address) => {
+	it.each(["user", "assistant"] as const)("resumes an edited branch ending in %s at its exact leaf", async (role) => {
+		const beforeTree = vi.fn();
+		const tree = vi.fn();
+		const { harness, manager, user, leaf, send } = await connection({
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_tree", (event) => {
+						beforeTree(event);
+					});
+					pi.on("session_tree", (event) => {
+						tree(event);
+					});
+				},
+			],
+		});
+		const edit = edited(await send({ type: "edit_user_message", entryId: user, text: "edited branch" }));
+		const target = role === "user" ? edit.entry.id : manager.appendMessage(fauxAssistantMessage("branch answer"));
+		await send({ type: "navigate_tree", entryId: leaf });
+		const entries = manager.getEntries();
+		const before = fileText(harness);
+		beforeTree.mockClear();
+		tree.mockClear();
+		const call = vi.spyOn(harness.session, "navigateTree");
+		const response = await send({ type: "navigate_tree", [address]: target, intent: "resume", expectedLeafId: leaf });
+		expect(response.success).toBe(true);
+		expect(response.data).toEqual(
+			address === "entryId" ? { outcome: "navigated", leafId: target } : { cancelled: false, leafId: target },
+		);
+		expect(response.data).not.toHaveProperty("editorText");
+		expect(call).toHaveBeenCalledWith(target, expect.objectContaining({ intent: "resume", expectedLeafId: leaf }));
+		expect(manager.getLeafId()).toBe(target);
+		expect(manager.getEntries()).toEqual(entries);
+		expect(fileText(harness)).toBe(before);
+		expect(harness.session.messages.map(getMessageText)).toEqual([
+			"first",
+			"one",
+			"edited branch",
+			...(role === "assistant" ? ["branch answer"] : []),
+		]);
+		expect(harness.eventsOfType("agent_start")).toHaveLength(0);
+		expect(beforeTree).toHaveBeenCalledOnce();
+		expect(tree).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ oldLeafId: leaf, newLeafId: target }));
+		// Even the current user leaf resumes in place instead of becoming a retry selection.
+		const again = await send({ type: "navigate_tree", [address]: target, intent: "resume", expectedLeafId: target });
+		expect(again.data).toEqual(response.data);
+		expect(manager.getLeafId()).toBe(target);
+	});
+
+	it.each(["root", "custom", "compaction"] as const)("resumes a %s entry itself without editor text", async (kind) => {
+		const { manager, root, assistant, send } = await connection();
+		const target =
+			kind === "root"
+				? root
+				: kind === "custom"
+					? manager.appendCustomMessageEntry("notice", "custom text", true)
+					: manager.appendCompaction("old work", assistant, 100);
+		const current = manager.appendMessage(fauxAssistantMessage("another branch"));
+		const response = await send({
+			type: "navigate_tree",
+			[address]: target,
+			intent: "resume",
+			expectedLeafId: current,
+		});
+		expect(response.success).toBe(true);
+		expect(response.data).not.toHaveProperty("editorText");
+		expect(manager.getLeafId()).toBe(target);
+	});
+
+	it.each([undefined, "select"])("preserves byte-for-byte retry payloads with intent %j", async (intent) => {
+		const { manager, root, user, assistant, leaf, send } = await connection();
+		const custom = manager.appendCustomMessageEntry("notice", "custom text", true);
+		for (const [target, parent, text] of [
+			[user, assistant, "second"],
+			[root, null, "first"],
+			[custom, leaf, "custom text"],
+		]) {
+			const response = await send({ type: "navigate_tree", [address]: target, intent });
+			expect(response.success).toBe(true);
+			expect(JSON.stringify(response.data)).toBe(
+				JSON.stringify(
+					address === "entryId"
+						? { outcome: "navigated", leafId: parent, editorText: text }
+						: { editorText: text, cancelled: false, leafId: parent },
+				),
+			);
+			expect(manager.getLeafId()).toBe(parent);
+		}
+	});
+
+	it("forwards stale and empty resume tokens verbatim before events or writes", async () => {
+		const beforeTree = vi.fn();
+		const { harness, manager, user, leaf, send } = await connection({
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_tree", (event) => {
+						beforeTree(event);
+					});
+				},
+			],
+		});
+		const call = vi.spyOn(harness.session, "navigateTree");
+		const before = fileText(harness);
+		const entries = manager.getEntries();
+		const messages = [...harness.session.messages];
+		for (const expectedLeafId of ["stale-token", ""]) {
+			// Current-leaf targets must not bypass the concurrency guard either.
+			for (const target of [user, leaf]) {
+				expectRefusal(
+					await send({ type: "navigate_tree", [address]: target, intent: "resume", expectedLeafId }),
+					leaf,
+					"stale_leaf",
+				);
+				expect(call).toHaveBeenLastCalledWith(
+					target,
+					expect.objectContaining({ intent: "resume", expectedLeafId }),
+				);
+			}
+		}
+		expect(beforeTree).not.toHaveBeenCalled();
+		expect(manager.getLeafId()).toBe(leaf);
+		expect(manager.getEntries()).toEqual(entries);
+		expect(harness.session.messages).toEqual(messages);
+		expect(fileText(harness)).toBe(before);
+	});
+
+	it("shares extension cancellation without changing the leaf", async () => {
+		const tree = vi.fn();
+		const { harness, manager, user, leaf, send } = await connection({
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_tree", () => ({ cancel: true }));
+					pi.on("session_tree", (event) => {
+						tree(event);
+					});
+				},
+			],
+		});
+		const before = fileText(harness);
+		const response = await send({ type: "navigate_tree", [address]: user, intent: "resume", expectedLeafId: leaf });
+		expect(response.data).toEqual(
+			address === "entryId" ? { outcome: "cancelled", leafId: leaf } : { cancelled: true, leafId: leaf },
+		);
+		expect(manager.getLeafId()).toBe(leaf);
+		expect(fileText(harness)).toBe(before);
+		expect(tree).not.toHaveBeenCalled();
+	});
+
+	it("shares summaries and labels without replacing the requested resume leaf", async () => {
+		const beforeTree = vi.fn();
+		const tree = vi.fn();
+		const { harness, manager, user, leaf, send } = await connection({
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_tree", (event) => {
+						beforeTree(event);
+						return { summary: { summary: "abandoned work" } };
+					});
+					pi.on("session_tree", (event) => {
+						tree(event);
+					});
+				},
+			],
+		});
+		const response = await send({
+			type: "navigate_tree",
+			[address]: user,
+			intent: "resume",
+			expectedLeafId: leaf,
+			summarize: true,
+			customInstructions: "retain decisions",
+			replaceInstructions: true,
+			label: "checkpoint",
+		});
+		expect(response.success).toBe(true);
+		expect(response.data).toMatchObject({ leafId: user });
+		expect(response.data).not.toHaveProperty("editorText");
+		const summary = manager.getEntries().find((entry) => entry.type === "branch_summary");
+		expect(summary).toMatchObject({ parentId: user, summary: "abandoned work" });
+		expect(manager.getLabel(summary!.id)).toBe("checkpoint");
+		expect(response.data).toMatchObject(
+			address === "entryId" ? { summaryEntryId: summary!.id } : { summaryEntry: summary },
+		);
+		expect(beforeTree).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				preparation: expect.objectContaining({
+					targetId: user,
+					oldLeafId: leaf,
+					userWantsSummary: true,
+					customInstructions: "retain decisions",
+					replaceInstructions: true,
+					label: "checkpoint",
+				}),
+			}),
+		);
+		expect(tree).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ newLeafId: user, oldLeafId: leaf, summaryEntry: summary, fromExtension: true }),
+		);
+		expect(manager.getLeafId()).toBe(user);
+		expect(harness.session.messages.map(getMessageText)).toEqual(["first", "one", "second"]);
+		const labelled = await send({
+			type: "navigate_tree",
+			[address]: user,
+			intent: "resume",
+			expectedLeafId: user,
+			label: "user tail",
+		});
+		expect(labelled.data).toMatchObject({ leafId: user });
+		expect(manager.getLabel(user)).toBe("user tail");
+	});
+
+	it("shares summary abort and streaming refusal", async () => {
+		const { harness, manager, user, leaf, send } = await connection();
+		const before = fileText(harness);
+		harness.setResponses([
+			() => {
+				harness.session.abortBranchSummary();
+				return fauxAssistantMessage("unused");
+			},
+		]);
+		const response = await send({ type: "navigate_tree", [address]: user, intent: "resume", summarize: true });
+		expect(response.data).toMatchObject({ leafId: leaf, aborted: true });
+		expect(manager.getLeafId()).toBe(leaf);
+		expect(fileText(harness)).toBe(before);
+		harness.setResponses([
+			async () => {
+				expectRefusal(
+					await send({ type: "navigate_tree", [address]: user, intent: "resume" }),
+					manager.getLeafId(),
+					"streaming",
+				);
+				return fauxAssistantMessage("done");
+			},
+		]);
+		await harness.session.prompt("third");
+	});
+
+	it.each(["unknown", "", null, true])(
+		"refuses invalid intent %j instead of silently selecting a prompt",
+		async (intent) => {
+			const { harness, manager, user, leaf, send } = await connection();
+			const before = fileText(harness);
+			const call = vi.spyOn(harness.session, "navigateTree");
+			expectRefusal(await send({ type: "navigate_tree", [address]: user, intent }), leaf);
+			expect(call).not.toHaveBeenCalled();
+			expect(manager.getLeafId()).toBe(leaf);
+			expect(fileText(harness)).toBe(before);
+		},
+	);
+});
+
 describe("RPC navigate_tree", () => {
 	it("selects a user entry's PARENT and returns the text to the editor", async () => {
 		const { harness, manager, assistant, user, leaf, send } = await connection();
