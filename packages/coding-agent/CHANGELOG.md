@@ -12,9 +12,9 @@
 
 ### Fixed
 
-- Fixed `apply_patch` activation for provider-prefixed GPT model IDs and kept file-editing guidance consistent with the active tool set ([#1891](https://github.com/code-yeongyu/senpi/issues/1891)).
-
 - `senpi host ensure` no longer refuses `foreign_writer` forever when the registered generation is still alive but nothing accepts connections at its public socket path - the entry is gone, or a dead listener left it behind. Nothing serves that path, so a fresh generation is started beside the stranded one, which is never signalled and keeps its registration until it exits. Before, a superseded host draining its last session locked every other client out of the endpoint until it happened to end. ([#1936](https://github.com/code-yeongyu/senpi/issues/1936))
+
+- Fixed `apply_patch` activation for provider-prefixed GPT model IDs and kept file-editing guidance consistent with the active tool set ([#1891](https://github.com/code-yeongyu/senpi/issues/1891)).
 
 ### Removed
 
