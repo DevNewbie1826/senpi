@@ -30,9 +30,13 @@ export class PythonKernelRetirementError extends Error {
 }
 
 export function defaultSpawn(options: KernelSpawnOptions): KernelChild {
+	// Detached children survive their host, so the prelude needs the host pid to
+	// watch for a parent that is already gone by the time the interpreter boots.
+	const env =
+		process.platform === "win32" ? options.env : { ...options.env, SENPI_PY_KERNEL_PARENT_PID: String(process.pid) };
 	return spawn(options.command, [...options.args], {
 		cwd: options.cwd,
-		env: options.env,
+		env,
 		stdio: "pipe",
 		detached: process.platform !== "win32",
 		windowsHide: true,
