@@ -529,9 +529,15 @@ def agent(
     schema: dict[str, Any] | None = None,
     isolated: bool | None = None,
     apply: bool | None = None,
-    merge: bool | None = None,
+    merge: bool | str | None = None,
     handle: bool = False,
 ) -> Any:
+    """Delegate work; isolated/apply/merge need a host that supports isolation, otherwise a warning.
+
+    merge accepts "patch"/"branch" or False/True respectively. Unapplied foreground
+    changes raise an error with recovery instructions. A handle returns immediately;
+    await the completion notification or read task_output for the isolation result.
+    """
     args: dict[str, Any] = {"prompt": prompt}
     if agent is not None:
         args["agent"] = agent
@@ -546,7 +552,7 @@ def agent(
     if apply is not None:
         args["apply"] = bool(apply)
     if merge is not None:
-        args["merge"] = bool(merge)
+        args["merge"] = merge
     if handle:
         args["handle"] = True
 
@@ -578,6 +584,9 @@ def agent(
     }
     if schema is not None:
         node["data"] = parsed
+    details = response_record.get("details")
+    if isinstance(details, dict) and "isolation" in details:
+        node["details"] = {"isolation": details["isolation"]}
     for key in (
         "isolated",
         "patch_path",

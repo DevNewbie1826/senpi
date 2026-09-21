@@ -1,4 +1,5 @@
 import type { AgentToolResult } from "@code-yeongyu/senpi";
+import type { EvalSchemaToolInfo } from "../../src/bridges/schema-bridge.ts";
 import { defaultCodemodeSettings } from "../../src/config/settings.ts";
 import { createCodemodeSessionManager } from "../../src/extension/session-manager.ts";
 import { createInterpreterDetector, getInterpreterAvailability } from "../../src/interpreters/detect.ts";
@@ -53,13 +54,14 @@ export function retainingHost() {
 	};
 }
 
-export async function fixture(executeTool: ExecuteTool) {
+export async function fixture(executeTool: ExecuteTool, listTools?: () => readonly EvalSchemaToolInfo[]) {
 	const manager = await createCodemodeSessionManager({
 		sessionId: `workpool-test-${crypto.randomUUID()}`,
 		cwd: process.cwd(),
 		settings,
 		availability,
 		executeTool,
+		...(listTools === undefined ? {} : { listTools }),
 		complete: async () => {
 			throw new Error("Provider calls are forbidden in workpool tests");
 		},
@@ -68,6 +70,7 @@ export async function fixture(executeTool: ExecuteTool) {
 		enabledLanguages: settings.languages,
 		kernelManager: manager,
 		executeTool,
+		...(listTools === undefined ? {} : { listTools }),
 		cellTimeoutSeconds: 30,
 	});
 	return {

@@ -162,13 +162,25 @@ tasks return the requested transcript. Missing tools produce a clear
 availability error instead of importing an orchestration package. `agent()`
 delegates through the tool contract, so task-engine permissions, progress
 updates, and transcripts remain owned by that engine.
-`isolated`, `apply`, and `merge` are accepted for compatibility but emit a
-warning because this task-engine integration has no isolation model.
+`isolated` and `apply` accept booleans; `merge` accepts `"patch"` or `"branch"`
+(and `false`/`true` aliases respectively). The bridge checks the configured task
+parameter schema once per bridge, using the same host catalog as `tool_schema()`.
+If it advertises `isolated`, these options are forwarded; otherwise they are
+omitted with the existing warning. Senpi does not implement isolation itself.
+A foreground host result with `details.isolation.changes_applied === false`
+raises `AgentIsolationNotAppliedError` (`isolation_not_applied`), including any
+`patch_path`, `branch_name`, and `manual_command` recovery fields in its message.
+The bridge retains host `details.isolation`; successful foreground helpers still
+return text or parsed JSON.
 
 Background `agent()` handles retain `id` and `agent://<id>` and include `run_epoch`.
 The host must return structured `details.task_id` (`st_` plus lowercase hex) and
 an integer `details.run_epoch >= 0`. Missing or malformed details raise
-`invalid_task_handle`; prose IDs are never used. Foreground text/JSON is unchanged.
+`invalid_task_handle`; prose IDs are never used. Handles return immediately,
+so final isolation results are not available on the initial handle: await the
+completion notification or read `task_output` (via `output()`) after completion.
+Any isolation metadata supplied by the host on a handle is preserved as
+`details.isolation`, not interpreted as a foreground apply failure.
 
 `workpool` takes exactly one of `{category, prompt, model?}` or
 `{subagent_type, prompt, model?}` as its plain-data agent spec. Mode is `fresh`
