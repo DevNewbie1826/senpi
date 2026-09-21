@@ -22,6 +22,7 @@ Use `/login` in interactive mode, then select a provider:
 - GitHub Copilot
 - xAI (Grok/X subscription)
 - OpenRouter (OAuth-minted API key billed from OpenRouter credits)
+- Kimi Code (kimi.com / kimi.ai subscriptions)
 - Radius
 - Cursor (Pro/Ultra/Teams) — authentication only for now, see below
 
@@ -135,6 +136,13 @@ Upstreams that require explicit cache breakpoints get `cache_control` blocks thr
 #### Moonshot / Kimi prompt caching
 
 senpi sends `prompt_cache_key` (set to the session id) on Moonshot requests. Kimi documents the field as required for the Kimi Code Plan and recommended for any multi-turn agent ([Kimi context caching](https://platform.kimi.ai/docs/guide/use-context-caching-feature-of-kimi-api)). Kimi reports cache hits as a flat `usage.cached_tokens` field, which senpi parses as cache-read tokens.
+
+### Kimi Code
+
+- Run `/login kimi-coding`, then select **Sign in with Kimi Code** and pick the service that hosts your account: **Mainland China (kimi.com)** or **Outside mainland China (kimi.ai)**
+- The region is stored with the credential; token refresh and model requests follow it (`auth.kimi.ai` + `api.kimi.ai/coding` for international accounts), so a `.ai` login keeps working after restarts and env changes
+- **Use an API key** asks the same region question and routes `KIMI_API_KEY` requests by it; `KIMI_CODE_REGION=global` (or `mainland-cn`) answers it for headless setups
+- `KIMI_CODE_OAUTH_HOST` / `KIMI_OAUTH_HOST` still override the auth host for new logins and for credentials saved before regions existed; a host other than the two official ones is kept verbatim and needs a `models.json` `baseUrl` for inference
 
 ### Radius
 
@@ -286,7 +294,7 @@ senpi
 | Fireworks | `FIREWORKS_API_KEY` | `fireworks` |
 | Together AI | `TOGETHER_API_KEY` | `together` |
 | Baseten | `BASETEN_API_KEY` | `baseten` |
-| Kimi For Coding | `KIMI_API_KEY` | `kimi-coding` |
+| Kimi For Coding | `KIMI_API_KEY` (+ `KIMI_CODE_REGION`) | `kimi-coding` |
 | MiniMax | `MINIMAX_API_KEY` | `minimax` |
 | MiniMax (China) | `MINIMAX_CN_API_KEY` | `minimax-cn` |
 | Qwen Token Plan (existing catalog) | `QWEN_TOKEN_PLAN_API_KEY` | `qwen-token-plan` |

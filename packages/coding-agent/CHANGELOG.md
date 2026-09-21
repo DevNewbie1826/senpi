@@ -6,6 +6,7 @@
 
 ### Added
 
+- `/login kimi-coding` asks which service hosts the account, **Mainland China (kimi.com)** or **Outside mainland China (kimi.ai)**, for both the subscription sign-in and the API-key path. International accounts authorize at `auth.kimi.ai` and send requests to `api.kimi.ai/coding`; the choice is saved with the credential and survives restarts, token refresh, and env changes. `KIMI_CODE_REGION=global` answers the question for headless setups. Existing credentials keep today's behaviour. ([#1890](https://github.com/code-yeongyu/senpi/issues/1890))
 - `agent()` forwards `isolated`, `apply`, and `merge` when the task host advertises isolation. Hosts that do not still drop those options with the existing warning. A foreground call whose isolation did not apply now raises instead of looking successful; with `handle: true` the isolation result arrives on completion. ([#1910](https://github.com/code-yeongyu/senpi/issues/1910))
 
 ### Changed

@@ -6,6 +6,8 @@
 
 ### Added
 
+- Kimi Code login asks which service hosts the account, **Mainland China (kimi.com)** or **Outside mainland China (kimi.ai)**, for both the subscription OAuth flow and the API-key flow. The region is stored with the credential, so token refresh and model requests follow it; `KIMI_CODE_REGION` answers the prompt for headless logins, and credential pool slots keep each account's region. Credentials saved before this release keep today's behaviour: `KIMI_CODE_OAUTH_HOST` / `KIMI_OAUTH_HOST`, then kimi.com. ([#1890](https://github.com/code-yeongyu/senpi/issues/1890))
+
 ### Changed
 
 ### Fixed
