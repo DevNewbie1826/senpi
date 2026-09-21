@@ -1,5 +1,27 @@
 # mcp Extension Changes
 
+## 2026-09-21 - Catalog cache writes bind to the attach-time agent dir (senpi#1904)
+
+### What changed
+
+- `service.ts`: `attachSession` resolves the agent dir once at attach time (`options.agentDir ?? getAgentDir()`) and threads the resolved value through the session options, so config loading, the auth plan, and every `McpConnectionEntry.agentDir` carry the attach-time directory instead of `undefined`.
+- `startup-race.ts`'s backgrounded `writeMcpCachedServer(entry.agentDir, ...)` (and every later reconnect rewrite through the same entry) therefore writes into the attach-time directory; `catalog-cache.ts`'s write-time `getAgentDir()` default is no longer reachable from a default-attach session.
+- `test/mcp/catalog-cache-agent-dir.test.ts` (new): attaches through the default path with the env at dir A, flips the env to dir B before the backgrounded catalog write resolves, and asserts the cache lands under A, never B.
+
+### Why
+
+- The default attach path (interactive/RPC sessions) passes no `agentDir` option, so entries carried `undefined` and the backgrounded cache write re-resolved the directory from the environment at write time. Any env change between attach and that write - per-test env restore racing a backgrounded connect being the observed case - deposited catalog entries into a foreign agent directory: a real agent dir's `cache/mcp-cache.json` carried `fixture` (2026-08-29) and `fx` (2026-08-31) entries written by test runs. A decoy-dir sentinel reproduced it on an unfixed tree: the quarantine-bypassing runner (`bun test`, which skips `test/setup.ts`) mutated the decoy's cache while the quarantined vitest run left it byte-identical; on the fixed tree both runners leave the sentinel byte-identical.
+
+### Why an extension could not handle it
+
+- The connection entry, the startup-race continuation, and the cache write are private to the MCP builtin; no public extension API exposes or overrides the write-time directory.
+
+### Expected merge conflict zones
+
+- LOW: `service.ts` `attachSession` top (the session-options resolution and the four call sites that consume it).
+- LOW: `test/mcp/catalog-cache-agent-dir.test.ts` (new file).
+- MEDIUM: concurrent MCP PRs touching `service.ts` `#syncFromConfig` entry construction or the attach closure.
+
 ## 2026-09-17 - The prompt build observes the deferred attach (senpi#1797)
 
 ### What changed
