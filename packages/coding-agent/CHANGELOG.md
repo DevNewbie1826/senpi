@@ -12,6 +12,8 @@
 
 - MCP connection ownership now passes through a host registry. Connections remain separate per session; sharing is disabled, and connection lifecycle behavior is unchanged. ([#1915](https://github.com/code-yeongyu/senpi/issues/1915))
 
+- Updated the test runner to Vitest 5.0.1. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
+
 ### Fixed
 
 - The Bun extension importer reads `es-module-lexer` 3's tagged-union import records, so extensions load unchanged after the lexer upgrade to 3.0.2. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))

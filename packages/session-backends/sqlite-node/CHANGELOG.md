@@ -15,6 +15,10 @@
 - Added bounded active-branch queries, shared sequence allocation, session statistics, and the parameterized `sql`
   template tag.
 
+### Changed
+
+- Updated the test runner to Vitest 5.0.1 and V8 coverage to @vitest/coverage-v8 5.0.1. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
+
 ### Fixed
 
 - `src/sqlite/repo.ts`: decode durable GPT-6 Astra `configuration_update` session entries with reasoning-effort
