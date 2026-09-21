@@ -1,5 +1,26 @@
 # changes
 
+## 2026-09-21 - Bun keeps its native fetch across HTTP dispatcher setup (#1890)
+
+### What changed
+
+- `packages/coding-agent/src/core/http-dispatcher.ts`: the global-install decision is the pure, injectable `shouldInstallUndiciGlobals({ versions, currentFetch, originalFetch, installedFetch })`. It answers `false` whenever `versions.bun` is set; the Node branch keeps the existing override-preservation rule. `configureHttpDispatcher` still installs the `EnvHttpProxyAgent` as undici's global dispatcher on every runtime.
+- `packages/coding-agent/test/suite/regressions/1890-bun-native-fetch.test.ts` pins both branches from one runner.
+
+### Why
+
+- The distributed CLI inlines npm undici, so `undici.install()` used to replace Bun's native `fetch` with undici's fetch running on Bun. On Bun 1.3.x that fetch delivers the response headers and then never a streamed body: a print-mode run of the 2026.9.20 bundle against a loopback Anthropic SSE server returns `HELLO` in 0.5s on Bun 1.4.2 and hangs past 45s on Bun 1.3.14 with the request already received. Every SSE model response on that runtime stalled after the headers.
+- Bun's own fetch honors `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, which `applyHttpProxySettings` sets, and the agent loop bounds stalled streams through `getAgentStreamIdleTimeoutMs` / `getAgentStreamStartTimeoutMs`, both derived from the same `httpIdleTimeoutMs` setting. The undici `bodyTimeout` / `headersTimeout` therefore only ever guarded Node; on Bun they had applied solely where the install worked.
+- In source form `import "undici"` resolves to Bun's builtin shim, which has no `install`, so the package tests could not observe the bundle behaviour; the injected decision is the seam that can.
+
+### Why an extension could not handle it
+
+- `configureHttpDispatcher` runs from `cli-main.ts` / `rpc-entry.ts` before any extension loads, and restoring `globalThis.fetch` afterwards would leave the other replaced constructors and the installed marker behind.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/http-dispatcher.ts`: the `shouldInstallGlobals` computation at the end of `configureHttpDispatcher` and the new exported decision above it. Dispatcher construction, proxy handling, and the multi-session pin are unchanged.
+
 ## 2026-09-21 - Typed missing-entry tree navigation refusal (#1892 follow-up)
 
 ### What changed
