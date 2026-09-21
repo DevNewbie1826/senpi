@@ -482,6 +482,26 @@ describe("RPC navigate_tree", () => {
 		},
 	);
 
+	// #1892 follow-up: exercise the real handler/core path, not a mocked typed rejection.
+	it.each(["entryId", "targetId"] as const)(
+		"returns not_found for a missing %s without changing the session",
+		async (address) => {
+			const { harness, manager, leaf, send } = await connection();
+			const before = fileText(harness);
+			const entries = manager.getEntries();
+			const messages = [...harness.session.messages];
+
+			const response = await send({ type: "navigate_tree", [address]: "missing", expectedLeafId: leaf });
+
+			expect(response).toMatchObject({ type: "response", command: "navigate_tree" });
+			expectRefusal(response, leaf, "not_found");
+			expect(manager.getLeafId()).toBe(leaf);
+			expect(manager.getEntries()).toEqual(entries);
+			expect(harness.session.messages).toEqual(messages);
+			expect(fileText(harness)).toBe(before);
+		},
+	);
+
 	it("reports cancellation of entry selection with the intact leaf", async () => {
 		const { user, leaf, send } = await connection({
 			extensionFactories: [

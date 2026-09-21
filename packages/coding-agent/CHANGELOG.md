@@ -14,6 +14,8 @@
 
 ### Fixed
 
+- RPC `navigate_tree` now returns the documented `errorCode: "not_found"` when its target entry is missing, instead of an untyped error. The refusal leaves the session unchanged. ([#1892](https://github.com/code-yeongyu/senpi/issues/1892))
+
 ### Removed
 
 ## [2026.9.21] - 2026-09-21

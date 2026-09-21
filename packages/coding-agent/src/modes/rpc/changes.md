@@ -1,3 +1,21 @@
+## 2026-09-21 - Correct the legacy navigation selection comment (#1892 follow-up)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`: the `targetId` comment now describes the same selection rule as `entryId`: user/custom targets select their parent, root-user selection yields a null leaf, and other targets select themselves. Only the response shape is legacy.
+
+### Why
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts` still promised a verbatim leaf move, contrary to the shipped core behavior and corrected RPC documentation.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts` owns the client-facing command contract; an extension cannot correct its type comments.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`: the `navigate_tree.targetId` comment only. No type, dispatch, response shape, or selection behavior changes.
+
 ## 2026-09-21 - Own one MCP registry per in-process host (#1915)
 
 ### What changed
@@ -150,9 +168,6 @@ reclaimed from. A generation record that cannot be parsed is never pruned: an en
 it right now. Pinned by `test/suite/regressions/1893-superseded-generation-drain.test.ts` (real
 supervisor, socket taken over with no signal) and `1893-generation-records-and-claims.test.ts`.
 
-||||||| parent of e51eff445 (feat(rpc): type the user-message edit and tree navigation commands)
-||||||| parent of 1ab53e09e (feat(rpc): dispatch user-message edits and tree navigation)
-||||||| parent of 1c5fd8af9 (feat(extensions): edit a user message and navigate the tree)
 ## 2026-09-21 - Extension user-edit binding and client leaf visibility
 
 ### What changed

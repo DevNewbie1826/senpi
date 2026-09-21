@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-21 - Typed missing-entry tree navigation refusal (#1892 follow-up)
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session.ts`: `_navigateTree` throws the existing `AssistantEditError("not-found", ...)` for a missing target, exposing the stable `not_found` code through the shared core path and RPC handler.
+
+### Why
+
+- `packages/coding-agent/src/core/agent-session.ts` threw a plain error, so RPC navigation omitted its documented `errorCode`. Real handler regressions cover both `entryId` and `targetId`, with no changes to the leaf, entries, messages, or session file on refusal.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/core/agent-session.ts` validates the target before dispatching extension tree events; the core error must carry the code for every caller.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/agent-session.ts`: the missing-target guard in `_navigateTree`. Selection, guard ordering, summaries, and edit behavior are unchanged.
+
 ## 2026-09-21 - Per-provider streaming concurrency cap (senpi#1909)
 
 ### What changed
@@ -65,8 +83,6 @@
 
 - Runtime lifecycle dispatch adjacent to `emitBeforeSwitch`; no TUI lifecycle changes.
 
-||||||| parent of 5f652dcfa (feat(coding-agent): edit a user message in place as a tree branch)
-||||||| parent of 1ab53e09e (feat(rpc): dispatch user-message edits and tree navigation)
 ## 2026-09-21 - Selecting the current prompt still moves to its parent
 
 ### What changed
