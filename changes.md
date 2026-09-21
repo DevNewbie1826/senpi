@@ -4,14 +4,16 @@
 
 ### What changed
 
-- `package.json` pins the root development runner to Vitest 5.0.1.
+- `package.json` pins the root development runner and its V8 coverage provider to 5.0.1 so the hoisted runner can load coverage.
 - `.gitignore` excludes the `.vitest/` artifact directory.
 - `package-lock.json` and `bun.lock` resolve the migrated runners and V8 coverage packages while retaining Vitest 4.1.11 for evals.
+- `bun.lock` uses configuration version 1, selecting Bun's isolated workspace linker so vitest-evals resolves the evals workspace's Vitest 4 peer.
 
 ### Why
 
 - PTY and codemode invoke the hoisted runner without declaring it. A root pin keeps them on Vitest 5 under both npm and Bun; otherwise npm hoists Vitest 4 to satisfy vitest-evals.
 - vitest-evals 0.17.0 requires Vitest `>=4 <5`. The evals workspace retains 4.1.11 until a newer compatible harness is published.
+- Bun's old hoisted layout places vitest-evals beside root Vitest 5 despite that peer range. Isolated linking preserves the compatible peer instance without changing any dependency version or overriding the peer contract.
 
 ### Why an extension could not handle it
 

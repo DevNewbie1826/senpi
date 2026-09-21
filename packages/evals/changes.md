@@ -5,10 +5,12 @@
 ### What changed
 
 - `packages/evals/package.json` retains vitest-evals 0.17.0 and Vitest 4.1.11 during the other workspaces' Vitest 5 migration.
+- `packages/evals/package.json` pins the matching V8 coverage provider at 4.1.11.
 
 ### Why
 
 - The newest vitest-evals release requires Vitest `>=4 <5`. npm rejects the combined peer tree when the shared root runner is pinned to 5.0.1. Keeping evals on 4.1.11 preserves installation without overriding the harness's peer range.
+- Vitest 4 declares an exact optional coverage peer. Once the root exposes coverage 5, npm otherwise resolves that incompatible provider from the eval runner; the local coverage pin preserves its peer contract.
 
 ### Why an extension could not handle it
 

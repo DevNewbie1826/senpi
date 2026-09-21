@@ -12,6 +12,7 @@
 		"@earendil-works/pi-ai": "^2026.9.21",
 		"@code-yeongyu/senpi": "^2026.9.21",
 		"@types/node": "26.6.2",
+		"@vitest/coverage-v8": "4.1.11",
 		"shx": "0.4.0",
 		"typescript": "7.0.2",
 		"vitest": "4.1.11",
