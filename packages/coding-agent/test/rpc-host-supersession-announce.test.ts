@@ -1,4 +1,4 @@
-import { watch } from "node:fs";
+import { realpathSync, watch } from "node:fs";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -71,6 +71,10 @@ async function rig(options: { held?: HeldAnthropicModel; monitor?: boolean; grac
 	};
 	const client = await connect();
 	const sessionPath = join(qa.sessionDir, "session.jsonl");
+	// The host reserves and reports session files by CANONICAL path, so on macOS a scratch dir under
+	// /var/... comes back as /private/var/.... Open with the raw path (that canonicalization is part
+	// of what these tests cover) and compare terminal records against the canonical one.
+	const canonicalSessionPath = join(realpathSync(qa.sessionDir), "session.jsonl");
 	const sessionId = openedSessionId(
 		await client.request({ id: "open", type: "open_session", cwd: qa.cwd, sessionPath }),
 	);
@@ -82,6 +86,7 @@ async function rig(options: { held?: HeldAnthropicModel; monitor?: boolean; grac
 		client,
 		sessionId,
 		sessionPath,
+		canonicalSessionPath,
 		connect,
 		takeover: () => handoffHost(launch),
 		release: () => options.held?.release(),
@@ -132,7 +137,7 @@ describe.skipIf(process.platform === "win32")("attached generation supersession"
 		expect(lifecycle[1]).toMatchObject({
 			sessionId: r.sessionId,
 			reason: "handoff_parked",
-			sessionPath: r.sessionPath,
+			sessionPath: r.canonicalSessionPath,
 		});
 		expect(await waitForPidGone(r.host.pid, 20_000)).toBe(true);
 	}, 120_000);
@@ -146,7 +151,11 @@ describe.skipIf(process.platform === "win32")("attached generation supersession"
 			await announced;
 			await r.client.waitForClose(20_000);
 			expect(r.client.messages).toContainEqual(
-				expect.objectContaining({ type: "session_closed", reason: "handoff_parked", sessionPath: r.sessionPath }),
+				expect.objectContaining({
+					type: "session_closed",
+					reason: "handoff_parked",
+					sessionPath: r.canonicalSessionPath,
+				}),
 			);
 			expect(await waitForPidGone(r.host.pid, 20_000)).toBe(true);
 		},

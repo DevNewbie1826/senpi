@@ -628,6 +628,10 @@ without a known replacement. This record has no request id or session handle; ol
 3. Active sessions keep serving their existing connections and park when their turns and requests settle. Each
    released handle emits `session_closed { sessionId, reason: "handoff_parked", sessionPath }` after releasing its
    file. This is not a session deletion: reopen `sessionPath` on the successor to obtain a new routing handle.
+   That `sessionPath` is the CANONICAL path the host reserved the file under, which is not necessarily the string
+   the client passed to `open_session` (a scratch dir under `/var/...` on macOS is reported as `/private/var/...`).
+   A client matching the record against its own stored path must canonicalize before comparing; reopening with
+   either spelling resolves to the same reservation.
    The connection closes after its last attached session parks; a connection shared with another active session
    stays open until that session also settles. A command racing parking on the old connection is either served
    or answered by that terminal record and close, never `unknown_session` for the parked handle. New opens on a
