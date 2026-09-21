@@ -43,6 +43,14 @@ class BridgeKernel implements EvalKernel {
 
 	async reset(): Promise<void> {}
 
+	cancelQueued(): boolean {
+		return false;
+	}
+
+	queueSnapshot() {
+		return { activeCellId: null, queuedCellIds: [] };
+	}
+
 	async close(): Promise<void> {}
 }
 

@@ -117,6 +117,8 @@ export interface EvalKernelRunInput {
 	readonly cellId: string;
 	readonly code: string;
 	readonly timeoutMs?: number;
+	readonly onStarted?: () => void;
+	readonly onMessage?: (message: KernelToHostMessage) => void;
 }
 
 export interface KernelInterruptHandle {
@@ -128,7 +130,9 @@ export interface KernelInterruptHandle {
 
 export interface EvalKernel {
 	run(input: EvalKernelRunInput): Promise<EvalKernelResult>;
-	interrupt(reason?: string): Promise<KernelInterruptHandle>;
+	cancelQueued(cellId: string, reason: string): boolean;
+	interrupt(reason?: string, cellId?: string): Promise<KernelInterruptHandle>;
+	queueSnapshot(): { activeCellId: string | null; queuedCellIds: readonly string[] };
 	deliverToolReply(message: Extract<HostToKernelMessage, { type: "tool-reply" }>): void;
 	reset(): Promise<void>;
 	close(): Promise<void>;

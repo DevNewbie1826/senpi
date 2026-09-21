@@ -24,6 +24,14 @@ class FakeKernel implements EvalKernel {
 
 	deliverToolReply(): void {}
 
+	cancelQueued(): boolean {
+		return false;
+	}
+
+	queueSnapshot() {
+		return { activeCellId: null, queuedCellIds: [] };
+	}
+
 	async reset(): Promise<void> {}
 
 	async close(): Promise<void> {}

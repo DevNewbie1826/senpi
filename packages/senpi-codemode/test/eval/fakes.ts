@@ -99,6 +99,14 @@ export class FakeKernel implements EvalKernel {
 		this.replies.push(message);
 	}
 
+	cancelQueued(): boolean {
+		return false;
+	}
+
+	queueSnapshot() {
+		return { activeCellId: this.deferredRun ? (this.runs.at(-1)?.cellId ?? null) : null, queuedCellIds: [] };
+	}
+
 	async reset(): Promise<void> {
 		this.resetCount++;
 	}
@@ -151,10 +159,16 @@ export class PendingInterruptKernel implements EvalKernel {
 	readonly interruptStarted = new Deferred<void>();
 	readonly interruptResult = new Deferred<void>();
 	readonly interrupts: Array<string | undefined> = [];
+	private activeCellId: string | null = null;
 
-	async run(): Promise<KernelResult> {
+	async run(input: EvalKernelRunInput): Promise<KernelResult> {
+		this.activeCellId = input.cellId;
 		this.runStarted.resolve(undefined);
-		return await this.runResult.promise;
+		try {
+			return await this.runResult.promise;
+		} finally {
+			this.activeCellId = null;
+		}
 	}
 
 	async interrupt(reason?: string): Promise<KernelInterruptHandle> {
@@ -166,6 +180,14 @@ export class PendingInterruptKernel implements EvalKernel {
 
 	deliverToolReply(): void {}
 
+	cancelQueued(): boolean {
+		return false;
+	}
+
+	queueSnapshot() {
+		return { activeCellId: this.activeCellId, queuedCellIds: [] };
+	}
+
 	async reset(): Promise<void> {}
 
 	async close(): Promise<void> {}
@@ -174,13 +196,16 @@ export class PendingInterruptKernel implements EvalKernel {
 export class KernelOwnedTimeoutKernel implements EvalKernel {
 	readonly runStarted = new Deferred<void>();
 	readonly interrupts: Array<string | undefined> = [];
+	private activeCellId: string | null = null;
 
 	async run(input: EvalKernelRunInput): Promise<KernelResult> {
 		const timeoutMs = input.timeoutMs;
 		if (timeoutMs === undefined) throw new Error("expected a kernel timeout");
+		this.activeCellId = input.cellId;
 		this.runStarted.resolve(undefined);
 		return await new Promise<KernelResult>((resolve) => {
 			setTimeout(() => {
+				this.activeCellId = null;
 				resolve({
 					type: "result",
 					cellId: input.cellId,
@@ -198,6 +223,14 @@ export class KernelOwnedTimeoutKernel implements EvalKernel {
 	}
 
 	deliverToolReply(): void {}
+
+	cancelQueued(): boolean {
+		return false;
+	}
+
+	queueSnapshot() {
+		return { activeCellId: this.activeCellId, queuedCellIds: [] };
+	}
 
 	async reset(): Promise<void> {}
 

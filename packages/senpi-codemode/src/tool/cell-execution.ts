@@ -37,6 +37,7 @@ const NO_WATCHDOG: TimeoutPauseHandle & { dispose(): void } = {
 
 export class CellExecution {
 	readonly #callerSignal: AbortSignal;
+	readonly #cellId: string;
 	readonly #onAbort: (error: Error) => void;
 	readonly #abortPromise: Promise<never>;
 	readonly #detachedPromise: Promise<void>;
@@ -49,6 +50,7 @@ export class CellExecution {
 
 	constructor(options: CellExecutionOptions) {
 		this.#callerSignal = options.callerSignal;
+		this.#cellId = options.cellId;
 		this.#onAbort = options.onAbort;
 		this.#abortPromise = new Promise<never>((_resolve, reject) => {
 			this.#rejectAbort = reject;
@@ -130,7 +132,7 @@ export class CellExecution {
 			return;
 		}
 		this.#interruptDeadline = setTimeout(() => this.#settleAbort(error), INTERRUPT_DELIVERY_GRACE_MS);
-		const handle = Promise.resolve().then(async () => await kernel.interrupt(error.message));
+		const handle = Promise.resolve().then(async () => await kernel.interrupt(error.message, this.#cellId));
 		this.interruptHandle = handle;
 		void handle.then(
 			() => this.#settleAbort(error),

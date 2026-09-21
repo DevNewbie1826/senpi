@@ -75,7 +75,9 @@ class DisposableManager implements CodemodeSessionManager {
 
 	async getKernel(): Promise<{
 		run(input: EvalKernelRunInput): Promise<EvalKernelResult>;
-		interrupt(reason?: string): Promise<KernelInterruptHandle>;
+		cancelQueued(cellId: string, reason: string): boolean;
+		interrupt(reason?: string, cellId?: string): Promise<KernelInterruptHandle>;
+		queueSnapshot(): { activeCellId: string | null; queuedCellIds: readonly string[] };
 		deliverToolReply(): void;
 		reset(): Promise<void>;
 		close(): Promise<void>;
@@ -84,24 +86,30 @@ class DisposableManager implements CodemodeSessionManager {
 		this.getKernelCount++;
 		const controller = new AbortController();
 		this.runControllers.push(controller);
+		let activeCellId: string | null = null;
 		return {
 			run: async (input) => {
+				activeCellId = input.cellId;
 				this.runStarted.resolve();
 				return await new Promise((resolve) => {
 					controller.signal.addEventListener(
 						"abort",
-						() =>
+						() => {
+							activeCellId = null;
 							resolve({
 								type: "result",
 								cellId: input.cellId,
 								ok: false,
 								error: { message: "kernel disposed" },
 								durationMs: 0,
-							}),
+							});
+						},
 						{ once: true },
 					);
 				});
 			},
+			cancelQueued: () => false,
+			queueSnapshot: () => ({ activeCellId, queuedCellIds: [] }),
 			interrupt: async (reason) => {
 				this.events.push("interrupt");
 				controller.abort(reason);
