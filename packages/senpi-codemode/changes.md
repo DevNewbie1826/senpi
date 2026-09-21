@@ -1205,3 +1205,10 @@ Detach and settlement ownership lives inside `EvalDetachedCellManager`, and only
 - Tests: `test/eval-status.test.ts` (formatter), new `eval detached cell status
   emissions` block in `test/eval-detach.test.ts` (manager contract), and
   `test/eval-status-wiring.test.ts` (extension → footer wiring through session_start).
+
+## wake_source_state reaches the rpc channel
+
+`emitWakeSourceState` in `src/index.ts` publishes on `pi.rpc` before `pi.events`, mirroring
+`onCellSettled`. Out-of-process consumers (rpc mode with `extension_events`) now receive the
+live-cell transitions; `test/eval-wake-source.test.ts` pins the rpc case and the wiring test
+filters the settle payload instead of asserting an rpc-channel exact list. (#1943)
