@@ -1131,6 +1131,14 @@ export async function main(args: string[], options?: MainOptions) {
 						modelsPath: join(agentDir, "models.json"),
 						signal: AbortSignal.timeout(15_000),
 					});
+		// The multi-session host below never returns, so the initTheme() call further
+		// down main() is unreachable on this path. Extensions load per open_session and
+		// read the theme proxy: the worker runtime initializes the theme inside each
+		// session worker, but the in-process runtime (the socket-host default) shares
+		// this process, so the host must initialize the theme before serving sessions -
+		// otherwise theme-touching extensions fail with "Theme not initialized. Call
+		// initTheme() first." (senpi#1894).
+		initTheme(startupSettingsManager.getTheme(), false);
 		printTimings();
 		await runMultiSessionHost({
 			agentDir,
