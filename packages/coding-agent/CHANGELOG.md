@@ -6,6 +6,8 @@
 
 ### Added
 
+- `providers.<id>.maxConcurrency` caps the number of streaming requests one provider serves at once. A provider that rate-limits on concurrent connections - or a local runtime with a small worker pool - turned burst fan-out into 429s and refused sockets, and there was no way to express "at most N at once" for a single provider. Set the key and extra requests wait in line instead of failing; unset keeps today's behaviour, and no provider ships a default. ([#1909](https://github.com/code-yeongyu/senpi/issues/1909))
+
 ### Changed
 
 - MCP connection ownership now passes through a host registry. Connections remain separate per session; sharing is disabled, and connection lifecycle behavior is unchanged. ([#1915](https://github.com/code-yeongyu/senpi/issues/1915))
