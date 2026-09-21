@@ -1,3 +1,5 @@
+import { loopBlockedMark, loopBlockedMsSince } from "./loop-blocked-time.ts";
+
 type SocketSink = {
 	writeRaw(chunk: string): void;
 	waitForBackpressure(): Promise<void>;
@@ -32,6 +34,12 @@ const DEFAULT_QUEUE_BYTES = 64 * 1024 * 1024;
 // and its sessions were released (#1774). Tens of seconds of no progress at all is
 // the liveness signal we actually want; the peer is then cut exactly like a byte
 // overflow - fail-closed, it must resync - while the session keeps running.
+//
+// The budget is loop-SERVED time. While the host's own loop is blocked nobody can
+// drain anything, and on unblock the timers phase runs before the pending drain I/O,
+// so a wall-clock deadline cut every live peer after a long host stall (#1905). The
+// deadline therefore re-arms for whatever blocked time the loop-lag watchdog recorded
+// inside its window, and only a window the loop fully served ends in a cut.
 export const DEFAULT_STALL_MS = 30_000;
 
 export class SocketEventQueueStallError extends Error {
@@ -165,7 +173,15 @@ export class SocketEventSinkActor {
 	 */
 	private waitForDrainOrStall(writtenBytes: number): Promise<void> {
 		return new Promise<void>((resolve, reject) => {
-			const timer = setTimeout(() => {
+			let timer: ReturnType<typeof setTimeout>;
+			let blockedMark = loopBlockedMark();
+			const onDeadline = (): void => {
+				const blockedMs = loopBlockedMsSince(blockedMark);
+				if (blockedMs > 0) {
+					blockedMark = loopBlockedMark();
+					timer = setTimeout(onDeadline, Math.min(blockedMs, this.stallMs));
+					return;
+				}
 				const stall = new SocketEventQueueStallError(this.queuedBytes + writtenBytes, this.stallMs);
 				try {
 					this.sink.writeRaw(`${JSON.stringify({ type: "overflow", error: "stalled, resync required" })}\n`);
@@ -173,7 +189,8 @@ export class SocketEventSinkActor {
 					// The peer is unreachable either way; the failure below closes it.
 				}
 				reject(stall);
-			}, this.stallMs);
+			};
+			timer = setTimeout(onDeadline, this.stallMs);
 			this.sink.waitForBackpressure().then(
 				() => {
 					clearTimeout(timer);
