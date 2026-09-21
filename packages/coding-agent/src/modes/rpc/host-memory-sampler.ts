@@ -17,6 +17,12 @@ export interface HostMemorySamplerOptions {
 	readonly sessions: () => number;
 	/** Raised while the host is above the threshold; the router halves idle parking. */
 	readonly onPressure: (pressure: boolean) => void;
+	/**
+	 * Raised once per pressure episode for a host that is above the threshold holding NO session.
+	 * Memory a daemon cannot attribute to a session is memory nothing will return: a superseded
+	 * generation in that state is pure cost and leaves (#1893).
+	 */
+	readonly onIdlePressure?: (rssMb: number) => void;
 	/** Defaults to one stderr line; tests capture it. */
 	readonly log?: (message: string) => void;
 	readonly now?: () => number;
@@ -43,12 +49,14 @@ export class HostMemorySampler {
 	private readonly emit: (record: RpcHostMemoryPressureEvent) => void;
 	private readonly sessions: () => number;
 	private readonly onPressure: (pressure: boolean) => void;
+	private readonly onIdlePressure?: (rssMb: number) => void;
 	private readonly log: (message: string) => void;
 	private readonly now: () => number;
 	private readonly readRssBytes: () => number;
 	private readonly warnMb: number;
 	private timer: ReturnType<typeof setInterval> | undefined;
 	private pressure = false;
+	private idleReported = false;
 	private lastLoggedAt: number | undefined;
 
 	constructor(options: HostMemorySamplerOptions) {
@@ -56,6 +64,7 @@ export class HostMemorySampler {
 		this.emit = options.emit;
 		this.sessions = options.sessions;
 		this.onPressure = options.onPressure;
+		if (options.onIdlePressure) this.onIdlePressure = options.onIdlePressure;
 		this.log = options.log ?? ((message) => void process.stderr.write(message));
 		this.now = options.now ?? Date.now;
 		this.readRssBytes = options.readRssBytes ?? (() => process.memoryUsage.rss());
@@ -79,6 +88,7 @@ export class HostMemorySampler {
 	sample(): void {
 		const rssMb = Math.round(this.readRssBytes() / BYTES_PER_MEGABYTE);
 		if (rssMb <= this.warnMb) {
+			this.idleReported = false;
 			if (!this.pressure) return;
 			this.pressure = false;
 			this.onPressure(false);
@@ -89,6 +99,13 @@ export class HostMemorySampler {
 			this.onPressure(true);
 		}
 		const sessions = this.sessions();
+		// A session arriving ends the episode: the next empty sample above the threshold is a new
+		// observation, not a repetition of this one.
+		if (sessions > 0) this.idleReported = false;
+		else if (!this.idleReported) {
+			this.idleReported = true;
+			this.onIdlePressure?.(rssMb);
+		}
 		this.emit({ type: "host_memory_pressure", rssMb, sessions });
 		const now = this.now();
 		if (this.lastLoggedAt !== undefined && now - this.lastLoggedAt < HOST_MEMORY_STDERR_INTERVAL_MS) return;

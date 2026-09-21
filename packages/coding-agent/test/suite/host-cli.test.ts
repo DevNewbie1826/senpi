@@ -116,16 +116,30 @@ describe.skipIf(process.platform === "win32")("senpi host status", () => {
 		expect(status.env_keys).toContain("HOME");
 		expect(status.env_keys).toContain("SENPI_CODING_AGENT_DIR");
 		expect(status.env_keys).not.toContain("MY_SECRET_TOKEN");
-		expect(status.generations).toEqual([
-			{
-				instanceId: ensured.instanceId,
-				generation: 0,
-				pid: ensured.pid,
-				engineVersion: ensured.engineVersion,
-				current: true,
-				alive: true,
-			},
+		expect(status.generations).toHaveLength(1);
+		const generation = (status.generations as Record<string, unknown>[])[0];
+		expect(Object.keys(generation).sort()).toEqual([
+			"alive",
+			"current",
+			"engineVersion",
+			"generation",
+			"instanceId",
+			"pid",
+			"rss_mb",
+			"sessions",
 		]);
+		expect(generation).toMatchObject({
+			instanceId: ensured.instanceId,
+			generation: 0,
+			pid: ensured.pid,
+			engineVersion: ensured.engineVersion,
+			// The daemon holds nothing, so it claims no session file either.
+			sessions: 0,
+			current: true,
+			alive: true,
+		});
+		// `number | null` by contract: a platform that cannot answer `ps` still reports the field.
+		expect(generation.rss_mb === null || typeof generation.rss_mb === "number").toBe(true);
 	}, 120_000);
 
 	it("answers a socket nobody serves with the same shape and a refusal code", async () => {

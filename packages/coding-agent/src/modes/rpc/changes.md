@@ -1,3 +1,37 @@
+## 2026-09-21 — a superseded generation drains itself, and the daemon directory is pruned (#1893)
+
+**What:** five changes that together end a generation nobody can reach.
+
+- `host-supersession.ts` (new) + `socketEntryReplaced` in `socket-ownership.ts`: a generation polls,
+  once a second on an unref'd timer, whether the public path still holds the entry it bound. The
+  supervisor (`host-lifecycle.ts`) treats the loss as a drain request and runs the SIGUSR1 path it
+  already had: park every retained session with no attachment, release its claims, exit when it holds
+  no attached session.
+- `host-reservations.ts`: a claim carries `attached`, republished through `setAttached` whenever a
+  session gains its first client or loses its last (`session-registry.ts`, `session-teardown.ts`).
+  A claim now STANDS only while its owner is the generation the pointer names or still has a client
+  attached; a superseded, attachment-less claim is reclaimed. The refusal's `owner` carries `current`.
+- `host-generations.ts` (new): `pruneDeadGenerations` drops generation directories naming dead pids,
+  the pointer while it names one, and claims whose owner is gone - on every registration write
+  (`host-daemon-registration.ts`) and on every `host status`. `readGenerationRows` answers one row per
+  ALIVE generation with its own `rss_mb` and the number of session files it claims.
+- `host-memory-sampler.ts`: `onIdlePressure` fires once per pressure episode for a host above the RSS
+  threshold holding NO session; the socket host logs it and drains when it is also superseded.
+
+**Why:** a handoff ASKS the predecessor to drain, and the request can miss - an unprovable owner is
+never signalled, a client that binds its own entry over the path signals nothing, a wedged process
+misses the signal. The superseded generation then held its retained sessions and all 59 of its path
+claims while answering nowhere, so every `open_session` on those paths was refused with
+`session_path_in_use` by a process no client could reach, and the directory described only dead pids
+while three supervisors were alive.
+
+**A future refactor must not break:** supersession is proven by the socket ENTRY, never by a missing
+name - an absent path is somebody's `rm`, and draining on it would end healthy daemons. A claim
+without the `attached` field is honored, which is what keeps a running older build from being
+reclaimed from. A generation record that cannot be parsed is never pruned: an ensure may be writing
+it right now. Pinned by `test/suite/regressions/1893-superseded-generation-drain.test.ts` (real
+supervisor, socket taken over with no signal) and `1893-generation-records-and-claims.test.ts`.
+
 ## 2026-09-19 — a pathless session now reserves the file it created (#1850)
 
 **What:** `session-registry.ts` `syncRuntimeMetadata()` reconciles when the canonical

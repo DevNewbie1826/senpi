@@ -13,6 +13,7 @@
 ### Fixed
 
 - Extensions that touch the theme load again on the shared socket host. A refactor had moved the theme bootstrap into the per-session workers, which left the in-process runtime (what a `--listen` socket host runs by default) without an initialized theme: every theme-touching extension failed to load with "Theme not initialized. Call initTheme() first." and embedder sessions logged the message as runtime warnings. The host initializes the theme before serving its first session, on both session runtimes. ([#1894](https://github.com/code-yeongyu/senpi/issues/1894))
+- An old engine generation no longer sits on your sessions after an upgrade. When a newer build takes the shared daemon's socket, the previous one was meant to finish its work and leave, but the request to do so could never arrive - and the old process then kept every retained session and its claim on each session file, while nothing could reach it. Reopening one of those sessions answered `session_path_in_use` until you killed the process by hand, and the machine carried several multi-gigabyte daemons at once. A generation that loses the socket now notices within a second, parks the sessions nobody is attached to, releases their files and exits. A session file claimed by such a generation can be opened by the current one, `senpi host status` lists every daemon generation that is really running with its own memory and session count, and records of ones that ended are cleared away instead of accumulating. ([#1893](https://github.com/code-yeongyu/senpi/issues/1893))
 
 ### Removed
 

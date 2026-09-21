@@ -32,6 +32,7 @@ import {
 	readSocketIdentityFile,
 	type SocketFileIdentity,
 	shieldSocketDuringClose,
+	socketEntryReplaced,
 	statSocketIdentity,
 	unlinkOwnedSocket,
 	waitForSocketIdentityFile,
@@ -107,12 +108,17 @@ export function resolveHostIdlePolicy(
  * attribution, and RSS reporting that tightens idle parking under pressure. Both run on
  * unref'd timers, both only report, and neither refuses, aborts or kills anything.
  */
-function startHostObservers(router: SessionCommandRouter, writer: SessionEventWriter): { stop: () => void } {
+function startHostObservers(
+	router: SessionCommandRouter,
+	writer: SessionEventWriter,
+	options: { onIdlePressure?: (rssMb: number) => void } = {},
+): { stop: () => void } {
 	const loopLag = new LoopLagWatchdog({ emit: (record) => writer.broadcastHostRecord(record) });
 	const memory = new HostMemorySampler({
 		emit: (record) => writer.broadcastHostRecord(record),
 		sessions: () => router.sessionCount,
 		onPressure: (pressure) => router.setMemoryPressure(pressure),
+		...(options.onIdlePressure ? { onIdlePressure: options.onIdlePressure } : {}),
 	});
 	loopLag.start();
 	memory.start();
@@ -265,7 +271,16 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 		// sessionless connection must not hold this host open.
 		{ onEmptyExit: () => void shutdown(0), canExitWhenEmpty: () => draining || connections.size === 0 },
 	);
-	const observers = startHostObservers(router, writer);
+	const observers = startHostObservers(router, writer, {
+		// The shape #1893 measured: gigabytes resident with `sessions.total 0`. Say it once, and when
+		// this generation no longer owns the endpoint, leave - nobody can reach it to ask.
+		onIdlePressure: (rssMb) => {
+			hostLog(`memory pressure with no sessions: rssMb=${rssMb}`);
+			void endpointSuperseded().then((superseded) => {
+				if (superseded) drainForHandoff();
+			}, noop);
+		},
+	});
 	let nextConnection = 0;
 	let shuttingDown = false;
 	const secret =
@@ -402,6 +417,15 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 		hostLog("draining for a generation handoff");
 		router.beginDrain();
 	};
+	/**
+	 * Whether the endpoint this host serves is held by another socket entry now. A supervised host
+	 * answers for the PUBLIC path its supervisor bound - its own listener is a private hop nobody
+	 * replaces - and a bare host for the path it bound itself.
+	 */
+	const endpointSuperseded = (): Promise<boolean> =>
+		supervisorPublicSocketPath === undefined
+			? socketEntryReplaced(socketPath, boundIdentity)
+			: socketEntryReplaced(supervisorPublicSocketPath, supervisorPublicIdentity);
 	registerShutdownSignals(shutdown);
 	if (process.platform !== "win32") process.on("SIGUSR1", drainForHandoff);
 	// Arm before listen: a supervisor death during the listen transition must
@@ -445,6 +469,8 @@ async function runSocketHost(options: MultiSessionHostOptions, socketPath: strin
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+function noop(): void {}
 
 function parseError(error: string): RpcResponse {
 	return { type: "response", command: "parse", success: false, error };

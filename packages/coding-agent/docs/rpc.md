@@ -256,12 +256,25 @@ handoff ATTACHES to the running host - an upgrade that cannot happen never becom
 `ensureHost` also takes `hostArgs` (CLI arguments forwarded through the supervisor to the host process) and
 `env` (a `null` value removes an inherited variable) as public options.
 
+A generation also drains WITHOUT being asked. The SIGUSR1 above can fail to arrive - an owner whose
+registration cannot be proven is never signalled, a client that binds its own entry over the public path
+sends nothing at all, and a wedged process can miss the signal it was sent - and the superseded generation
+then holds its retained sessions and their path claims for as long as it lives, while no client can reach it
+by path. So every generation checks, once a second, whether the public path still holds the entry it bound;
+the moment it does not, it applies the same drain to itself: park each retained session with no attachment,
+release its claims, and exit when it holds no attached session. Nothing else changes - a session mid-turn
+still finishes, and a client still attached is still served.
+
 `stopHost({ socket, agentDir, drain?, force? })` ends a generation: `drain: true` is always permitted (it
 ends no work, it only stops the host from taking new work), while a hard stop requires a host that reports
 no open sessions, or `force: true`. A hard stop also drops that generation's registration (the pointer and
 its `generations/<instanceId>/` directory); a draining host keeps its registration until it exits, because
 it is still serving. `probeHost({ socket })` returns the running host's `get_protocol_info`
 answer, or `undefined` when nothing is serving the endpoint.
+
+A host that reports memory pressure (`SENPI_RPC_HOST_RSS_WARN_MB`, 4096 by default) while holding NO session
+logs one line naming its RSS, and drains when it is also superseded: memory a daemon cannot attribute to a
+session is memory nothing will return, and a generation nobody can reach is pure cost.
 
 #### Daemon state directory (layout 2)
 
@@ -301,17 +314,34 @@ names is alive an ensure refuses (`legacy_host`) rather than starting a second h
 `ensureHost` fails with a typed `HostDaemonStateError` naming the directory it could not create or write,
 and starts no host in that case.
 
+The directory is PRUNED of what is no longer running on every registration write and on every `host status`:
+a `generations/<instanceId>/` whose record names a pid nobody is running is removed, the pointer goes with it
+while it still names one, and claims in `reservations/` whose owner is gone are removed too. A record that
+cannot be parsed is left alone - an ensure writing one right now must not be mistaken for a generation that
+ended.
+
 #### Session paths across generations (`reservations/`)
 
 During a handoff two hosts are alive at once, so the in-process path reservation cannot keep them off one
 JSONL file. Every generation records each open session path in
 `<daemonDir>/reservations/<sha256(canonical path)[:16]>.json` as
-`{ instanceId, pid, processStartTime, sessionPath }`, and removes it when the session closes or parks. An
-`open_session { sessionPath }` that finds a LIVE foreign claim answers
-`session_path_in_use` with `errorData { owner, retry_after_ms: 2000 }`; a claim whose owner is gone (a killed
-host, a reboot, a recycled pid with a different start time) is ignored. So a reopen during a handoff waits
-for the previous writer to finish rather than corrupting its transcript, and a session file is never
-permanently unopenable.
+`{ instanceId, pid, processStartTime, sessionPath, attached }`, and removes it when the session closes or
+parks. `attached` is republished whenever that session gains its first client or loses its last one, so the
+claim says whether anybody is still driving the file.
+
+A claim STANDS while one of two things is true: its owner is the generation the pointer names, or its owner
+still has a client attached to that session. Those are the cases where somebody is really writing the file.
+A claim from a SUPERSEDED generation that published `attached: false` is reclaimable - that generation has
+been asked to drain and parks the session as it settles - so the current generation takes the path over
+instead of refusing it forever. A claim whose owner is gone (a killed host, a reboot, a recycled pid with a
+different start time) is ignored, and a claim written before the field existed is honored, so a running older
+build is never reclaimed from.
+
+An `open_session { sessionPath }` refused by a standing claim answers `session_path_in_use` with
+`errorData { owner, retry_after_ms: 2000 }`, where `owner` carries `{ instanceId, pid, processStartTime,
+sessionPath, current }` - `current: false` names a generation that is still writing the file but no longer
+serves the socket. So a reopen during a handoff waits for the previous writer to finish rather than
+corrupting its transcript, and a session file is never permanently unopenable.
 
 ### The `senpi host` command
 
@@ -351,8 +381,12 @@ symmetry with other commands; the answer is always JSON.
   reports under the same flag, so `worker` stays `0` without `--include-workers`; `foreign_*` is the same
   count from the point of view of a client holding none of those sessions itself. `rss_mb`, `open_fds` and
   `zombies` describe the daemon's whole process tree (supervisor plus host) and are `null` where the
-  platform does not publish them (`open_fds` is `/proc`-only). `generations` lists every generation record
-  in the daemon directory with `current` and `alive`.
+  platform does not publish them (`open_fds` is `/proc`-only). `generations` lists every ALIVE generation of
+  this daemon as `{ instanceId, generation, pid, engineVersion, rss_mb, sessions, current, alive }`, newest
+  ordinal last: `rss_mb` is that generation's own process tree, and `sessions` counts the session files it
+  still claims in `reservations/` - the one occupancy number that is observable for a generation which no
+  longer answers on the socket. Records of generations that ended are pruned by the read itself, so a status
+  never lists a dead pid.
 - `stop` is the I1 carve-out: a plain stop needs a validated pidfile AND `foreign_attached +
   foreign_retained == 0`, or it refuses with exit 3 and prints the counts it refused on; `--force`
   overrides after printing the same counts; `--drain` (SIGUSR1) is always permitted, because it ends no
@@ -779,7 +813,7 @@ In the response `error` field, machine-matchable:
 
 - `unknown_session`
 - `session_closing`
-- `session_path_in_use` (path held by an opening or quarantined owner; a fully-open current owner is attached instead, an owner whose teardown is already in flight is waited out on the in-process runtime, and a path a live owner has superseded is released rather than held). A path held by ANOTHER GENERATION of the daemon carries `errorData { owner: { instanceId, pid, processStartTime, sessionPath }, retry_after_ms: 2000 }`: the previous generation is still writing that file and is parking it, so the open is a retry, not a failure
+- `session_path_in_use` (path held by an opening or quarantined owner; a fully-open current owner is attached instead, an owner whose teardown is already in flight is waited out on the in-process runtime, and a path a live owner has superseded is released rather than held). A path held by ANOTHER GENERATION of the daemon carries `errorData { owner: { instanceId, pid, processStartTime, sessionPath, current }, retry_after_ms: 2000 }`: that generation is still writing the file and is parking it, so the open is a retry, not a failure. Only a claim whose owner serves the socket (`current: true`) or still has a client attached refuses an open at all - a superseded, attachment-less claim is reclaimed instead
 - `session_reservation_limit` (this worker already holds 64 live session paths; the open or session replacement was refused without disturbing the existing session)
 - `missing_session_id` (session-scoped command without `sessionId` in multi mode)
 - `multi_session_disabled` (`open_session` in classic mode)

@@ -6,7 +6,14 @@ export interface SessionTeardownHost {
 	get(handle: string): RpcSessionEntry | undefined;
 	delete(handle: string): void;
 	releaseReservation(key: string): void;
+	/** Publishes that this path is retained with no client attached, for the cross-generation claim. */
+	markDetached(key: string): void;
 	sync(): void;
+}
+
+/** Session-owned work that outlives its client: a turn, a tool, anything still appending records. */
+function sessionIsWriting(entry: RpcSessionEntry): boolean {
+	return entry.worker?.busy === true || entry.runtime?.session.isSessionBusy === true;
 }
 
 function reportDetachedFailure(handle: string, cause: unknown): void {
@@ -34,6 +41,10 @@ export function beginSessionClose(
 	// reservation, and is torn down only by an explicit close or the idle window.
 	if (options?.detach && entry.retainOnDisconnect) {
 		entry.attachments = 0;
+		// A retained session nobody is attached to is what another generation may reclaim the path
+		// from (#1893) - but only once nothing is still WRITING it. A session mid-turn keeps its claim
+		// until it parks, because reclaiming it would put two writers on one transcript.
+		if (entry.reservationKey && !sessionIsWriting(entry)) host.markDetached(entry.reservationKey);
 		return entry;
 	}
 	entry.state = "closing";

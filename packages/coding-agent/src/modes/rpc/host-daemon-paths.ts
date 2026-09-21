@@ -89,11 +89,24 @@ export function createHostDaemonPaths(target: {
 	readonly agentDir?: string;
 }): HostDaemonPaths {
 	const flatDir = join(target.agentDir ?? getAgentDir(), "rpc-host-daemon");
-	const dir = join(flatDir, daemonDirectoryName(target.socket));
 	return {
 		flatDir,
 		layoutMarker: join(flatDir, "layout.json"),
 		legacyPidFile: join(flatDir, "host.pid"),
+		...hostDaemonDirectoryPaths(join(flatDir, daemonDirectoryName(target.socket))),
+	};
+}
+
+/**
+ * The files inside one endpoint's directory, for a caller that was TOLD the directory instead of
+ * the socket it serves - a supervised host binds a private hop, so it cannot derive the endpoint.
+ * The names live here alone, so the directory a client recomputes and the one a host is handed
+ * can never drift apart.
+ */
+export function hostDaemonDirectoryPaths(
+	dir: string,
+): Omit<HostDaemonPaths, "flatDir" | "layoutMarker" | "legacyPidFile"> {
+	return {
 		dir,
 		pointerFile: join(dir, "host.pid"),
 		lockFile: join(dir, "daemon.lock"),
