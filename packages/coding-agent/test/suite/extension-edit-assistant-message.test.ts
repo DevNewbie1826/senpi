@@ -42,6 +42,7 @@ describe("pi.editAssistantMessage (extension API)", () => {
 			newSession: unusedAction,
 			fork: unusedAction,
 			navigateTree: unusedAction,
+			editUserMessage: unusedAction,
 			switchSession: unusedAction,
 			reload: async () => {},
 			editAssistantMessage: async (entryId, text, options) => {

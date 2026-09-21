@@ -2615,6 +2615,7 @@ export class InteractiveMode {
 						customInstructions: options?.customInstructions,
 						replaceInstructions: options?.replaceInstructions,
 						label: options?.label,
+						expectedLeafId: options?.expectedLeafId,
 					});
 					if (result.cancelled) {
 						return { cancelled: true };
@@ -2641,6 +2642,21 @@ export class InteractiveMode {
 					this.chatContainer.clear();
 					this.renderInitialMessages();
 					this.showStatus("Replaced assistant response");
+					void this.flushCompactionQueue({ willRetry: false });
+					return { cancelled: false, entryId: result.entryId };
+				},
+				editUserMessage: async (entryId, text, options) => {
+					const result = await this.session.editUserMessage(entryId, text, {
+						summarize: options?.summarize,
+						customInstructions: options?.customInstructions,
+						expectedLeafId: options?.expectedLeafId,
+					});
+					if (result.cancelled || result.unchanged) {
+						return { cancelled: result.cancelled, unchanged: result.unchanged };
+					}
+					this.chatContainer.clear();
+					this.renderInitialMessages();
+					this.showStatus("Replaced user prompt");
 					void this.flushCompactionQueue({ willRetry: false });
 					return { cancelled: false, entryId: result.entryId };
 				},

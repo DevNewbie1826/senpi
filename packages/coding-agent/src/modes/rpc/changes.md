@@ -114,6 +114,29 @@ supervisor, socket taken over with no signal) and `1893-generation-records-and-c
 
 ||||||| parent of e51eff445 (feat(rpc): type the user-message edit and tree navigation commands)
 ||||||| parent of 1ab53e09e (feat(rpc): dispatch user-message edits and tree navigation)
+||||||| parent of 1c5fd8af9 (feat(extensions): edit a user message and navigate the tree)
+## 2026-09-21 - Extension user-edit binding and client leaf visibility
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts`: binds the extension user-edit action beside assistant edits and forwards navigation's `expectedLeafId` unchanged.
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts`: declares `navigateTree`'s already-shipped `leafId: string | null`, accepts the concurrency token, and adds the user-edit client method needed by the interactive host proxy.
+
+### Why
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts`: an RPC-hosted extension must have the same capability and typed core refusals as print and interactive extensions.
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts`: a wire leaf that library callers cannot read is an incomplete API. The user-edit response preserves both `entry.id` (message address) and the potentially different metadata-advanced `leafId` (concurrency token).
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts` owns mode action binding.
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts` owns the public client's commands and decoded return types.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/connection-handler.ts`: extension `commandContextActions` beside navigation and assistant editing; dispatch is unchanged.
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts`: result imports, navigation signature, and message-edit methods.
+
 ## 2026-09-21 - Dispatch user-message edits and entry-addressed tree selection
 
 ### What changed

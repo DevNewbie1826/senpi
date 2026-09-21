@@ -171,6 +171,7 @@ async function context(
 		fork: async () => ({ cancelled: false }),
 		navigateTree: async () => ({ cancelled: false }),
 		editAssistantMessage: async () => ({ cancelled: false }),
+		editUserMessage: async () => ({ cancelled: false }),
 		switchSession: async () => ({ cancelled: false }),
 		reload: async () => {},
 	};

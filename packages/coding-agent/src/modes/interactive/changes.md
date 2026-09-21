@@ -1,3 +1,25 @@
+## 2026-09-21 - Bind extension user edits locally and through the interactive host
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`: binds `editUserMessage` beside assistant edits, refreshes history only after a changed edit, and forwards navigation's caller-supplied `expectedLeafId`.
+- `packages/coding-agent/src/modes/interactive/interactive-host-runtime.ts`: forwards user edits to the host rather than the local shadow, restores core typed refusals from wire codes, refreshes history after edits, and returns `result.entry.id`, never the metadata-advanced `leafId`.
+
+### Why
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`: the new extension capability must work in interactive mode as well as print and RPC.
+- `packages/coding-agent/src/modes/interactive/interactive-host-runtime.ts`: missing proxy methods fall through to the local session, so merely adding the mode binding would edit the wrong session. The client navigation return now includes a leaf, while the proxy's transport-loss cancellation remains a core-shaped result.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` owns command action construction and history refresh.
+- `packages/coding-agent/src/modes/interactive/interactive-host-runtime.ts` owns the session proxy and wire-to-core result/error translation.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`: `commandContextActions` navigation and assistant-edit neighbours.
+- `packages/coding-agent/src/modes/interactive/interactive-host-runtime.ts`: edit-related imports and proxy navigation/edit property cases.
+
 ## 2026-09-20 - Surface a held model switch (senpi#1873)
 
 ### What changed

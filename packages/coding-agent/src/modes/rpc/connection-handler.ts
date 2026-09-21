@@ -898,11 +898,20 @@ export function createRpcConnectionHandler(
 								customInstructions: options?.customInstructions,
 								replaceInstructions: options?.replaceInstructions,
 								label: options?.label,
+								expectedLeafId: options?.expectedLeafId,
 							});
 							return { cancelled: result.cancelled };
 						},
 						editAssistantMessage: async (entryId, text, options) => {
 							const result = await session.editAssistantMessage(entryId, text, {
+								summarize: options?.summarize,
+								customInstructions: options?.customInstructions,
+								expectedLeafId: options?.expectedLeafId,
+							});
+							return { cancelled: result.cancelled, unchanged: result.unchanged, entryId: result.entryId };
+						},
+						editUserMessage: async (entryId, text, options) => {
+							const result = await session.editUserMessage(entryId, text, {
 								summarize: options?.summarize,
 								customInstructions: options?.customInstructions,
 								expectedLeafId: options?.expectedLeafId,

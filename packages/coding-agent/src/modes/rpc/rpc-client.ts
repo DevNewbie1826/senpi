@@ -32,6 +32,7 @@ import type { JsonAgentSessionEvent } from "../json-event.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
 import type {
 	EditAssistantMessageResult,
+	EditUserMessageResult,
 	RpcAccountFailoverEvent,
 	RpcAuthAccountsChangedEvent,
 	RpcCommand,
@@ -766,8 +767,20 @@ export class RpcClient {
 
 	async navigateTree(
 		targetId: string,
-		options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string },
-	): Promise<{ cancelled: boolean; editorText?: string; aborted?: boolean; summaryEntry?: unknown }> {
+		options?: {
+			summarize?: boolean;
+			customInstructions?: string;
+			replaceInstructions?: boolean;
+			label?: string;
+			expectedLeafId?: string;
+		},
+	): Promise<{
+		cancelled: boolean;
+		leafId: string | null;
+		editorText?: string;
+		aborted?: boolean;
+		summaryEntry?: unknown;
+	}> {
 		const response = await this.send({ type: "navigate_tree", targetId, ...options });
 		return this.getData(response);
 	}
@@ -878,6 +891,26 @@ export class RpcClient {
 			customInstructions: options.customInstructions,
 		});
 		return this.getData<EditAssistantMessageResult>(response);
+	}
+
+	/**
+	 * Replace a user prompt without starting a turn. Address the message by entryId and pass the
+	 * separately observed leafId as expectedLeafId. Refusals reject with RpcCommandError.
+	 */
+	async editUserMessage(
+		entryId: string,
+		text: string,
+		options: { expectedLeafId?: string; summarize?: boolean; customInstructions?: string } = {},
+	): Promise<EditUserMessageResult> {
+		const response = await this.send({
+			type: "edit_user_message",
+			entryId,
+			text,
+			expectedLeafId: options.expectedLeafId,
+			summarize: options.summarize,
+			customInstructions: options.customInstructions,
+		});
+		return this.getData<EditUserMessageResult>(response);
 	}
 
 	/**
