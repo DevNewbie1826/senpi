@@ -1,5 +1,26 @@
 # changes — senpi-monorepo root
 
+## Pin the shared Vitest runner and retain the evals peer contract (2026-09-21)
+
+### What changed
+
+- `package.json` pins the root development runner to Vitest 5.0.1.
+- `.gitignore` excludes the `.vitest/` artifact directory.
+- `package-lock.json` and `bun.lock` resolve the migrated runners and V8 coverage packages while retaining Vitest 4.1.11 for evals.
+
+### Why
+
+- PTY and codemode invoke the hoisted runner without declaring it. A root pin keeps them on Vitest 5 under both npm and Bun; otherwise npm hoists Vitest 4 to satisfy vitest-evals.
+- vitest-evals 0.17.0 requires Vitest `>=4 <5`. The evals workspace retains 4.1.11 until a newer compatible harness is published.
+
+### Why an extension could not handle it
+
+- Package managers select test runners and resolve peer dependencies before extensions load.
+
+### Expected merge conflict zones
+
+- The root development dependencies and generated dependency locks.
+
 ## Refresh the dependency pins and pin past the reachable advisories (2026-09-21)
 
 ### What changed

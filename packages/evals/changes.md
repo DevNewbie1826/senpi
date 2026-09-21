@@ -1,14 +1,14 @@
 # changes — evals
 
-## 2026-09-21 - Migrate the test runner to Vitest 5 (senpi#1895)
+## 2026-09-21 - Retain the eval harness peer contract (senpi#1895)
 
 ### What changed
 
-- `packages/evals/package.json`: Updated the test runner to Vitest 5.0.1.
+- `packages/evals/package.json` retains vitest-evals 0.17.0 and Vitest 4.1.11 during the other workspaces' Vitest 5 migration.
 
 ### Why
 
-- Run this workspace on the pinned Vitest 5 release.
+- The newest vitest-evals release requires Vitest `>=4 <5`. npm rejects the combined peer tree when the shared root runner is pinned to 5.0.1. Keeping evals on 4.1.11 preserves installation without overriding the harness's peer range.
 
 ### Why an extension could not handle it
 

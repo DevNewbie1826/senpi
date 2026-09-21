@@ -14,7 +14,7 @@
 		"@types/node": "26.6.2",
 		"shx": "0.4.0",
 		"typescript": "7.0.2",
-		"vitest-evals": "0.17.0",
-		"vitest": "5.0.1"
+		"vitest": "4.1.11",
+		"vitest-evals": "0.17.0"
 	}
 }
