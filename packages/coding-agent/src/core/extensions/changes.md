@@ -1,5 +1,24 @@
 # Core Extensions Changes
 
+## 2026-09-21 - Retained-session parked/resumed events (#1902)
+
+### What changed
+
+- `types.ts` adds `SessionParkedEvent` and `SessionResumedEvent` to the session event union and `ExtensionAPI.on` overloads; `index.ts` exports both.
+- The existing `runner.ts` generic emit union derives from `ExtensionEvent`, so both events use its existing ordered handler dispatch.
+
+### Why
+
+- Optional per-session work needs an explicit attachment lifecycle signal without confusing parking with shutdown or session switching.
+
+### Why an extension could not handle it
+
+- Public event types and host-originated attachment transitions are owned by the engine.
+
+### Expected merge conflict zones
+
+- Session event union, event-subscription overloads and public type exports.
+
 ## 2026-09-20 - Import attributes survive the CommonJS rewrite (#1864)
 
 ### What changed

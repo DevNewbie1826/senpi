@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Retained RPC sessions stop file-monitor polling and prompt-cache keepalive after their last client disconnects, then resume on reattachment without undoing manually muted monitors. Extensions can observe the new `session_parked` and `session_resumed` events. ([#1902](https://github.com/code-yeongyu/senpi/issues/1902))
+
 ### Removed
 
 ## [2026.9.20] - 2026-09-20

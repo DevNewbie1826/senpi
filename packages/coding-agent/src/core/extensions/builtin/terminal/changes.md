@@ -1,3 +1,22 @@
+## 2026-09-21 - Stop parked-session file polling (#1902)
+
+### What changed
+
+- `extension.ts` consumes retained-session parked/resumed events.
+- `monitor-registry.ts` pauses file-watch loops while parked, including watches registered by a detached turn, and resumes only watches not independently muted.
+
+### Why
+
+- The last socket disconnect did not stop the 250ms file-watch polls. Parking must not be persisted as a user mute or reset a monitor's wake budget.
+
+### Why an extension could not handle it
+
+- This builtin owns the live monitor registry and its polling loops.
+
+### Expected merge conflict zones
+
+- Terminal lifecycle subscriptions and monitor registration/check/resume paths.
+
 ## 2026-09-17 - Load pi-pty on the first terminal session (senpi#1781)
 
 ### What changed

@@ -159,6 +159,8 @@ export type {
 	SessionEvent,
 	SessionInfoChangedEvent,
 	SessionKind,
+	SessionParkedEvent,
+	SessionResumedEvent,
 	SessionShutdownEvent,
 	// Events - Session
 	SessionStartEvent,

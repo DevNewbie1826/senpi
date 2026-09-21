@@ -486,6 +486,31 @@ pi.on("session_info_changed", async (event, ctx) => {
 });
 ```
 
+#### session_parked / session_resumed
+
+These additive events describe attachment changes on a retained, in-process RPC
+session. `session_parked` fires once when its last client disconnects;
+`session_resumed` fires once when the first client reattaches to the still-open
+session. Additional attachments do not emit either event. Parking does not abort
+an active turn, close the session, or change its idle-eviction deadline.
+
+```typescript
+pi.on("session_parked", () => {
+  // Stop optional periodic work without discarding session state.
+});
+pi.on("session_resumed", () => {
+  // Restart periodic work; preserve any independent user-requested pause.
+});
+```
+
+Park and resume handlers run in transition order. Terminal file-monitor polling
+and prompt-cache keepalive pause while parked. The cache may expire during this
+pause; reattachment does not guarantee a warm cache. TUI sessions do not emit these
+events. Worker-runtime sessions have no in-host extension runner and currently
+do not emit them either. These extension events are distinct from the RPC wire
+`session_parked` record used when idle eviction or generation handoff releases a
+retained runtime.
+
 #### session_before_switch
 
 Fired before starting a new session (`/new`) or switching sessions (`/resume`).

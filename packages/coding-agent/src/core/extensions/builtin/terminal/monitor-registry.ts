@@ -204,6 +204,7 @@ export class MonitorRegistry {
 	readonly #files = new Map<string, FileMonitorRecord>();
 	#nextFileId = 1;
 	#disposed = false;
+	#parked = false;
 	#pendingRegistrations = 0;
 	readonly #pending = new Set<PendingFileRegistration>();
 	#lifecycle = 0;
@@ -214,6 +215,16 @@ export class MonitorRegistry {
 		this.#onEnded = options?.onEnded;
 		this.#onFire = options?.onFire;
 		this.#reserve = options?.reserve;
+	}
+
+	/** Attachment parking is independent of persisted monitor mute and wake budgets. */
+	setParked(parked: boolean): void {
+		if (this.#parked === parked) return;
+		this.#parked = parked;
+		for (const record of this.#files.values()) {
+			if (parked) record.watch.pause();
+			else if (!record.paused) record.watch.resume();
+		}
 	}
 
 	snapshot(): readonly MonitorSnapshotEntry[] {
@@ -416,6 +427,7 @@ export class MonitorRegistry {
 			}, options.timeoutMs),
 		};
 		this.#files.set(id, record);
+		if (this.#parked) record.watch.pause();
 		finishRegistration();
 		this.#finishPending(pending, true);
 		if (registrationError || this.#disposed || lifecycle !== this.#lifecycle) {
@@ -480,7 +492,7 @@ export class MonitorRegistry {
 
 	async #checkFile(id: string): Promise<void> {
 		const record = this.#files.get(id);
-		if (!record || record.settled || record.paused) return;
+		if (!record || record.settled || record.paused || this.#parked) return;
 		if (record.checking) {
 			record.dirty = true;
 			return;
@@ -646,7 +658,7 @@ export class MonitorRegistry {
 			// A rearm (or any resume) restarts the rolling fire budget while keeping its window start.
 			if ("fireWindow" in record && record.fireWindow !== undefined) record.fireWindow.count = 0;
 			resumed.push({ id: record.id, mutedDropped });
-			if ("watch" in record) record.watch.resume();
+			if ("watch" in record && !this.#parked) record.watch.resume();
 		}
 		if (resumed.length > 0) this.#notifyChange();
 		return resumed;

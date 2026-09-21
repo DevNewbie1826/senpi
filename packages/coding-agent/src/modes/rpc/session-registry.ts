@@ -195,12 +195,19 @@ export class RpcSessionRegistry {
 			);
 			if (!existing) throw new RpcSessionRegistryError("session_path_in_use");
 			const [handle, entry] = existing;
+			const wasParked = entry.retainOnDisconnect === true && entry.attachments === 0;
 			entry.attachments += 1;
 			// Retention is a property of the live session: any attach may ask for it, and
 			// no attach may revoke it for the clients that already rely on it.
 			if (options?.retainOnDisconnect) entry.retainOnDisconnect = true;
 			if (!entry.durableSessionId) throw new RpcSessionRegistryError("session_path_in_use");
 			entry.lastCommandAt = this.now();
+			if (wasParked) {
+				entry.lifecycleMutex = entry.lifecycleMutex.then(() =>
+					entry.runtime?.emitAttachmentEvent("session_resumed"),
+				);
+				await entry.lifecycleMutex;
+			}
 			return {
 				sessionId: handle,
 				durableSessionId: entry.durableSessionId,

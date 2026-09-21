@@ -648,11 +648,17 @@ export class SessionCommandRouter {
 	 * attachments keep the shared binding and their event stream.
 	 */
 	private async releaseOwnedSession(sessionId: string): Promise<void> {
+		const live = this.registry.peek(sessionId);
+		const parks = live?.state === "open" && live.retainOnDisconnect === true && live.attachments === 1;
 		// A failed claim means the entry is already closed or owned by another path.
 		// A retained entry answers the detach by staying open: no finalizer, nothing to join.
 		const claim = this.tryClaimClose(sessionId, { drainAttachments: false, detach: true });
 		if (!claim) return;
 		if (!claim.finalizer) {
+			if (parks && live.runtime) {
+				live.lifecycleMutex = live.lifecycleMutex.then(() => live.runtime?.emitAttachmentEvent("session_parked"));
+				await live.lifecycleMutex;
+			}
 			await this.finalizations.get(sessionId)?.promise;
 			return;
 		}

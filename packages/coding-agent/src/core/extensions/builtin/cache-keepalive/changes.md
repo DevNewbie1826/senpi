@@ -1,5 +1,23 @@
 # Cache Keep-Alive Extension Changes
 
+## 2026-09-21 - Do not warm parked retained sessions (#1902)
+
+### What changed
+
+- `index.ts` cancels its timer on `session_parked`, rejects rearming while parked even when a detached turn finishes, and rearms on `session_resumed`.
+
+### Why
+
+- Parked sessions deliberately allow the cache to expire rather than paying for periodic warm requests.
+
+### Why an extension could not handle it
+
+- The timer and generation fence are private to this builtin.
+
+### Expected merge conflict zones
+
+- `arm()` guard and session lifecycle subscriptions. Request/cost caps and TUI cadence remain unchanged.
+
 ## 2026-09-07 - Keep-alive no longer stands down for an armed goal timer (code-yeongyu/oh-my-openagent#7720)
 
 ### What changed
