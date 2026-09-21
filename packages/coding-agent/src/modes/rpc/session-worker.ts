@@ -12,6 +12,7 @@ import { SettingsManager } from "../../core/settings-manager.ts";
 import { createCliRuntimeFactory } from "../../main.ts";
 import { initTheme } from "../interactive/theme/theme.ts";
 import { buildRpcSessionState } from "./connection-handler.ts";
+import { isHandoffBusy } from "./handoff-activity.ts";
 import { createRpcSessionBinding, type RpcSessionBinding } from "./session-binding.ts";
 import { SessionEventWriter } from "./session-event-writer.ts";
 import { type RpcSessionEntry, RpcSessionRegistry } from "./session-registry.ts";
@@ -56,7 +57,11 @@ class WorkerEventWriter extends SessionEventWriter {
 			failWorker("session_worker_output_limit");
 		const session = entry?.runtime?.session;
 		if (!session) throw new Error("Session output preceded runtime creation");
-		const activity = { busy: session.isSessionBusy, streaming: session.isStreaming };
+		const activity = {
+			busy: session.isSessionBusy,
+			handoffBusy: isHandoffBusy(session.activitySnapshot),
+			streaming: session.isStreaming,
+		};
 		const replacement =
 			"type" in record &&
 			(record.type === "session_replaced" ||
@@ -138,6 +143,7 @@ function snapshot(): WorkerSnapshot {
 		sessionPath,
 		liveSessionPaths: [...live],
 		busy: session.isSessionBusy,
+		handoffBusy: isHandoffBusy(session.activitySnapshot),
 		streaming: session.isStreaming,
 	};
 }

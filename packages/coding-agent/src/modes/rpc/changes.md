@@ -16,6 +16,29 @@
 
 - `packages/coding-agent/src/modes/rpc/host-ensure.ts`: the `start` branch of `ensureHostLocked`, the `startHost` signature and `hostEnv`. Upstream has no shared daemon, so any conflict is structural.
 
+## 2026-09-21 - Announce a supersession and park attached sessions (#1933)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`: additive `RpcHostSupersededEvent` (`host_superseded` with `instanceId`, `generation`, `successor`) in the host lifecycle record union, and an optional `sessionPath` on `session_closed` so a `handoff_parked` record names the file to reopen on the successor. No existing field changed shape.
+- `packages/coding-agent/src/modes/rpc/multi-session-host.ts`: `drainForHandoff` broadcasts `host_superseded` through the event writer before parking, exactly once per drain (a re-entered drain rescans only), and closes a connection once its last attached session parks.
+- `packages/coding-agent/src/modes/rpc/session-command-router.ts`: the drain sweep parks attached sessions too, gated by `handoff-activity.ts`; a parked handle is answered by its terminal record and close rather than `unknown_session`, and `open_session` on a draining connection is refused with the new stable code `host_draining`.
+- `packages/coding-agent/src/modes/rpc/handoff-activity.ts` (new): the handoff parkable predicate - turns and in-flight host requests block parking, durable wake-source holds do not.
+- `packages/coding-agent/src/modes/rpc/host-lifecycle.ts`: `SENPI_RPC_HANDOFF_GRACE_MS` (default 600000) soft grace that rescans and reports without aborting work; the idle ticker is suppressed while draining; proxied clients drain their final records before the socket closes.
+- `packages/coding-agent/src/modes/rpc/session-event-writer.ts`, `session-worker-client.ts`, `session-worker-protocol.ts`, `session-worker.ts`: publish the handoff predicate and flush a connection's records before it is closed, for both session runtimes.
+
+### Why
+
+- A superseded generation parked only the sessions nobody was attached to, so an attached idle client pinned the old host forever (the memory #1893's drain was meant to reclaim) and learned nothing about the handoff; its next command on a fresh connection reached the successor's empty registry and answered `unknown_session`.
+
+### Why an extension could not handle it
+
+- Supervisor signals, JSONL ordering on a shared connection, session-path reservations and the registry's parkable state are host transport internals; no extension can observe or drive them.
+
+### Expected merge conflict zones
+
+- `host-lifecycle.ts` drain/shutdown block, `multi-session-host.ts` connection accounting, `session-command-router.ts` sweep. Socket regression tests spawn real supervisors and hold a real model turn.
+
 ## 2026-09-21 - Correct the legacy navigation selection comment (#1892 follow-up)
 
 ### What changed

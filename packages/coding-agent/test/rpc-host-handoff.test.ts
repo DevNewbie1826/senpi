@@ -57,21 +57,19 @@ afterEach(async () => {
 // A handoff renames one socket path over another and drains the old host with SIGUSR1;
 // Windows named pipes support neither, so the whole suite is POSIX-only by construction.
 describe.skipIf(process.platform === "win32")("generation handoff between live hosts", () => {
-	it("keeps an old connection answering while a new generation serves the socket", async () => {
+	it("parks an old connection while a new generation serves the socket", async () => {
 		const qa = await generation("live");
 		const inodeBefore = await socketInode(qa.socket);
 		const before = await probeHost({ socket: qa.socket });
 		const attached = await peer(qa);
 		const sessionId = openedSessionId(await attached.request({ id: "open", type: "open_session", cwd: qa.cwd }));
+		const parked = attached.waitFor((record) => record.type === "session_closed" && record.sessionId === sessionId);
 
 		const result = await handoff(qa);
 
 		expect(result.generation).toBe(1);
-		// The connection that predates the handoff still reaches its session.
-		expect(await attached.request({ id: "state", type: "get_state", sessionId })).toMatchObject({
-			success: true,
-			command: "get_state",
-		});
+		expect(await parked).toMatchObject({ reason: "handoff_parked", sessionPath: expect.any(String) });
+		await attached.waitForClose();
 		// A connection made after it reaches a DIFFERENT host process.
 		const after = await probeHost({ socket: qa.socket });
 		expect(after?.instanceId).not.toBe(before?.instanceId);
@@ -84,10 +82,7 @@ describe.skipIf(process.platform === "win32")("generation handoff between live h
 		expect(recordedPid(registered)).toBe(result.pid);
 		expect(registered.pointer_instance_id).toBe(after?.instanceId);
 		expect(registered.pointer_instance_id).not.toBe(before?.instanceId);
-		expect(processAlive(firstPid(qa))).toBe(true);
-
-		// The old pair leaves once its last client does - without unlinking the public socket.
-		attached.destroy();
+		// The old pair leaves without waiting for its client, and preserves the public socket.
 		expect(await waitForPidGone(firstPid(qa), 45_000)).toBe(true);
 		expect(await socketInode(qa.socket)).toBe(inodeAfter);
 		expect((await probeHost({ socket: qa.socket }))?.instanceId).toBe(after?.instanceId);
@@ -95,19 +90,22 @@ describe.skipIf(process.platform === "win32")("generation handoff between live h
 	}, 120_000);
 
 	it("keeps the new generation registered when the drained supervisor is SIGKILLed", async () => {
-		const qa = await generation("kill9");
-		// An ATTACHED session is what makes the kill below deterministic. The drain parks only sessions
-		// with no attachments and the host exits as soon as it holds nothing, so a predecessor with an
-		// EMPTY registry starts leaving on the first sweep after SIGUSR1 - and on a loaded runner it can
-		// be gone before the next statement runs, turning this case into `kill ESRCH`. One attached
-		// session keeps it alive by a state invariant instead of by how fast this process gets there.
+		const held = await HeldAnthropicModel.start();
+		models.push(held);
+		const qa = await generation("kill9", held.origin);
+		// A held TURN, not an idle attachment, pins the predecessor until the kill.
 		const attached = await peer(qa);
-		await attached.request({ id: "open", type: "open_session", cwd: qa.cwd });
+		const sessionId = openedSessionId(await attached.request({ id: "open", type: "open_session", cwd: qa.cwd }));
+		const started = attached.waitFor((record) => record.type === "agent_start" && record.sessionId === sessionId);
+		await attached.request({ id: "prompt", type: "prompt", sessionId, message: "hold until killed" });
+		await started;
 		const result = await handoff(qa);
 		const inodeAfter = await socketInode(qa.socket);
 		const live = await probeHost({ socket: qa.socket });
 
+		expect(processAlive(firstPid(qa))).toBe(true);
 		expect(signalGeneration(firstPid(qa), "SIGKILL")).toBe(true);
+		held.release();
 		expect(await waitForPidGone(firstPid(qa), 45_000)).toBe(true);
 
 		expect(recordedPid(await pidFile(qa))).toBe(result.pid);

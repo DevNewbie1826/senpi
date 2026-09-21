@@ -298,6 +298,7 @@ it("names handoff_parked when a drain parks a detached retained session", async 
 		type: "session_closed",
 		sessionId: session.sessionId,
 		reason: "handoff_parked",
+		sessionPath: session.state.sessionFile,
 	});
 });
 

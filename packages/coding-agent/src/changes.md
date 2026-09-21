@@ -1,5 +1,25 @@
 # changes
 
+## 2026-09-21 - Announce supersession and park attached RPC sessions (#1933)
+
+### What changed
+
+- The socket host serializes `host_superseded` through its event writer before draining, then parks attached as well as unattached sessions with `session_closed { reason: "handoff_parked", sessionPath }` and closes connections after their last attached session parks.
+- Handoff activity protects turns and in-flight requests but excludes durable wake-source holds; ordinary idle eviction is unchanged. Both in-process and worker runtimes publish the handoff predicate.
+- The supervisor owns the 600000 ms `SENPI_RPC_HANDOFF_GRACE_MS` soft deadline. Expiry requests another drain pass, never aborts active work, and child exit ends the generation regardless of attached clients.
+
+### Why
+
+- Attached idle sessions pinned superseded hosts forever, without telling clients to reopen their files on the successor. Late commands on a parked handle now terminate through the close rather than `unknown_session`.
+
+### Why an extension could not handle it
+
+- Supervisor signals, JSONL ordering, shared connection ownership, request accounting and file reservations belong to the host transport and session registry.
+
+### Expected merge conflict zones
+
+- `modes/rpc/host-lifecycle.ts`, `multi-session-host.ts`, `session-command-router.ts`, `session-event-writer.ts`, and worker activity snapshots. Socket regression tests exercise real supervisors and held model turns.
+
 ## 2026-09-21 - Preserve host MCP registry injection in CLI runtime creation (#1915)
 
 ### What changed

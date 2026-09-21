@@ -107,14 +107,17 @@ function inProcessRuntimeFactory(): {
 				isCompacting: false,
 				// Composed through the production predicate so this fake cannot drift
 				// from the activity contract the sweep consults.
-				get isSessionBusy() {
-					return isSessionBusySnapshot({
+				get activitySnapshot() {
+					return {
 						isStreaming: state.isStreaming,
 						isBashRunning: false,
 						isCompacting: false,
 						hasSessionWork: false,
 						hasActiveWakeSource: false,
-					});
+					};
+				},
+				get isSessionBusy() {
+					return isSessionBusySnapshot(this.activitySnapshot);
 				},
 				extensionRunner: { hasHandlers: () => false, emit: async () => {} },
 				subscribe: () => () => {},
@@ -143,7 +146,11 @@ function inProcessRuntimeFactory(): {
  * under test (attachment refcount, connection drop, idle sweep, empty-host exit)
  * runs its production code path on the runtime the daemon selects.
  */
-export function createInProcessRig(dir: string, idle?: RpcSessionIdlePolicy) {
+export function createInProcessRig(
+	dir: string,
+	idle?: RpcSessionIdlePolicy,
+	handle: (command: RpcCommand) => Promise<void> = async () => {},
+) {
 	const { createRuntime, turns, teardown } = inProcessRuntimeFactory();
 	// One clock for both halves of the idle contract: the registry stamps `lastCommandAt`
 	// and the router's sweep compares against it.
@@ -164,7 +171,7 @@ export function createInProcessRig(dir: string, idle?: RpcSessionIdlePolicy) {
 		registry,
 		writer,
 		{ cwd: dir },
-		async () => ({ handle: async () => {}, dispose: async () => {}, cancelPendingExtensionUiRequests: () => {} }),
+		async () => ({ handle, dispose: async () => {}, cancelPendingExtensionUiRequests: () => {} }),
 		{},
 		idle,
 	);

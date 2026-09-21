@@ -124,6 +124,10 @@ export class SessionWorkerClient {
 		return this.requests.activeCount > 0 || this.snapshot?.busy === true;
 	}
 
+	get handoffBusy(): boolean {
+		return this.requests.activeCount > 0 || (this.snapshot?.handoffBusy ?? this.snapshot?.busy) === true;
+	}
+
 	subscribeSettled(listener: () => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);

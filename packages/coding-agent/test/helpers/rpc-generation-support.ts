@@ -116,6 +116,11 @@ export class JsonlPeer {
 		return new JsonlPeer(socket);
 	}
 
+	/** Send a command whose answer may be the host closing this connection. */
+	send(command: WireRecord): void {
+		this.socket.write(`${JSON.stringify(command)}\n`);
+	}
+
 	request(command: WireRecord, timeoutMs = 20_000): Promise<WireRecord> {
 		const response = this.waitFor((value) => value.type === "response" && value.id === command.id, timeoutMs);
 		this.socket.write(`${JSON.stringify(command)}\n`);

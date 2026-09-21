@@ -86,6 +86,9 @@ export const HOST_COLD_START_ENV = "SENPI_RPC_HOST_COLD_START";
 export const HOST_IDLE_EXIT_MS_ENV = "SENPI_RPC_HOST_IDLE_EXIT_MS";
 /** Default idle-exit window: 15 minutes of continuous no-connection, no-turn idle. */
 export const DEFAULT_HOST_IDLE_EXIT_MS = 15 * 60_000;
+/** Soft handoff deadline: rescan and report, never interrupt turns or in-flight requests. */
+export const HANDOFF_GRACE_MS_ENV = "SENPI_RPC_HANDOFF_GRACE_MS";
+export const DEFAULT_HANDOFF_GRACE_MS = 10 * 60_000;
 
 /** The policy fields ensureHost() records in rpc-host-daemon/settings.json. */
 export interface HostLifecyclePolicyInput {
@@ -473,6 +476,7 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 	let stopSupersessionWatch: (() => void) | undefined;
 	let shuttingDown = false;
 	let draining = false;
+	let handoffGraceTimer: ReturnType<typeof setTimeout> | undefined;
 	let shutdownPromise: Promise<never> | undefined;
 
 	const childLaunch = spawnableChildLaunch(resolveHostChildLaunch(launch, internalSocket));
@@ -548,7 +552,11 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 			internal.pipe(client);
 			client.once("close", detach);
 			client.once("error", detach);
-			internal.once("close", detach);
+			// Let the final lifecycle records drain through the public socket before closing it.
+			internal.once("end", () => client.end(() => client.destroy()));
+			internal.once("close", () => {
+				if (!internal.readableEnded) detach();
+			});
 			internal.once("error", detach);
 		};
 		if (publicSecret) authenticateSocket(client, publicSecret, accept);
@@ -563,7 +571,7 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 	);
 	const tickIntervalMs = Math.max(20, Math.min(1_000, policy.idleExitMs / 4));
 	const ticker = setInterval(() => {
-		if (decider.update(currentActivity()) === "exit") void shutdown("idle", 0);
+		if (!draining && decider.update(currentActivity()) === "exit") void shutdown("idle", 0);
 	}, tickIntervalMs);
 
 	function currentActivity(): HostActivity {
@@ -608,6 +616,7 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 		if (shuttingDown) process.exit(exitCode);
 		shuttingDown = true;
 		clearInterval(ticker);
+		if (handoffGraceTimer) clearTimeout(handoffGraceTimer);
 		if (childExitWatchTimer) clearInterval(childExitWatchTimer);
 		stopSupersessionWatch?.();
 		const hardExit =
@@ -660,19 +669,28 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 	// startup must run the same cleanup instead of Node's default kill, which
 	// would leave that directory behind.
 	/**
-	 * Hand this generation's work to the next one: stop accepting, keep every connection already
-	 * proxied, and tell the host child to park its retained sessions as their turns settle. The
-	 * child's exit is what ends this supervisor, so the drain never cuts a turn short.
+	 * Ask the child to announce and park attached sessions as turns/requests settle. The supervisor
+	 * owns the soft grace from this instant; expiry rescans but NEVER kills busy sessions. Child
+	 * exit ends the supervisor regardless of clients that keep their connections open.
 	 */
 	function drainForHandoff(): void {
 		if (draining || shuttingDown) return;
 		draining = true;
 		supervisorLog("draining into the next generation");
+		const graceMs = parseIdleExitMs(process.env[HANDOFF_GRACE_MS_ENV]) ?? DEFAULT_HANDOFF_GRACE_MS;
+		handoffGraceTimer = setTimeout(() => {
+			supervisorLog(JSON.stringify({ event: "handoff_grace_expired", graceMs }));
+			requestChildDrain();
+		}, graceMs);
+		handoffGraceTimer.unref();
 		// The listening handle is deliberately NOT closed: libuv unlinks a pipe's bound NAME when it
 		// closes, and after a handoff that name is the successor's entry. Nothing can reach this
 		// listener by path any more (the rename moved the name), and the accept guard above turns
 		// away whatever raced it, so leaving the handle open until exit costs nothing and keeps the
 		// public path continuously answerable - no window where a client finds no socket at all.
+		requestChildDrain();
+	}
+	function requestChildDrain(): void {
 		if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
 			try {
 				process.kill(child.pid, "SIGUSR1");
