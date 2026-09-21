@@ -1,4 +1,5 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { getAgentDir } from "../../../../config.ts";
 import type { ExtensionAPI, ExtensionUIContext, SessionShutdownEvent, SessionStartEvent } from "../../types.ts";
 import {
 	getToolSearchService,
@@ -106,11 +107,17 @@ export class McpService {
 			this.#sessionContext = ctx;
 			this.#sessionStartCount += 1;
 			this.#lastSessionStartReason = event.reason;
+			// Bind the agent dir at attach time: the startup race can background
+			// the catalog cache write past this point, and it must land in the
+			// directory this attach resolved, never wherever the environment
+			// points when the write finally runs.
+			const sessionOptions: McpSessionOptions =
+				options.agentDir === undefined ? { ...options, agentDir: getAgentDir() } : options;
 			const config = loadMcpConfig({
-				agentDir: options.agentDir,
+				agentDir: sessionOptions.agentDir,
 				cwd: ctx.cwd,
-				env: options.env,
-				projectTrusted: options.projectTrusted ?? ctx.isProjectTrusted(),
+				env: sessionOptions.env,
+				projectTrusted: sessionOptions.projectTrusted ?? ctx.isProjectTrusted(),
 			});
 			mergeExtensionMcpServers(config, ctx.getRegisteredMcpServers?.() ?? []);
 			this.#config = config;
@@ -127,12 +134,12 @@ export class McpService {
 					this.#toolSearchService = getToolSearchService({ getAllTools: () => [], ...activationRuntime });
 				}
 			}
-			this.#authAgentDir = options.agentDir;
-			this.#authEnv = options.env;
-			this.#sessionOptions = options;
+			this.#authAgentDir = sessionOptions.agentDir;
+			this.#authEnv = sessionOptions.env;
+			this.#sessionOptions = sessionOptions;
 			const toolRefreshGeneration = this.#toolRefreshGeneration + 1;
 			this.#toolRefreshGeneration = toolRefreshGeneration;
-			await this.#syncFromConfig(config, options, event.reason !== "reload", _pi, toolRefreshGeneration);
+			await this.#syncFromConfig(config, sessionOptions, event.reason !== "reload", _pi, toolRefreshGeneration);
 			if (_pi !== undefined) await this.#registerDirectTools(_pi);
 			// Replay promotion markers from the (possibly resumed) session history
 			// BEFORE the first turn: the request tool snapshot is taken before the
