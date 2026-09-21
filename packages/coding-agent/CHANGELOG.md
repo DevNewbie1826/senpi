@@ -14,6 +14,8 @@
 
 ### Fixed
 
+- The Bun extension importer reads `es-module-lexer` 3's tagged-union import records, so extensions load unchanged after the lexer upgrade to 3.0.2. ([#1895](https://github.com/code-yeongyu/senpi/issues/1895))
+
 ### Removed
 
 ## [2026.9.21] - 2026-09-21
