@@ -169,9 +169,9 @@ describe("ensureHost", () => {
 
 	it("refuses to signal a live host whose pidfile another process wrote", async () => {
 		// I1: the pidfile says a host is ours only if THIS process wrote it. A foreign writer's host
-		// is never signalled, even when it stopped answering on the socket.
+		// is never signalled while it still owns the endpoint, even when it stopped answering on it.
 		const qa = await scratch("foreign-writer");
-		const running = await startManagedProcess(qa, { writer: "foreign" });
+		const running = await startSilentOwner(qa, "foreign");
 		const failure = await ensureFixtureHost(qa).catch((error: unknown) => error);
 		expect(failure).toBeInstanceOf(HostEnsureRefusedError);
 		expect((failure as HostEnsureRefusedError).reason).toBe("foreign_writer");
@@ -182,12 +182,42 @@ describe("ensureHost", () => {
 		// The adversarial half of the same rule: the writer pid matches after a reboot recycled it,
 		// so only the recorded start time separates "we wrote this" from "somebody else did".
 		const qa = await scratch("recycled-writer");
-		const running = await startManagedProcess(qa, { writer: "recycled-pid" });
+		const running = await startSilentOwner(qa, "recycled-pid");
 		const failure = await ensureFixtureHost(qa).catch((error: unknown) => error);
 		expect(failure).toBeInstanceOf(HostEnsureRefusedError);
 		expect((failure as HostEnsureRefusedError).reason).toBe("foreign_writer");
 		expect(await processMatchesPidFile(running.pidFile, readProcessStartTime)).toBe(true);
 	}, 20_000);
+
+	// A named pipe has no filesystem entry to lose, so win32 keeps refusing (see `publicEntryStands`).
+	it.skipIf(process.platform === "win32")(
+		"starts a fresh generation beside a foreign generation whose socket entry is gone",
+		async () => {
+			// #1936: the registered supervisor is alive (draining its last session) but the public path
+			// holds no socket entry at all - its entry was replaced and the replacement later exited.
+			// Nothing serves the path, so refusing protects nobody and locks every client out until
+			// that process happens to exit. The ensure binds a new generation and signals nothing.
+			const qa = await scratch("foreign-lost-entry");
+			const stranded = await startManagedProcess(qa, { writer: "foreign" });
+			const paths = daemonPaths(qa);
+			const before = await readHostRegistration(paths);
+			if (before === undefined) throw new Error("fixture registration missing");
+
+			const result = await ensureFixtureHost(qa);
+
+			expect(result.reused).toBe(false);
+			expect(result.pid).not.toBe(stranded.pid);
+			// Never signalled: the stranded generation is still alive after the ensure.
+			expect(await processMatchesPidFile(stranded.pidFile, readProcessStartTime)).toBe(true);
+			const after = await readHostRegistration(paths);
+			expect(after).toMatchObject({ generation: 1, record: { pid: result.pid } });
+			expect(after?.instanceId).not.toBe(before.instanceId);
+			// Its directory stays, so `host status` keeps listing the generation while it drains.
+			await expect(access(join(paths.generationsDir, before.instanceId))).resolves.toBeUndefined();
+			expect((await protocolInfo(qa.socket)).data).toMatchObject({ serverVersion: VERSION });
+		},
+		20_000,
+	);
 
 	it("cleans a stale dead pidfile and starts fresh", async () => {
 		const qa = await scratch("stale-pidfile");
@@ -754,6 +784,15 @@ async function startManagedProcess(qa: Qa, options: { writer: Writer; ignoreTerm
 		? "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"
 		: "setInterval(() => {}, 1000)";
 	return register(qa, spawn(process.execPath, ["-e", script], { detached: true, stdio: "ignore" }), options.writer);
+}
+
+/**
+ * A registered process that still OWNS the endpoint but never answers. On POSIX that is a bound
+ * socket entry nobody answers behind (`startBusySocketHost`); a win32 named pipe has no entry to
+ * own or lose, so there the bare registered process is the same shape.
+ */
+async function startSilentOwner(qa: Qa, writer: Writer): Promise<Managed> {
+	return process.platform === "win32" ? startManagedProcess(qa, { writer }) : startBusySocketHost(qa, writer);
 }
 
 /**

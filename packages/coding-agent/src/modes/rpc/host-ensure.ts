@@ -44,6 +44,7 @@ import { DEFAULT_HOST_IDLE_EXIT_MS, type HostColdStart, type HostLifecyclePolicy
 import { probeProtocolInfo, probeSocketReachable } from "./host-probe.ts";
 import { acquireOwnershipSafeLock } from "./ownership-safe-lock.ts";
 import { HOST_GENERATION_ENV, HOST_INSTANCE_ID_ENV, hostLaunchProfile } from "./protocol-identity.ts";
+import { statSocketIdentity } from "./socket-ownership.ts";
 import { createSocketSecret, resolveSocketTransportAddress, socketSecretPath } from "./socket-transport.ts";
 
 export {
@@ -178,25 +179,50 @@ async function ensureHostLocked(
 	}
 	const probe = testOptions?.readProcessStartTime ?? readProcessStartTime;
 	const pidMatches = registeredHere && registered ? await matchesPidFileOrUnknown(registered.record, probe) : false;
+	// The generation this start leaves RUNNING beside the new one, when there is one.
+	let stranded: RegisteredHost | undefined;
 	if (registered && pidMatches) {
-		// I1: the socket is silent, but the process behind it is alive. Only the process that WROTE
-		// this record may end it - anyone else refuses rather than signalling somebody else's host.
-		if (!startedByUs) throw new HostEnsureRefusedError(socket, "foreign_writer", protocol);
-		// ... and silent is not the same as gone. A host serving many sessions can miss a probe
-		// budget while its event loop is busy; its socket still ACCEPTS the connection. Ending it
-		// then would destroy every live session to replace a host that was never broken, so a
-		// reachable socket is refused instead of signalled - the caller retries or falls back.
-		if (await probeSocketReachable(socket, EXISTING_HOST_PROBE_TIMEOUT_MS)) {
-			throw new HostEnsureRefusedError(socket, "host_busy", protocol);
+		if (!startedByUs) {
+			// I1: the socket is silent, but the process behind it is alive. Only the process that WROTE
+			// this record may end it - anyone else refuses rather than signalling somebody else's host.
+			if (await publicEntryStands(socket)) throw new HostEnsureRefusedError(socket, "foreign_writer", protocol);
+			// A foreign record whose public entry is GONE names a generation nobody can reach: its entry
+			// was replaced (so it is already draining, #1893) or removed. Refusing here locked every
+			// client out until that process happened to exit (#1936). Binding a fresh generation to the
+			// free path signals nothing, so that is what happens - the stranded one keeps its record.
+			stranded = registered;
+		} else {
+			// Silent is not the same as gone. A host serving many sessions can miss a probe budget
+			// while its event loop is busy; its socket still ACCEPTS the connection. Ending it then
+			// would destroy every live session to replace a host that was never broken, so a
+			// reachable socket is refused instead of signalled - the caller retries or falls back.
+			if (await probeSocketReachable(socket, EXISTING_HOST_PROBE_TIMEOUT_MS)) {
+				throw new HostEnsureRefusedError(socket, "host_busy", protocol);
+			}
+			await stopManagedHost(registered.record, testOptions?.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS, probe);
 		}
-		await stopManagedHost(registered.record, testOptions?.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS, probe);
 	}
 	// A host from before this layout registered itself in the FLAT directory. Its files are another
 	// process's state: never read as ours, never signalled, never removed - and while it is alive,
 	// this ensure refuses instead of binding a socket it may still be serving.
 	if (await legacyHostIsLive(paths, probe)) throw new HostEnsureRefusedError(socket, "legacy_host", protocol);
+	if (stranded !== undefined) return startHost(paths, socket, options, stranded.generation + 1);
 	if (registeredHere) await clearHostRegistration(paths);
 	return startHost(paths, socket, options);
+}
+
+/**
+ * Whether the public path still holds a socket entry - the one thing that says a registered process
+ * still OWNS the endpoint. A named pipe has no entry to lose and an abstract socket has no path, so
+ * both read as standing; so does an entry this process cannot stat, because an owner that cannot be
+ * ruled out is one this ensure must not bind over.
+ */
+async function publicEntryStands(socket: string): Promise<boolean> {
+	if (process.platform === "win32" || socket.startsWith("\0")) return true;
+	return statSocketIdentity(socket).then(
+		(identity) => identity !== undefined,
+		() => true,
+	);
 }
 
 /** `fallback` belongs to clients that can live without a host; an ensure must produce one or fail. */
@@ -269,7 +295,16 @@ function registersSocket(registered: RegisteredHost | undefined, socket: string)
 	return registered.socket === undefined || registered.socket === socket;
 }
 
-async function startHost(paths: HostDaemonPaths, socket: string, options: EnsureHostOptions): Promise<EnsuredHost> {
+/**
+ * `generation` is 0 for a fresh endpoint; a start that leaves a stranded generation running beside
+ * the new one numbers it after that generation, as a handoff would.
+ */
+async function startHost(
+	paths: HostDaemonPaths,
+	socket: string,
+	options: EnsureHostOptions,
+	generation = 0,
+): Promise<EnsuredHost> {
 	const testOptions = options._test;
 	// The generation this ensure is about to spawn, chosen HERE so its directory exists before the
 	// host boots and the pointer can name it the moment the host is registered.
@@ -282,10 +317,11 @@ async function startHost(paths: HostDaemonPaths, socket: string, options: Ensure
 		capabilities: PINNED_HOST_CLIENT_CAPABILITIES,
 		coldStart: options.policy?.coldStart ?? "transient",
 		idleExitMs: options.policy?.idleExitMs ?? DEFAULT_HOST_IDLE_EXIT_MS,
-		generation: 0,
+		generation,
 		instanceId,
 	});
-	const stderr = await open(paths.stderrLog, "w", 0o600);
+	// A stranded generation is still writing its diagnostics here; only a fresh endpoint starts over.
+	const stderr = await open(paths.stderrLog, generation === 0 ? "w" : "a", 0o600);
 	let pidFile: DaemonPidFile | undefined;
 	let child: ReturnType<typeof spawn> | undefined;
 	let exitedEarly: ChildExit | undefined;
@@ -296,7 +332,7 @@ async function startHost(paths: HostDaemonPaths, socket: string, options: Ensure
 		child = spawn(launch.command, [...launch.args], {
 			detached: true,
 			windowsHide: true,
-			env: hostEnv(options, { paths, instanceId }),
+			env: hostEnv(options, { paths, instanceId, generation }),
 			stdio: ["ignore", "ignore", stderr.fd],
 		});
 		childExit = new Promise((resolveExit) => {
@@ -330,7 +366,7 @@ async function startHost(paths: HostDaemonPaths, socket: string, options: Ensure
 			record: pidFile,
 			socket,
 			instanceId,
-			generation: 0,
+			generation,
 			launchProfileId: hostLaunchProfile(hostChildArgv(options.hostArgs ?? []), process.cwd()).profile_id,
 		});
 		child.unref();
@@ -553,7 +589,7 @@ function isCompatible(protocol: HostProtocolInfo | undefined): boolean {
 /** The environment a spawned host inherits: this process's, the caller's overrides, then the fixed wiring. */
 function hostEnv(
 	options: EnsureHostOptions,
-	generation: { readonly paths: HostDaemonPaths; readonly instanceId: string },
+	generation: { readonly paths: HostDaemonPaths; readonly instanceId: string; readonly generation: number },
 ): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = { ...process.env };
 	for (const [key, value] of Object.entries(options.env ?? {})) {
@@ -566,7 +602,7 @@ function hostEnv(
 	// its own host's identity to the one it spawns, and two hosts claiming one instance id make a
 	// handoff - which completes exactly when the instance id changes - impossible to observe.
 	env[HOST_INSTANCE_ID_ENV] = generation.instanceId;
-	env[HOST_GENERATION_ENV] = "0";
+	env[HOST_GENERATION_ENV] = String(generation.generation);
 	env[HOST_DAEMON_DIR_ENV] = generation.paths.dir;
 	return env;
 }
