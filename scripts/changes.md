@@ -1,5 +1,25 @@
 # changes
 
+## 2026-09-21 - run-workspaces gains --parallel with prefixed lanes and shared signal forwarding (senpi#1895)
+
+### What changed
+
+- `scripts/run-workspaces.mjs`: parses `--parallel`; in that mode every selected workspace's script starts at once through `runInParallel`, results keep the selection order, and the exit code is still the first failing lane's.
+- `scripts/package-manager.mjs`: `spawnPackageManager` accepts `prefix` (pipes stdout/stderr and tags every line `[<workspace dir>]`, flushing a trailing partial line) and `fanout`; `createSignalFanout` installs one handler set that forwards SIGINT/SIGTERM/SIGHUP to every attached child's process group and hands the signal back so the driver re-raises it only after every lane closed. Without either option the sequential path is unchanged.
+- `scripts/run-workspaces.parallel.test.mjs`: overlap proven with a file rendezvous (each lane waits for the other's start marker), prefixed output, first-failure exit code, and a two-lane SIGTERM test; `scripts/run-workspaces.test.mjs` now uses `--sequential` as its unknown-flag sample and expects `parallel: false` from `parseArguments`.
+
+### Why
+
+- The root `dev` script used `concurrently`, the one root script that did not go through the package-manager-agnostic driver; running lanes inside the driver keeps `npm run dev` / `bun run dev` / `pnpm run dev` identical and lets the existing process-group signal forwarding cover both lanes (senpi#1895).
+
+### Why an extension could not handle it
+
+- Root scripts run before the engine or any extension is loaded.
+
+### Expected merge conflict zones
+
+- `parseArguments` and the run loop in `run-workspaces.mjs`; the `spawnPackageManager` signature in `package-manager.mjs`.
+
 ## 2026-09-21 - The lock generators allowlist the bumped @google/genai (senpi#1895)
 
 ### What changed
