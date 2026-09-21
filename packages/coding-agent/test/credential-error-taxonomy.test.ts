@@ -50,6 +50,27 @@ describe("credential error taxonomy", () => {
 	});
 
 	test.each([
+		["abnormal closure 1006", new Error("WebSocket closed 1006 Connection ended")],
+		["going away 1001", new Error("WebSocket closed 1001")],
+		["server error 1011", new Error("WebSocket closed 1011 internal error")],
+		["service restart 1012", new Error("WebSocket closed 1012")],
+		["try again later 1013", new Error("WebSocket closed 1013")],
+		["bad gateway 1014", new Error("WebSocket closed 1014")],
+		["bare websocket error", new Error("WebSocket error")],
+		["connect timeout", new Error("WebSocket connect timeout after 15000ms")],
+		["liveness timeout", new Error("WebSocket liveness timeout after 70000ms (2 pings unanswered)")],
+	] as const)("%s is a transport fault: retries the same slot without blocking it (senpi#1628)", (_label, error) => {
+		expect(classifyCredentialFailure(error)).toEqual({ kind: "retry_same", maxAttempts: 2 });
+	});
+
+	test.each([
+		["message too big 1009", new Error("WebSocket closed 1009 message too big")],
+		["policy violation 1008", new Error("WebSocket closed 1008 policy violation")],
+	] as const)("%s is a request fault: fails the request instead of replaying it", (_label, error) => {
+		expect(classifyCredentialFailure(error).kind).toBe("fail_request");
+	});
+
+	test.each([
 		["context overflow", new Error("prompt is too long: maximum context length exceeded")],
 		["invalid model", new Error("model_not_found: no such model")],
 		["400", status(400, "Bad Request")],
