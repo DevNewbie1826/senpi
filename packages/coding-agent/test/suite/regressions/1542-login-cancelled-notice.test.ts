@@ -28,11 +28,11 @@ describe("login outcome classification (#1542)", () => {
 	});
 
 	it("renders an aborted /login as a neutral notice, not a failure", () => {
-		expect(describeLoginFailure(dialogEscapeReason(), "OpenAI Codex", "oauth")).toEqual({
+		expect(describeLoginFailure(dialogEscapeReason(), "ChatGPT Subscription", "oauth")).toEqual({
 			level: "status",
 			message: "Login cancelled",
 		});
-		expect(describeLoginFailure(fabricatedAbortError(), "OpenAI Codex", "oauth")).toEqual({
+		expect(describeLoginFailure(fabricatedAbortError(), "ChatGPT Subscription", "oauth")).toEqual({
 			level: "status",
 			message: "Login cancelled",
 		});
@@ -45,10 +45,10 @@ describe("login outcome classification (#1542)", () => {
 	it("keeps genuine provider, network and OAuth errors as failures", () => {
 		expect(isLoginCancellation(new Error("invalid_grant"))).toBe(false);
 		expect(
-			describeLoginFailure(new Error("token exchange failed (400): invalid_grant"), "OpenAI Codex", "oauth"),
+			describeLoginFailure(new Error("token exchange failed (400): invalid_grant"), "ChatGPT Subscription", "oauth"),
 		).toEqual({
 			level: "error",
-			message: "Failed to login to OpenAI Codex: token exchange failed (400): invalid_grant",
+			message: "Failed to login to ChatGPT Subscription: token exchange failed (400): invalid_grant",
 		});
 		expect(describeLoginFailure(new Error("fetch failed"), "OpenAI", "api_key")).toEqual({
 			level: "error",
@@ -58,11 +58,13 @@ describe("login outcome classification (#1542)", () => {
 	});
 
 	it("keeps the credential synchronization failure message", () => {
-		const error = new CredentialSynchronizationError("openai-codex", "login", undefined, {
+		const error = new CredentialSynchronizationError("chatgpt-subscription", "login", undefined, {
 			cause: new Error("disk on fire"),
 		});
-		const notice = describeLoginFailure(error, "OpenAI Codex", "oauth");
+		const notice = describeLoginFailure(error, "ChatGPT Subscription", "oauth");
 		expect(notice.level).toBe("error");
-		expect(notice.message).toMatch(/^Logged in to OpenAI Codex, but local model state could not be synchronized: /);
+		expect(notice.message).toMatch(
+			/^Logged in to ChatGPT Subscription, but local model state could not be synchronized: /,
+		);
 	});
 });

@@ -12,7 +12,7 @@ import { SessionManager } from "../../src/core/session-manager.ts";
 import { createBlockingContext, createCompactionHandlers } from "../helpers/blocking-compaction-harness.ts";
 
 /**
- * Incident 2026-08-31: a session on openai-codex gpt-5.6-sol (high reasoning)
+ * Incident 2026-08-31: a session on chatgpt-subscription gpt-5.6-sol (high reasoning)
  * wedged above the compaction threshold with
  * "Compaction rejected: summarization response contained no text
  * (stopReason: toolUse)" followed by "Context remains above the compaction

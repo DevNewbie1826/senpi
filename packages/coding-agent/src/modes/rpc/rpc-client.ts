@@ -686,7 +686,7 @@ export class RpcClient {
 	}
 
 	/**
-	 * Turn OpenAI Codex fast mode (the `priority` service tier) on or off for the active model.
+	 * Turn ChatGPT Subscription fast mode (the `priority` service tier) on or off for the active model.
 	 *
 	 * The choice is remembered per model, so a later session on the same model starts the same
 	 * way. Throws when the request is refused: a non-Codex model, or an active `:priority` model

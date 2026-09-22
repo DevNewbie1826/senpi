@@ -86,7 +86,7 @@ describe("OpenAI Responses thinking matrix", () => {
 
 	it("preserves max effort for a map-less gpt-5.6-sol model on Codex Responses", async () => {
 		const model = {
-			...getModel("openai-codex", "gpt-5.6-sol"),
+			...getModel("chatgpt-subscription", "gpt-5.6-sol"),
 			thinkingLevelMap: undefined,
 		};
 		const payload = await capturePayload((onPayload) =>
@@ -133,7 +133,7 @@ describe("OpenAI Responses thinking matrix", () => {
 
 	it("sends Codex's none sentinel when the agent represents thinking off as omitted reasoning", async () => {
 		const payload = await capturePayload((onPayload) =>
-			streamSimpleOpenAICodexResponses(getModel("openai-codex", "gpt-5.6-sol"), context, {
+			streamSimpleOpenAICodexResponses(getModel("chatgpt-subscription", "gpt-5.6-sol"), context, {
 				apiKey: "test-key",
 				transport: "sse",
 				onPayload,
@@ -152,7 +152,7 @@ describe("OpenAI Responses thinking matrix", () => {
 		"normalizes Codex %s summary on the explicit-effort path",
 		async (_, reasoningSummary, expectedSummary) => {
 			const payload = await capturePayload((onPayload) =>
-				streamOpenAICodexResponses(getModel("openai-codex", "gpt-5.6-sol"), context, {
+				streamOpenAICodexResponses(getModel("chatgpt-subscription", "gpt-5.6-sol"), context, {
 					apiKey: "test-key",
 					transport: "sse",
 					reasoningEffort: "low",
@@ -177,7 +177,7 @@ describe("OpenAI Responses thinking matrix", () => {
 		"normalizes Codex %s summary on the thinking-off fallback",
 		async (_, reasoningSummary, expectedSummary) => {
 			const payload = await capturePayload((onPayload) =>
-				streamOpenAICodexResponses(getModel("openai-codex", "gpt-5.6-sol"), context, {
+				streamOpenAICodexResponses(getModel("chatgpt-subscription", "gpt-5.6-sol"), context, {
 					apiKey: "test-key",
 					transport: "sse",
 					reasoningSummary,
@@ -194,7 +194,7 @@ describe("OpenAI Responses thinking matrix", () => {
 
 	it("omits Codex reasoning when the catalog says thinking cannot be disabled", async () => {
 		const model = {
-			...getModel("openai-codex", "gpt-5.6-sol"),
+			...getModel("chatgpt-subscription", "gpt-5.6-sol"),
 			thinkingLevelMap: { off: null },
 		};
 		const payload = await capturePayload((onPayload) =>
@@ -276,7 +276,7 @@ describe("OpenAI Responses thinking matrix", () => {
 
 	it("does not send Codex's none sentinel when the catalog forbids thinking off", async () => {
 		const model = {
-			...getModel("openai-codex", "gpt-5.6-sol"),
+			...getModel("chatgpt-subscription", "gpt-5.6-sol"),
 			thinkingLevelMap: { off: null },
 		};
 		const payload = await capturePayload((onPayload) =>

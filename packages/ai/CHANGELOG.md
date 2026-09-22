@@ -22,6 +22,8 @@
 
 ### Changed
 
+- The OpenAI subscription provider is now `chatgpt-subscription`, shown as **ChatGPT Subscription**, instead of `openai-codex` / "OpenAI Codex" — the id named a CLI, not the thing you are signing in with. Its wire dialect id `openai-codex-responses` is unchanged, so no request shape moves. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
+
 ### Fixed
 
 - OpenAI hard-quota exhaustion (`usage_limit_reached`, `usage_not_included`) is terminal on the first failure instead of retrying a dead account five more times, and a failure carrying either provider code is terminal even when the message text is opaque. Approaching-the-limit warnings stay retryable. ([#1969](https://github.com/code-yeongyu/senpi/issues/1969))

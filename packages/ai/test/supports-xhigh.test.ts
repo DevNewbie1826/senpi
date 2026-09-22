@@ -91,7 +91,7 @@ describe("getSupportedThinkingLevels", () => {
 	it.each(["gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra"] as const)(
 		"includes xhigh for openai-codex %s models",
 		(modelId) => {
-			const model = getModel("openai-codex", modelId);
+			const model = getModel("chatgpt-subscription", modelId);
 			expect(model).toBeDefined();
 			expect(getSupportedThinkingLevels(model!)).toContain("xhigh");
 		},

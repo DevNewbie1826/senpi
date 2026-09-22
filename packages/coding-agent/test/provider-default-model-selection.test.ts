@@ -5,7 +5,7 @@ import { findInitialModel } from "../src/core/model-resolver.ts";
 describe("OpenAI provider defaults", () => {
 	test("prefers GPT-5.6 Sol automatically while preserving explicit GPT-5.5", async () => {
 		const openAiModels = getModels("openai");
-		const codexModels = getModels("openai-codex");
+		const codexModels = getModels("chatgpt-subscription");
 		const availableModels = [
 			openAiModels.find((model) => model.id === "gpt-5.6-sol"),
 			codexModels.find((model) => model.id === "gpt-5.6-sol"),
@@ -22,7 +22,7 @@ describe("OpenAI provider defaults", () => {
 		const explicit = await findInitialModel({
 			scopedModels: [],
 			isContinuing: false,
-			defaultProvider: "openai-codex",
+			defaultProvider: "chatgpt-subscription",
 			defaultModelId: "gpt-5.5",
 			modelRuntime: runtime,
 		});

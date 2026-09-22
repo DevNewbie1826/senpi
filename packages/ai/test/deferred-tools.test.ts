@@ -549,17 +549,17 @@ describe("deferred tools", () => {
 	it("selects additional tools, tool search, or top-level tools for Codex models", async () => {
 		const context = makeContext([makeTool("base_tool"), makeTool("late_tool")]);
 		const additionalTools = await capturePayload<OpenAIPayload>(
-			getModel("openai-codex", "gpt-5.6-sol"),
+			getModel("chatgpt-subscription", "gpt-5.6-sol"),
 			context,
 			makeCodexToken(),
 		);
 		const toolSearch = await capturePayload<OpenAIPayload>(
-			getModel("openai-codex", "gpt-5.5"),
+			getModel("chatgpt-subscription", "gpt-5.5"),
 			context,
 			makeCodexToken(),
 		);
 		const topLevel = await capturePayload<OpenAIPayload>(
-			getModel("openai-codex", "gpt-5.3-codex-spark"),
+			getModel("chatgpt-subscription", "gpt-5.3-codex-spark"),
 			context,
 			makeCodexToken(),
 		);

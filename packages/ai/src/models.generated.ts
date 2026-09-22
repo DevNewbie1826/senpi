@@ -69,7 +69,7 @@ export const MODELS: {
 	readonly "moonshotai-cn": typeof MOONSHOTAI_CN_MODELS;
 	readonly "nvidia": typeof NVIDIA_MODELS;
 	readonly "openai": typeof OPENAI_MODELS;
-	readonly "openai-codex": typeof OPENAI_CODEX_MODELS;
+	readonly "chatgpt-subscription": typeof OPENAI_CODEX_MODELS;
 	readonly "opencode": typeof OPENCODE_MODELS;
 	readonly "opencode-go": typeof OPENCODE_GO_MODELS;
 	readonly "opengateway": typeof OPENGATEWAY_MODELS;
@@ -112,7 +112,7 @@ export const MODELS: {
 	"moonshotai-cn": MOONSHOTAI_CN_MODELS,
 	"nvidia": NVIDIA_MODELS,
 	"openai": OPENAI_MODELS,
-	"openai-codex": OPENAI_CODEX_MODELS,
+	"chatgpt-subscription": OPENAI_CODEX_MODELS,
 	"opencode": OPENCODE_MODELS,
 	"opencode-go": OPENCODE_GO_MODELS,
 	"opengateway": OPENGATEWAY_MODELS,

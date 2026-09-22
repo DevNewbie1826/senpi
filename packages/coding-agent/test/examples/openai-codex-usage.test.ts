@@ -25,7 +25,7 @@ const TEST_ACCESS_TOKEN = `header.${Buffer.from(
 	JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: TEST_ACCOUNT_ID } }),
 ).toString("base64url")}.signature`;
 
-function createModel(id: string, provider = "openai-codex"): NonNullable<ExtensionContext["model"]> {
+function createModel(id: string, provider = "chatgpt-subscription"): NonNullable<ExtensionContext["model"]> {
 	return { id, provider } as NonNullable<ExtensionContext["model"]>;
 }
 
@@ -63,7 +63,8 @@ function createExtensionHarness() {
 	});
 	const notify = vi.fn();
 	const isUsingOAuth = vi.fn(
-		(model: Parameters<ExtensionContext["modelRegistry"]["isUsingOAuth"]>[0]) => model.provider === "openai-codex",
+		(model: Parameters<ExtensionContext["modelRegistry"]["isUsingOAuth"]>[0]) =>
+			model.provider === "chatgpt-subscription",
 	);
 	const getApiKeyAndHeaders = vi.fn<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>(async () => ({
 		ok: true,
@@ -158,9 +159,9 @@ afterEach(() => {
 
 describe("shouldLoadCodexUsage", () => {
 	it("requires UI, the Codex provider, and OAuth", () => {
-		expect(shouldLoadCodexUsage("openai-codex", true, true)).toBe(true);
-		expect(shouldLoadCodexUsage("openai-codex", false, true)).toBe(false);
-		expect(shouldLoadCodexUsage("openai-codex", true, false)).toBe(false);
+		expect(shouldLoadCodexUsage("chatgpt-subscription", true, true)).toBe(true);
+		expect(shouldLoadCodexUsage("chatgpt-subscription", false, true)).toBe(false);
+		expect(shouldLoadCodexUsage("chatgpt-subscription", true, false)).toBe(false);
 		expect(shouldLoadCodexUsage("anthropic", true, true)).toBe(false);
 	});
 });
@@ -240,7 +241,7 @@ describe("formatCodexUsage", () => {
 describe("codexUsageStatusText", () => {
 	it("renders Codex limits when visibility is enabled", () => {
 		const rendered = codexUsageStatusText(
-			"openai-codex",
+			"chatgpt-subscription",
 			{
 				fiveHourRemainingPercent: 88,
 				weeklyRemainingPercent: 66,
@@ -253,7 +254,7 @@ describe("codexUsageStatusText", () => {
 
 	it("hides limits when visibility is disabled", () => {
 		const rendered = codexUsageStatusText(
-			"openai-codex",
+			"chatgpt-subscription",
 			{
 				fiveHourRemainingPercent: 88,
 				weeklyRemainingPercent: 66,

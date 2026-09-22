@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
 import { CredentialStoreBusyError } from "../../../src/core/lockfile-policy.ts";
 
-const PROVIDER_ID = "openai-codex";
+const PROVIDER_ID = "chatgpt-subscription";
 const FUTURE = 4_102_444_800_000;
 
 function deferred() {
@@ -40,11 +40,11 @@ type Exchange = { started: ReturnType<typeof deferred>; gate: ReturnType<typeof 
 function gatedProvider(exchanges: Map<string, Exchange>): Provider {
 	return createProvider({
 		id: PROVIDER_ID,
-		name: "OpenAI Codex",
+		name: "ChatGPT Subscription",
 		baseUrl: "https://codex.example",
 		auth: {
 			oauth: {
-				name: "OpenAI Codex OAuth",
+				name: "ChatGPT Subscription OAuth",
 				login: async () => ({ type: "oauth", access: "a", refresh: "r", expires: FUTURE }),
 				refresh: async (credential: OAuthCredential) => {
 					const exchange = exchanges.get(credential.refresh);

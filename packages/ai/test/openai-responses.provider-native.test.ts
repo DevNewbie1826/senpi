@@ -260,7 +260,7 @@ describe("OpenAI Responses provider-native content blocks", () => {
 			{
 				messages: [{ role: "user", content: "hello", timestamp: Date.now() }, assistantMessage],
 			},
-			new Set(["openai", "openai-codex", "opencode"]),
+			new Set(["openai", "chatgpt-subscription", "opencode"]),
 		);
 
 		const assistantReplayItems = replay.filter((item) => item.type === "message");

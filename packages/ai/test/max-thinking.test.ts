@@ -33,7 +33,7 @@ describe("max thinking level", () => {
 	it.each(["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"] as const)(
 		"exposes xhigh and max for openai-codex/%s",
 		(modelId) => {
-			const model = getModel("openai-codex", modelId);
+			const model = getModel("chatgpt-subscription", modelId);
 			expect(model).toBeDefined();
 			expect(model?.thinkingLevelMap).toMatchObject({ xhigh: "xhigh", max: "max" });
 			expect(getSupportedThinkingLevels(model!)).toEqual([
@@ -68,7 +68,7 @@ describe("max thinking level", () => {
 	});
 
 	it.each(["gpt-5.6-sol", "gpt-6-astra"] as const)("sends max to the Codex Responses API for %s", async (modelId) => {
-		const model = getModel("openai-codex", modelId)!;
+		const model = getModel("chatgpt-subscription", modelId)!;
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant.",
 			messages: [{ role: "user", content: "Hello", timestamp: Date.now() }],

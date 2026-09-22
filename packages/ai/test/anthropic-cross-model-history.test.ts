@@ -121,7 +121,7 @@ describe("Anthropic cross-model history hardening", () => {
 		const codexAssistant: AssistantMessage = {
 			...assistant,
 			api: "openai-responses",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			model: "gpt-5.5",
 			content: [
 				{

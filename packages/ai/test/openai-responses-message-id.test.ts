@@ -15,7 +15,7 @@ const usage: Usage = {
 
 describe("OpenAI Responses message ID conversion", () => {
 	it("generates unique fallback message IDs for multiple text blocks in one assistant turn", () => {
-		const model = getModel("openai-codex", "gpt-5.5");
+		const model = getModel("chatgpt-subscription", "gpt-5.5");
 		const assistant: AssistantMessage = {
 			role: "assistant",
 			content: [
@@ -34,7 +34,7 @@ describe("OpenAI Responses message ID conversion", () => {
 			messages: [{ role: "user", content: "hello", timestamp: Date.now() - 2000 }, assistant],
 		};
 
-		const input = convertResponsesMessages(model, context, new Set(["openai", "openai-codex", "opencode"]));
+		const input = convertResponsesMessages(model, context, new Set(["openai", "chatgpt-subscription", "opencode"]));
 		const messageIds = input
 			.filter(
 				(item): item is ResponseOutputMessage =>

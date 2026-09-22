@@ -113,7 +113,7 @@ const model: Model<"openai-codex-responses"> = {
 	id: "gpt-5.6-sol",
 	name: "GPT-5.6 Sol",
 	api: "openai-codex-responses",
-	provider: "openai-codex",
+	provider: "chatgpt-subscription",
 	baseUrl: "https://chatgpt.com/backend-api",
 	reasoning: true,
 	input: ["text"],

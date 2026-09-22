@@ -489,7 +489,7 @@ describe("interactive host runtime", () => {
 	it("reflects host service-tier changes in the attached session and footer state", async () => {
 		const qa = scratch("tier-sync");
 		const fake = await startFakeModelServer();
-		const model = { provider: "openai-codex", id: "gpt-5.6-sol" };
+		const model = { provider: "chatgpt-subscription", id: "gpt-5.6-sol" };
 		writeFileSync(
 			join(qa.agentDir, "models.json"),
 			JSON.stringify({

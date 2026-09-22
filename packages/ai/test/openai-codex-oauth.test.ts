@@ -246,7 +246,7 @@ describe("OpenAI Codex OAuth", () => {
 		expect(selectPrompts).toEqual([
 			{
 				type: "select",
-				message: "Select OpenAI Codex login method:",
+				message: "Select ChatGPT Subscription login method:",
 				options: [
 					{ id: "browser", label: "Browser login (default)" },
 					{ id: "device_code", label: "Device code login (headless)" },
@@ -449,7 +449,7 @@ describe("OpenAI Codex OAuth", () => {
 				onDeviceCode: () => {},
 			}),
 		).rejects.toThrow(
-			'OpenAI Codex device auth failed with status 500: {"error":"server_error","error_description":"try again later"}',
+			'ChatGPT Subscription device auth failed with status 500: {"error":"server_error","error_description":"try again later"}',
 		);
 	});
 
@@ -480,7 +480,7 @@ describe("OpenAI Codex OAuth", () => {
 				},
 				neverAbortedSignal,
 			),
-		).rejects.toThrow(/OpenAI Codex token refresh failed \(401\).*Could not validate your token/);
+		).rejects.toThrow(/ChatGPT Subscription token refresh failed \(401\).*Could not validate your token/);
 		expect(consoleError).not.toHaveBeenCalled();
 	});
 });

@@ -196,7 +196,7 @@ describe("OpenAI Responses tool-call namespaces", () => {
 			{
 				...model,
 				api: "openai-codex-responses",
-				provider: "openai-codex",
+				provider: "chatgpt-subscription",
 				id: "gpt-5.3-codex-spark",
 				name: "GPT-5.3 Codex Spark",
 			},

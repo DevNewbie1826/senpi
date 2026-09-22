@@ -292,7 +292,7 @@ export function convertResponsesMessages<TApi extends Api>(
 	let msgIndex = 0;
 	for (const msg of transformedMessages) {
 		if (msg.role === "configurationUpdate") {
-			if (model.id !== "gpt-6-astra" || !["openai", "openai-codex"].includes(model.provider)) continue;
+			if (model.id !== "gpt-6-astra" || !["openai", "chatgpt-subscription"].includes(model.provider)) continue;
 			const previous = messages[messages.length - 1];
 			if (previous?.type === "configuration_update") {
 				messages[messages.length - 1] = {

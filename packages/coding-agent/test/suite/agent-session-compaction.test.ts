@@ -1949,7 +1949,7 @@ describe("AgentSession compaction characterization", () => {
 	it("auto-retries overflow recovery when a provider alias differs but current context is still near the limit", async () => {
 		const harness = await createHarness({
 			api: "openai-codex-responses",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			models: [
 				{
 					id: "gpt-5.5",

@@ -12,7 +12,7 @@ const STATUS_KEY = "provider-usage";
 const UNAVAILABLE_STATUS = "Codex usage unavailable";
 
 export function shouldLoadCodexUsage(provider: string | undefined, usingOAuth: boolean, hasUi: boolean): boolean {
-	return hasUi && provider === "openai-codex" && usingOAuth;
+	return hasUi && provider === "chatgpt-subscription" && usingOAuth;
 }
 
 function abortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {

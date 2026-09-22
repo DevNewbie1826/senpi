@@ -14,7 +14,7 @@ import { resolveApiKey } from "./oauth.ts";
 const oauthTokens = await Promise.all([
 	resolveApiKey("anthropic"),
 	resolveApiKey("github-copilot"),
-	resolveApiKey("openai-codex"),
+	resolveApiKey("chatgpt-subscription"),
 ]);
 const [anthropicOAuthToken, githubCopilotToken, openaiCodexToken] = oauthTokens;
 const basetenApiKey = getLiveEnvApiKey("BASETEN_API_KEY", BASETEN_LIVE_TEST_FLAG);
@@ -368,7 +368,7 @@ describe("Token Statistics on Abort", () => {
 			"gpt-5.5 - should include token stats when aborted mid-stream",
 			{ retry: 3, timeout: 30000 },
 			async () => {
-				const llm = getModel("openai-codex", "gpt-5.5");
+				const llm = getModel("chatgpt-subscription", "gpt-5.5");
 				await testTokensOnAbort(llm, { apiKey: openaiCodexToken });
 			},
 		);
