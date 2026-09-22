@@ -28,7 +28,7 @@
  * | Command          | Params                                                                                          | Success data                                    | Notes |
  * | ---------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------- | ----- |
  * | `get_protocol_info` | -                                                                                             | `{ protocolVersion: 1, serverVersion, capabilities, mode: "classic"|"multi", instanceId, generation, engineVersion, engineOrdinal, launch_profile }` | Answered in BOTH modes; side-effect-free capability probe. The identity fields name the host process (`instanceId`), its daemon generation, its build (`engineVersion`, and `engineOrdinal` = `[y, m, d, postRelease, buildEpoch]`) and what it was launched with (`launch_profile { profile_id, core }`). Compatibility and upgrade decisions use `protocolVersion` + `capabilities` + `engineOrdinal`; `serverVersion` is informational and is NEVER compared for compatibility. |
- * | `open_session`    | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?`, `kind?`, `context?`, `auto_title?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: boolean }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there); `provider`/`modelId` applied only on create (resume restores the session's model); params form the immutable launch profile (D8). `retain_on_disconnect: true` (default false, host capability `retain_on_disconnect`) makes a dropped connection detach instead of closing the session. `kind: "interactive"|"worker"` (default `interactive`, host capability `session_kind`) sets the session's visibility class. `context` (host capability `session_context`) is an opaque `Record<string,string>` the host never interprets: at most 32 keys matching `^[a-z][a-z0-9_]*$`, each value <= 16 KiB, <= 32 KiB of JSON in total; it reaches that session's extensions as `pi.sessionContext` and nothing else. `auto_title` (host capability `auto_title_per_session`) opts this session into or out of engine-side titling; omitted keeps the host `--auto-title-sessions` / appMode default. |
+ * | `open_session`    | `sessionPath?`, `cwd?`, `provider?`, `modelId?`, `thinkingLevel?`, `permissionPreset?`, `retain_on_disconnect?`, `kind?`, `context?`, `auto_title?`, `durableSessionId?` (all optional; paths MUST be absolute) | `{ sessionId, state: RpcSessionState, attached?: boolean }` | `sessionPath` = today's `--session` semantics (open-if-exists else create persisting there); `provider`/`modelId` applied only on create (resume restores the session's model); params form the immutable launch profile (D8). `retain_on_disconnect: true` (default false, host capability `retain_on_disconnect`) makes a dropped connection detach instead of closing the session. `kind: "interactive"|"worker"` (default `interactive`, host capability `session_kind`) sets the session's visibility class. `context` (host capability `session_context`) is an opaque `Record<string,string>` the host never interprets: at most 32 keys matching `^[a-z][a-z0-9_]*$`, each value <= 16 KiB, <= 32 KiB of JSON in total; it reaches that session's extensions as `pi.sessionContext` and nothing else. `auto_title` (host capability `auto_title_per_session`) opts this session into or out of engine-side titling; omitted keeps the host `--auto-title-sessions` / appMode default. |
  * | `close_session`   | `sessionId`                                                                                    | `{}`                                            | `unknown_session` when the requesting connection never attached to that handle (a close releases the CALLER's attachment). Otherwise aborts active work and awaits teardown for the host grace window, then force-releases; the first closer's response is the LAST record tagged with that handle, while concurrent closes join and receive targeted success responses. |
  * | `list_sessions`   | `include_workers?` (default false)                                                              | `{ sessions: [{ sessionId, durableSessionId, sessionPath, cwd, name, status, attachments, kind, context? }] }` | Includes `opening`/`closing` entries with their status; `attachments` is the live client count (`0` = retained, detached). `kind: "worker"` rows are omitted unless `include_workers: true`, and `context` is published ONLY on that listing. |
  * | `get_steering_messages` / `get_follow_up_messages` / `clear_queue` | queue read or clear parameters | host-authoritative queue values | Interactive attach clients must not read bootstrap queues. |
@@ -41,6 +41,14 @@
  * exposes both. Clients store both, discard routing handles on child exit, verify
  * only durable ids against cursors.
  *
+ * A client that already owns a stable record id for the conversation may CHOOSE the
+ * durable id instead of mapping to a host-minted one: `open_session.durableSessionId`
+ * (host capability `durable_session_id`) creates the session under that id. It is named
+ * `durableSessionId` and not `sessionId` precisely because the routing envelope carries
+ * `sessionId` on every established command and this value is not a routing handle. It
+ * applies to CREATE only - re-opening an existing `sessionPath` keeps that file's header
+ * id, so identity is never rewritten by a resume.
+ *
  * Stable error codes (in the response `error` field, machine-matchable):
  * `unknown_session`, `session_closing`, `session_path_in_use`, `missing_session_id`
  * (session-scoped command without `sessionId` in multi mode), `multi_session_disabled`
@@ -48,7 +56,9 @@
  * `open_failed: <detail>`, `invalid_session_context: <detail>` (a `context` past a
  * documented cap), `invalid_session_kind: <detail>` (a `kind` that is neither
  * `interactive` nor `worker`), `invalid_launch_profile: <detail>` (a non-boolean
- * `auto_title`).
+ * `auto_title`), `invalid_session_id: <detail>` (a `durableSessionId` that is not a
+ * legal session id), `session_id_in_use` (a `durableSessionId` a LIVE session already
+ * holds).
  *
  * Tagging: every response/event/`extension_ui_request` belonging to a session
  * carries top-level `sessionId` (routing handle). `get_protocol_info`/
