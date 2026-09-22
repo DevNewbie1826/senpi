@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Shared RPC hosts no longer grow by one permanent copy of the extension module graph per session. Extension sources are compiled once per process and recompiled only when a source file changes, which cuts per-session retained memory on a long-lived host from tens of megabytes to well under one ([#1948](https://github.com/code-yeongyu/senpi/issues/1948)).
+
 ### Removed
 
 ## [2026.9.22] - 2026-09-21
