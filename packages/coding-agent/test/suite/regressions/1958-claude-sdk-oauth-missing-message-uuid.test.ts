@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { SDKMessage, SDKUserMessage, SdkQueryHandle } from "../../../src/core/extensions/builtin/claude-sdk-oauth/sdk-boundary.ts";
+import type {
+	SDKMessage,
+	SDKUserMessage,
+	SdkQueryHandle,
+} from "../../../src/core/extensions/builtin/claude-sdk-oauth/sdk-boundary.ts";
 import { forgetBinding, getBinding } from "../../../src/core/extensions/builtin/claude-sdk-oauth/session-reattach.ts";
 import {
 	closeSession,
