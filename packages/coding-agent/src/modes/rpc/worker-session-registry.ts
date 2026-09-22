@@ -19,6 +19,16 @@ import {
 import { SessionWorkerClient } from "./session-worker-client.ts";
 import { SESSION_WORKER_LIMITS, type SessionWriteGrant } from "./session-worker-protocol.ts";
 
+type SessionWorkerCallbacks = ConstructorParameters<typeof SessionWorkerClient>[0];
+
+export interface WorkerSessionRegistryOptions {
+	readonly configuration: CliRuntimeConfiguration;
+	readonly closeGraceMs: number;
+	readonly now: () => number;
+	/** Production builds the real worker; a caller may supply one to drive a lifecycle path deterministically. */
+	readonly createWorker?: (callbacks: SessionWorkerCallbacks) => SessionWorkerClient;
+}
+
 /** Transport-side lifecycle owner. Caller paths are never inspected on this event loop. */
 export class WorkerSessionRegistry {
 	private readonly entries = new Map<string, RpcSessionEntry>();
@@ -27,12 +37,14 @@ export class WorkerSessionRegistry {
 	readonly closeGraceMs: number;
 	private readonly now: () => number;
 
-	private readonly options: { configuration: CliRuntimeConfiguration; closeGraceMs: number; now: () => number };
+	private readonly options: WorkerSessionRegistryOptions;
+	private readonly createWorker: (callbacks: SessionWorkerCallbacks) => SessionWorkerClient;
 
-	constructor(options: { configuration: CliRuntimeConfiguration; closeGraceMs: number; now: () => number }) {
+	constructor(options: WorkerSessionRegistryOptions) {
 		this.options = options;
 		this.closeGraceMs = options.closeGraceMs;
 		this.now = options.now;
+		this.createWorker = options.createWorker ?? ((callbacks) => new SessionWorkerClient(callbacks));
 	}
 
 	get size(): number {
@@ -67,7 +79,8 @@ export class WorkerSessionRegistry {
 			lastCommandAt: this.now(),
 			lifecycleMutex: Promise.resolve(),
 		};
-		const worker = new SessionWorkerClient({
+		let workerFailure: string | undefined;
+		const worker = this.createWorker({
 			reserve: (path) => this.reserve(handle, path),
 			reconcile: (livePaths) => this.reconcile(handle, livePaths),
 			exit: () => {
@@ -78,6 +91,10 @@ export class WorkerSessionRegistry {
 				entry.closeResolve?.();
 			},
 			failure: (error) => {
+				// The open below only learns that its entry left `opening`, never why. Without this the
+				// caller is told `session_closing` - a path whose owner is tearing down - for a worker
+				// that died, and the actual reason reaches stderr alone (#1953).
+				workerFailure = error;
 				entry.state = "quarantined";
 				process.stderr.write(`senpi rpc session ${handle} quarantined: ${error}\n`);
 			},
@@ -99,7 +116,10 @@ export class WorkerSessionRegistry {
 			entry.requestedPathKey = profile.sessionPath ? path : undefined;
 			entry.sessionPath = path;
 			const snapshot = await worker.commit();
-			if (entry.state !== "opening") throw new RpcSessionRegistryError("session_closing");
+			if (entry.state !== "opening")
+				throw workerFailure === undefined
+					? new RpcSessionRegistryError("session_closing")
+					: new RpcSessionRegistryError("open_failed", workerFailure);
 			entry.durableSessionId = snapshot.state.sessionId;
 			entry.cwd = snapshot.state.cwd;
 			entry.state = "open";
