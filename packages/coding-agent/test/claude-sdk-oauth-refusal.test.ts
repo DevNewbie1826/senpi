@@ -17,7 +17,7 @@ const model: Model<Api> = {
 	id: "claude-test",
 	name: "Claude test",
 	api: "claude-sdk-oauth",
-	provider: "claude-sdk-oauth",
+	provider: "anthropic-subscription",
 	baseUrl: "claude-sdk-oauth",
 	reasoning: true,
 	input: ["text"],

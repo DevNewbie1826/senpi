@@ -13,7 +13,7 @@ import {
 } from "../src/core/extensions/builtin/claude-sdk-oauth/affinity.ts";
 import { TURN_RETRY_SUPPRESSION_PREFIX as SDK_PREFIX } from "../src/core/extensions/builtin/claude-sdk-oauth/failover.ts";
 
-/** The exact hash the claude-sdk-oauth oracle uses, injected into the pool engine. */
+/** The exact hash the anthropic-subscription oracle uses, injected into the pool engine. */
 const sha256Hasher: SlotHasher = (input) => createHash("sha256").update(input).digest().readBigUInt64BE(0);
 
 function account(name: string, extra?: Partial<AccountSlot>): AccountSlot {

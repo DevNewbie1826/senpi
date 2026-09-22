@@ -13,7 +13,7 @@ const BARE_EXPANSION_DENYLIST: ReadonlySet<string> = new Set(["cursor", "openrou
  * Deterministic tie-break inside one auth tier. Earlier wins. Providers absent
  * from the table sort after every listed one, alphabetically.
  */
-const PROVIDER_PRECEDENCE: readonly string[] = ["claude-sdk-oauth", "anthropic", "kimi-coding"];
+const PROVIDER_PRECEDENCE: readonly string[] = ["anthropic-subscription", "anthropic", "kimi-coding"];
 
 export interface BareSelectorParts {
 	/** Model id without a provider prefix, e.g. `claude-opus-5`. */

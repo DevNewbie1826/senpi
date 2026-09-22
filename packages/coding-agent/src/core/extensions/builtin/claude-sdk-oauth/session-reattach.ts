@@ -171,7 +171,7 @@ async function awaitInitialization(entry: ClaudeSdkOauthSessionEntry, signal?: A
 	});
 	const onAbort = (): void => {
 		closeSession(entry.senpiSessionId, "resume_initialization_aborted");
-		rejectAborted(new Error("Claude SDK OAuth reattach aborted"));
+		rejectAborted(new Error("Anthropic Subscription reattach aborted"));
 	};
 	if (signal.aborted) {
 		onAbort();

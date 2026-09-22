@@ -26,7 +26,7 @@ import {
 	resetSessionRegistryBoundary,
 } from "../../src/core/extensions/builtin/claude-sdk-oauth/session-registry.ts";
 
-export const SCRIPTED_PROVIDER = "claude-sdk-oauth";
+export const SCRIPTED_PROVIDER = "anthropic-subscription";
 
 export function sdkMessage(value: unknown): SDKMessage {
 	return value as SDKMessage;

@@ -1,5 +1,23 @@
 # goal Extension Changes
 
+## 2026-09-22 - claude-sdk-oauth provider id renamed to anthropic-subscription in the exhaustion classifier comment (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/goal/terminal-provider-error.ts`: doc comment names the `anthropic-subscription` account-rotating proxy. The classifier itself compares `message.api !== "claude-sdk-oauth"`, which is the FROZEN wire api id (see the api-id split entry in `builtin/claude-sdk-oauth/changes.md`) and stays byte-identical.
+
+### Why
+
+Comment accuracy after the provider-id rename; the wire api id does not move, so the classifier keeps matching messages from the renamed provider.
+
+### Why an extension could not handle it
+
+Terminal-provider-error classification is goal-extension core logic; nothing for another extension to override.
+
+### Expected merge conflict zones
+
+- `terminal-provider-error.ts` comment block, against classifier changes.
+
 ## 2026-09-20 - Resume blocked goals on manual continue (#1871)
 
 ### What changed

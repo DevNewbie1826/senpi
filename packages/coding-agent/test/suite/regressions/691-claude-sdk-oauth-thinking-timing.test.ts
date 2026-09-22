@@ -1,12 +1,13 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { CLAUDE_SDK_OAUTH_PROVIDER_ID } from "../../../src/core/extensions/builtin/claude-sdk-oauth/account-management.ts";
+import { CLAUDE_SDK_OAUTH_API_ID } from "../../../src/core/extensions/builtin/claude-sdk-oauth/api-id.ts";
 import { AssistantCommitBoundary } from "../../../src/core/extensions/builtin/claude-sdk-oauth/session-commit-boundary.ts";
 
 function assistantMessage(timing?: { startedAt: number; endedAt?: number }, text = "same answer"): AssistantMessage {
 	return {
 		role: "assistant",
-		api: CLAUDE_SDK_OAUTH_PROVIDER_ID,
+		api: CLAUDE_SDK_OAUTH_API_ID,
 		provider: CLAUDE_SDK_OAUTH_PROVIDER_ID,
 		model: "claude-fable-5",
 		content: [

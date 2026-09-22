@@ -35,7 +35,7 @@ function command(name: string): Command {
 // senpi#1495: all account commands address IDs; only labels change.
 describe.each([
 	["gpt-account", "chatgpt-subscription", ""],
-	["claude-account", "claude-sdk-oauth", ""],
+	["claude-account", "anthropic-subscription", ""],
 	["account", "chatgpt-subscription", "chatgpt-subscription "],
 ])("/%s display names", (name, provider, prefix) => {
 	it("renames multi-word labels, lists safely, pins by ID, and clears metadata", async () => {
@@ -136,7 +136,7 @@ describe("claude-sdk-oauth post-login naming", () => {
 		models.setProvider(
 			composedProvider(async () => false, {
 				oauth: createOAuthConfig({
-					readCurrent: async () => storage.get("claude-sdk-oauth") as ClaudeSdkOauthCredential | undefined,
+					readCurrent: async () => storage.get("anthropic-subscription") as ClaudeSdkOauthCredential | undefined,
 					loginFlow: flow,
 				}),
 			}),
@@ -148,11 +148,11 @@ describe("claude-sdk-oauth post-login naming", () => {
 		const handler = command("claude-account").handler;
 		await handler("add", ctx); // empty pool: the adapter picks "default", zero prompts
 		expect(dialogs).toHaveLength(0);
-		expect(listSlots(storage.get("claude-sdk-oauth")).map((slot) => slot.name)).toEqual(["default"]);
+		expect(listSlots(storage.get("anthropic-subscription")).map((slot) => slot.name)).toEqual(["default"]);
 		await handler("add", ctx); // existing account: the lane prompts for the id, once
 		expect(dialogs).toHaveLength(1);
-		expect(listSlots(storage.get("claude-sdk-oauth")).map((slot) => slot.name)).toEqual(["default", "Work"]);
-		for (const slot of listSlots(storage.get("claude-sdk-oauth"))) {
+		expect(listSlots(storage.get("anthropic-subscription")).map((slot) => slot.name)).toEqual(["default", "Work"]);
+		for (const slot of listSlots(storage.get("anthropic-subscription"))) {
 			expect(slot).not.toHaveProperty("displayName");
 		}
 	});

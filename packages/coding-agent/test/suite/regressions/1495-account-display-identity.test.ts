@@ -19,7 +19,7 @@ import { rendezvousOrder, selectAccount } from "../../../src/core/extensions/bui
 import { runFailover } from "../../../src/core/extensions/builtin/claude-sdk-oauth/failover.ts";
 import { decideNativeContinuity } from "../../../src/core/extensions/builtin/claude-sdk-oauth/session-continuity.ts";
 
-const provider = "claude-sdk-oauth";
+const provider = "anthropic-subscription";
 const hasher = (value: string) => createHash("sha256").update(value).digest().readBigUInt64BE(0);
 function fixture() {
 	const accounts: AccountSlot[] = ["default", "second"].map((name) => ({

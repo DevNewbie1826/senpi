@@ -11,14 +11,14 @@ afterEach(() => {
 });
 
 /**
- * `claude-sdk-oauth` is the regression case: it fails without the manual ownership
+ * `anthropic-subscription` is the regression case: it fails without the manual ownership
  * exemption, with `rejectionCause: "external-owner"`. `faux` is a deliberate control
  * for the lane the exemption must NOT change - it reaches the same persisted-summary
  * outcome through the ordinary senpi-owned path, and it fails if the shared
  * `ownsCompaction` predicate ever regresses the non-SDK branch.
  */
 describe("explicit compaction recovers a rejected model downswitch", () => {
-	it.each(["claude-sdk-oauth", "faux"])("persists a usable manual summary on %s", async (provider) => {
+	it.each(["anthropic-subscription", "faux"])("persists a usable manual summary on %s", async (provider) => {
 		// Given the real builtin, no compaction-model override, and an oversized live transcript.
 		vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
 		const harness = await createHarness({

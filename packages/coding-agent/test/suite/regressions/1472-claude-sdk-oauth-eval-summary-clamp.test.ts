@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createEvalTool } from "../../../../senpi-codemode/src/tool/eval-tool.ts";
 import { EVAL_SUMMARY_MAX_LENGTH } from "../../../../senpi-codemode/src/tool/types.ts";
 import { CLAUDE_SDK_OAUTH_PROVIDER_ID } from "../../../src/core/extensions/builtin/claude-sdk-oauth/account-management.ts";
+import { CLAUDE_SDK_OAUTH_API_ID } from "../../../src/core/extensions/builtin/claude-sdk-oauth/api-id.ts";
 import { AssistantCommitBoundary } from "../../../src/core/extensions/builtin/claude-sdk-oauth/session-commit-boundary.ts";
 
 const MODEL_ID = "claude-opus-5";
@@ -19,7 +20,7 @@ const evalTool = createEvalTool({
 function evalAssistant(args: Record<string, unknown>): AssistantMessage {
 	return {
 		role: "assistant",
-		api: CLAUDE_SDK_OAUTH_PROVIDER_ID,
+		api: CLAUDE_SDK_OAUTH_API_ID,
 		provider: CLAUDE_SDK_OAUTH_PROVIDER_ID,
 		model: MODEL_ID,
 		content: [{ type: "toolCall", id: "call-1", name: "eval", arguments: args }],

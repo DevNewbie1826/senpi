@@ -8,6 +8,8 @@
 
 ### Changed
 
+- Pooled-credential slot repair keeps recognizing the managed sentinel after the `claude-sdk-oauth` -> `anthropic-subscription` provider rename: matchers accept both `anthropic-subscription-managed` and the legacy `claude-sdk-oauth-managed` material that existing stored credentials carry verbatim. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
+
 ### Fixed
 
 ### Removed

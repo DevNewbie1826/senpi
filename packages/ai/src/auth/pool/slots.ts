@@ -1,3 +1,4 @@
+import { LEGACY_PROVIDER_IDS } from "../../legacy-provider-ids.ts";
 import type { ProviderEnv } from "../../types.ts";
 import type { Credential } from "../types.ts";
 
@@ -385,6 +386,26 @@ export function managedSentinelMaterial(providerId: string): string {
 	return `${providerId}-managed`;
 }
 
+const LEGACY_SENTINEL_MATERIALS: ReadonlyMap<string, string> = new Map(
+	Object.entries(LEGACY_PROVIDER_IDS).map(([legacyId, canonicalId]) => [
+		canonicalId,
+		managedSentinelMaterial(legacyId),
+	]),
+);
+
+/**
+ * Every sentinel material a stored credential may legitimately carry for this
+ * provider: the canonical `<providerId>-managed` plus the legacy material of
+ * any renamed ancestor id, because credentials written before a rename keep
+ * the old literal verbatim.
+ */
+export function managedSentinelMaterials(providerId: string): string[] {
+	const materials = [managedSentinelMaterial(providerId)];
+	const legacy = LEGACY_SENTINEL_MATERIALS.get(providerId);
+	if (legacy !== undefined && !materials.includes(legacy)) materials.push(legacy);
+	return materials;
+}
+
 /**
  * A POOL SLOT carrying that marker can never authenticate: `projectSlot` hands
  * it to the provider's `check`, which rejects it, and the request dies with
@@ -393,8 +414,8 @@ export function managedSentinelMaterial(providerId: string): string {
  * slot.
  */
 export function isManagedSentinelSlot(providerId: string, slot: CredentialSlot): boolean {
-	const sentinel = managedSentinelMaterial(providerId);
-	return slot.access === sentinel && slot.refresh === sentinel;
+	const materials = managedSentinelMaterials(providerId);
+	return materials.includes(slot.access ?? "") && slot.refresh === slot.access;
 }
 
 /**

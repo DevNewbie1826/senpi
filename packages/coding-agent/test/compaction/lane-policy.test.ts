@@ -14,7 +14,7 @@ function assistantMessageWithDiagnostics(diagnostics: AssistantMessage["diagnost
 		role: "assistant",
 		content: [],
 		api: "claude-sdk-oauth",
-		provider: "claude-sdk-oauth",
+		provider: "anthropic-subscription",
 		model: "claude-sonnet-4-5",
 		usage: {
 			input: 0,
@@ -32,15 +32,19 @@ function assistantMessageWithDiagnostics(diagnostics: AssistantMessage["diagnost
 
 describe("compaction lane policy — provider scoping", () => {
 	it("treats the claude-sdk-oauth main lane as SDK-native when resume mode is auto", () => {
-		expect(isSdkNativeCompactionLane({ model: { provider: "claude-sdk-oauth" }, resumeMode: "auto" })).toBe(true);
+		expect(isSdkNativeCompactionLane({ model: { provider: "anthropic-subscription" }, resumeMode: "auto" })).toBe(
+			true,
+		);
 	});
 
 	it("treats the claude-sdk-oauth lane as SDK-native when resume mode is unset (default auto)", () => {
-		expect(isSdkNativeCompactionLane({ model: { provider: "claude-sdk-oauth" } })).toBe(true);
+		expect(isSdkNativeCompactionLane({ model: { provider: "anthropic-subscription" } })).toBe(true);
 	});
 
 	it("keeps senpi compaction for the claude-sdk-oauth lane when the resumeMode escape hatch is off", () => {
-		expect(isSdkNativeCompactionLane({ model: { provider: "claude-sdk-oauth" }, resumeMode: "off" })).toBe(false);
+		expect(isSdkNativeCompactionLane({ model: { provider: "anthropic-subscription" }, resumeMode: "off" })).toBe(
+			false,
+		);
 	});
 
 	it("never claims other providers", () => {
@@ -62,7 +66,7 @@ describe("compaction lane policy — instance policy", () => {
 				return { resumeMode: "auto" };
 			},
 		});
-		const ctx = { cwd: "/repo", model: { provider: "claude-sdk-oauth" } };
+		const ctx = { cwd: "/repo", model: { provider: "anthropic-subscription" } };
 
 		expect(policy.disablesSenpiCompaction(ctx)).toBe(true);
 		expect(policy.disablesSenpiCompaction(ctx)).toBe(true);
@@ -91,8 +95,12 @@ describe("compaction lane policy — instance policy", () => {
 			},
 		});
 
-		expect(policy.disablesSenpiCompaction({ cwd: "/auto", model: { provider: "claude-sdk-oauth" } })).toBe(true);
-		expect(policy.disablesSenpiCompaction({ cwd: "/off", model: { provider: "claude-sdk-oauth" } })).toBe(false);
+		expect(policy.disablesSenpiCompaction({ cwd: "/auto", model: { provider: "anthropic-subscription" } })).toBe(
+			true,
+		);
+		expect(policy.disablesSenpiCompaction({ cwd: "/off", model: { provider: "anthropic-subscription" } })).toBe(
+			false,
+		);
 		expect(seen).toEqual(["/auto", "/off"]);
 	});
 
@@ -103,7 +111,9 @@ describe("compaction lane policy — instance policy", () => {
 			},
 		});
 
-		expect(policy.disablesSenpiCompaction({ cwd: "/repo", model: { provider: "claude-sdk-oauth" } })).toBe(false);
+		expect(policy.disablesSenpiCompaction({ cwd: "/repo", model: { provider: "anthropic-subscription" } })).toBe(
+			false,
+		);
 	});
 
 	it("re-enables senpi compaction on the SDK-native lane when a compaction model override is set", () => {
@@ -112,7 +122,7 @@ describe("compaction lane policy — instance policy", () => {
 		});
 		const ctx = {
 			cwd: "/repo",
-			model: { provider: "claude-sdk-oauth" },
+			model: { provider: "anthropic-subscription" },
 			getCompactionSettings: () => ({ model: "deepseek/deepseek-chat" }),
 		};
 
@@ -128,14 +138,14 @@ describe("compaction lane policy — instance policy", () => {
 		expect(
 			policy.disablesSenpiCompaction({
 				cwd: "/repo",
-				model: { provider: "claude-sdk-oauth" },
+				model: { provider: "anthropic-subscription" },
 				getCompactionSettings: () => ({ model: undefined }),
 			}),
 		).toBe(true);
 		expect(
 			policy.disablesSenpiCompaction({
 				cwd: "/repo",
-				model: { provider: "claude-sdk-oauth" },
+				model: { provider: "anthropic-subscription" },
 				getCompactionSettings: () => ({}),
 			}),
 		).toBe(true);

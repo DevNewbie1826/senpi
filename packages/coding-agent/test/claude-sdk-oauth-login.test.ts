@@ -111,7 +111,7 @@ describe("claude-sdk-oauth oauth login config", () => {
 			credential: { type: "oauth", access: "slot-access", refresh: "slot-refresh", expires: Date.now() + 60_000 },
 		});
 
-		expect(check).toEqual({ source: "Claude SDK OAuth", type: "oauth" });
+		expect(check).toEqual({ source: "Anthropic Subscription", type: "oauth" });
 	});
 
 	it("check still rejects a projected sentinel that names no account", async () => {

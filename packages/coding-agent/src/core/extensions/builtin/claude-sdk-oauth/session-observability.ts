@@ -149,7 +149,8 @@ export function sanitizeCloseCause(value: unknown): ContinuityReason {
 	if (/user_message_uuid did not match|result arrived before replay claim|pre-replay buffer overflow/i.test(text)) {
 		return "turn_attribution_failed";
 	}
-	if (/query ended before|Claude SDK OAuth query|Claude Code/i.test(text)) return "query_failed";
+	if (/query ended before|Claude SDK OAuth query|Anthropic Subscription query|Claude Code/i.test(text))
+		return "query_failed";
 	return "other";
 }
 

@@ -195,7 +195,7 @@ function beforeCompactEvent(): SessionBeforeCompactEvent {
 
 describe("claude-sdk-oauth lane: senpi compaction stands down", () => {
 	it("does not run blocking compaction on before_agent_start when over the hard limit", async () => {
-		const harness = createHarness({ provider: "claude-sdk-oauth", usageTokens: 99_500 });
+		const harness = createHarness({ provider: "anthropic-subscription", usageTokens: 99_500 });
 		harness.registration.setResponses([fauxAssistantMessage("must not be used")]);
 
 		await harness.beforeAgentStart(beforeAgentStartEvent(), harness.ctx);
@@ -206,7 +206,7 @@ describe("claude-sdk-oauth lane: senpi compaction stands down", () => {
 	});
 
 	it("does not warm speculative compaction at agent_end", async () => {
-		const harness = createHarness({ provider: "claude-sdk-oauth", usageTokens: 80_000 });
+		const harness = createHarness({ provider: "anthropic-subscription", usageTokens: 80_000 });
 		harness.registration.setResponses([fauxAssistantMessage("must not be used")]);
 
 		await harness.agentEnd({ type: "agent_end", messages: [] }, harness.ctx);
@@ -218,7 +218,7 @@ describe("claude-sdk-oauth lane: senpi compaction stands down", () => {
 	it.each(["threshold", "overflow", "pre_prompt"] as const)(
 		"cancels automatic %s compaction with the lane reason",
 		async (reason) => {
-			const harness = createHarness({ provider: "claude-sdk-oauth" });
+			const harness = createHarness({ provider: "anthropic-subscription" });
 
 			const result = await harness.sessionBeforeCompact(
 				{ ...beforeCompactEvent(), reason, willRetry: reason === "overflow" },
@@ -239,7 +239,7 @@ describe("claude-sdk-oauth lane: senpi compaction stands down", () => {
 			bigAssistantMessage("assistant answer ".repeat(4_000)),
 			{ role: "user" as const, content: [{ type: "text" as const, text: "u2" }], timestamp: 3 },
 		];
-		const lane = createHarness({ provider: "claude-sdk-oauth", usageTokens: 95_000 });
+		const lane = createHarness({ provider: "anthropic-subscription", usageTokens: 95_000 });
 		const other = createHarness({ usageTokens: 95_000 });
 
 		const laneResult = lane.context({ type: "context", messages: reductionMessages() }, lane.ctx);
@@ -282,10 +282,10 @@ describe("non-claude-sdk-oauth providers keep senpi compaction (characterization
 
 describe("compact_boundary mirroring into the senpi session ledger", () => {
 	it("appends a claude-sdk-oauth-compact custom entry for a received boundary", async () => {
-		const harness = createHarness({ provider: "claude-sdk-oauth" });
+		const harness = createHarness({ provider: "anthropic-subscription" });
 		const message = {
 			...bigAssistantMessage("done"),
-			provider: "claude-sdk-oauth",
+			provider: "anthropic-subscription",
 			diagnostics: [
 				{
 					type: CLAUDE_SDK_OAUTH_COMPACT_BOUNDARY_DIAGNOSTIC,
@@ -312,7 +312,7 @@ describe("compact_boundary mirroring into the senpi session ledger", () => {
 	});
 
 	it("appends nothing for assistant messages without a boundary diagnostic", async () => {
-		const harness = createHarness({ provider: "claude-sdk-oauth" });
+		const harness = createHarness({ provider: "anthropic-subscription" });
 
 		await harness.messageEnd({ type: "message_end", message: bigAssistantMessage("plain") }, harness.ctx);
 

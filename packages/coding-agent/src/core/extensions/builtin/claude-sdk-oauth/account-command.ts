@@ -20,7 +20,7 @@ export interface ClaudeAccountCommandDeps {
 	openBrowser?: ((url: string) => void) | undefined;
 }
 
-const CLAUDE_SDK_OAUTH_PROVIDER_LABEL = "Claude SDK OAuth";
+const CLAUDE_SDK_OAUTH_PROVIDER_LABEL = "Anthropic Subscription";
 
 function asCredential(value: Credential | undefined): ClaudeSdkOauthCredential | undefined {
 	return value?.type === "oauth" ? (value as ClaudeSdkOauthCredential) : undefined;
@@ -49,7 +49,7 @@ function readAccounts(
 }
 
 function accountError(ctx: ExtensionCommandContext, name: string): void {
-	ctx.ui.notify(`Claude SDK OAuth account '${name}' does not exist.`, "error");
+	ctx.ui.notify(`Anthropic Subscription account '${name}' does not exist.`, "error");
 }
 
 function parseArgs(rawArgs: string): string[] {
@@ -75,7 +75,7 @@ export function registerClaudeAccountCommand(pi: ExtensionAPI, deps: ClaudeAccou
 
 	pi.registerFlag("claude-account", {
 		type: "string",
-		description: "Pin Claude SDK OAuth account for this session.",
+		description: "Pin Anthropic Subscription account for this session.",
 	});
 	pi.on("session_start", (_event, ctx) => {
 		const flag = pi.getFlag("claude-account");
@@ -87,7 +87,7 @@ export function registerClaudeAccountCommand(pi: ExtensionAPI, deps: ClaudeAccou
 		cliPinsBySession.delete(ctx.sessionManager.getSessionId());
 	});
 	pi.registerCommand("claude-account", {
-		description: "List and manage Claude SDK OAuth accounts.",
+		description: "List and manage Anthropic Subscription accounts.",
 		argumentHint: "[add | remove <id> | pin <id> | unpin | rename <id> <display name...> | clear-name <id>]",
 		handler: async (rawArgs, ctx) => {
 			if (await accountDisplayNameCommand(ctx, CLAUDE_SDK_OAUTH_PROVIDER_ID, rawArgs)) return;
@@ -142,7 +142,7 @@ function showAccounts(
 			affinityError = error instanceof Error ? error.message : String(error);
 		}
 	}
-	const lines = ["Claude SDK OAuth accounts:"];
+	const lines = ["Anthropic Subscription accounts:"];
 	if (accounts.length === 0) lines.push("  (none)");
 	for (const account of accounts) {
 		const states = [accountLabel(account), account.source, slotStatus(account)];
@@ -175,12 +175,12 @@ async function addAccount(ctx: ExtensionCommandContext, deps: ClaudeAccountComma
 			},
 		});
 		emitProviderAccountsChanged(CLAUDE_SDK_OAUTH_PROVIDER_ID);
-		ctx.ui.notify("Claude SDK OAuth account added.", "info");
+		ctx.ui.notify("Anthropic Subscription account added.", "info");
 		await promptAccountDisplayName(ctx, receipt);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		if (message !== LOGIN_CANCELLED_MESSAGE) {
-			ctx.ui.notify(`Failed to add Claude SDK OAuth account: ${message}`, "error");
+			ctx.ui.notify(`Failed to add Anthropic Subscription account: ${message}`, "error");
 		}
 	}
 }
@@ -198,12 +198,15 @@ async function removeNamedAccount(
 	const target = accounts.find((account) => account.name === name);
 	if (!target) return accountError(ctx, name);
 	if (target.source === "env") {
-		ctx.ui.notify(`Claude SDK OAuth account '${name}' comes from the environment and cannot be removed.`, "error");
+		ctx.ui.notify(
+			`Anthropic Subscription account '${name}' comes from the environment and cannot be removed.`,
+			"error",
+		);
 		return;
 	}
 	try {
 		await removeProviderAccount(ctx.modelRegistry.authStorage, CLAUDE_SDK_OAUTH_PROVIDER_ID, name);
-		ctx.ui.notify(`Removed Claude SDK OAuth account: ${name}.`, "info");
+		ctx.ui.notify(`Removed Anthropic Subscription account: ${name}.`, "info");
 	} catch (error) {
 		ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 	}
@@ -223,7 +226,7 @@ async function pinNamedAccount(
 	}
 	try {
 		await pinProviderAccount(ctx.modelRegistry.authStorage, CLAUDE_SDK_OAUTH_PROVIDER_ID, name);
-		ctx.ui.notify(`Pinned Claude SDK OAuth account: ${name}.`, "info");
+		ctx.ui.notify(`Pinned Anthropic Subscription account: ${name}.`, "info");
 	} catch (error) {
 		ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 	}
@@ -232,9 +235,9 @@ async function pinNamedAccount(
 async function unpinAccount(ctx: ExtensionCommandContext): Promise<void> {
 	const credential = asCredential(ctx.modelRegistry.authStorage.get(CLAUDE_SDK_OAUTH_PROVIDER_ID));
 	if (!credential?.pinned) {
-		ctx.ui.notify("No stored Claude SDK OAuth account pin is set.", "info");
+		ctx.ui.notify("No stored Anthropic Subscription account pin is set.", "info");
 		return;
 	}
 	await pinProviderAccount(ctx.modelRegistry.authStorage, CLAUDE_SDK_OAUTH_PROVIDER_ID, null);
-	ctx.ui.notify("Unpinned Claude SDK OAuth account.", "info");
+	ctx.ui.notify("Unpinned Anthropic Subscription account.", "info");
 }

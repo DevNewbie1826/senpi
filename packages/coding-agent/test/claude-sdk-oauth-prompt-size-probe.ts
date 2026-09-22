@@ -12,7 +12,7 @@ function assistantTurn(text: string, timestamp: number): AssistantMessage {
 		role: "assistant",
 		content: [{ type: "text", text }],
 		api: "claude-sdk-oauth",
-		provider: "claude-sdk-oauth",
+		provider: "anthropic-subscription",
 		model: "claude-test",
 		usage: {
 			input: 0,

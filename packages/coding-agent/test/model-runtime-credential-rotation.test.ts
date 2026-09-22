@@ -189,10 +189,10 @@ describe("credential rotation over a pooled provider", () => {
 			],
 		};
 		// The store parse heals the pool before rotation ever lists it.
-		const store = AuthStorage.inMemory({ "claude-sdk-oauth": poisoned });
-		const healed = (await store.read("claude-sdk-oauth")) as PooledCredential;
+		const store = AuthStorage.inMemory({ "anthropic-subscription": poisoned });
+		const healed = (await store.read("anthropic-subscription")) as PooledCredential;
 		const sources = {
-			providerId: "claude-sdk-oauth",
+			providerId: "anthropic-subscription",
 			credential: healed,
 			env: () => undefined,
 			repository: sentinelRepository,

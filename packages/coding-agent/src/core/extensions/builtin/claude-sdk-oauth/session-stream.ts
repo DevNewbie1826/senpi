@@ -128,7 +128,7 @@ async function createResidentAttempt(
 				}))(source)
 			: undefined;
 		try {
-			if (!binding) throw new Error("Claude SDK OAuth continuity binding is unavailable");
+			if (!binding) throw new Error("Anthropic Subscription continuity binding is unavailable");
 			entry = await reattachSession({
 				binding,
 				options: auth.options,

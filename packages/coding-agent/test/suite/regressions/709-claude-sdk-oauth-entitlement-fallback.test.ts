@@ -23,7 +23,7 @@ const now = 10_000;
 
 async function storeWithAccounts(): Promise<CredentialStore> {
 	const store = new InMemoryCredentialStore();
-	await store.modify("claude-sdk-oauth", async () =>
+	await store.modify("anthropic-subscription", async () =>
 		accountPool.reduce<ClaudeSdkOauthCredential>(
 			(credential, account) => addAccount(credential, account),
 			emptyCredential(),
@@ -91,7 +91,7 @@ describe("regression #709: Claude SDK OAuth entitlement fallback", () => {
 			},
 			classify: classifySdkError,
 			store,
-			providerId: "claude-sdk-oauth",
+			providerId: "anthropic-subscription",
 			now: () => now,
 		});
 		await expect(collect(stream)).rejects.toMatchObject({
@@ -99,7 +99,7 @@ describe("regression #709: Claude SDK OAuth entitlement fallback", () => {
 			classification: { retryable: false },
 		});
 		expect(attempts).toHaveLength(1);
-		const credential = (await store.read("claude-sdk-oauth")) as ClaudeSdkOauthCredential;
+		const credential = (await store.read("anthropic-subscription")) as ClaudeSdkOauthCredential;
 		for (const account of credential.accounts ?? []) {
 			expect(account.blockedUntil).toBeUndefined();
 			expect(account.blockReason).toBeUndefined();

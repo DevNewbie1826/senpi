@@ -25,7 +25,7 @@ const model: Model<Api> = {
 	id: "claude-test",
 	name: "Claude test",
 	api: "claude-sdk-oauth",
-	provider: "claude-sdk-oauth",
+	provider: "anthropic-subscription",
 	baseUrl: "claude-sdk-oauth",
 	reasoning: true,
 	input: ["text", "image"],
@@ -85,7 +85,7 @@ function assistant(text: string, timestamp: number): AssistantMessage {
 		role: "assistant",
 		content: [{ type: "text", text }],
 		api: "claude-sdk-oauth",
-		provider: "claude-sdk-oauth",
+		provider: "anthropic-subscription",
 		model: model.id,
 		usage: {
 			input: 0,

@@ -2,6 +2,24 @@
 
 Vendored from [`code-yeongyu/pi-rules`](https://github.com/code-yeongyu/pi-rules) (see `external-versions.json`).
 
+## 2026-09-22 - claude-sdk-oauth provider id renamed to anthropic-subscription in the prompt-rebuild comment (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/rules/rules/constants.ts`: doc comment points at the "Anthropic Subscription builtin" by its new display name.
+
+### Why
+
+Comment accuracy after the provider-id rename; no behavior change.
+
+### Why an extension could not handle it
+
+Vendored rule constants; nothing for an extension to override.
+
+### Expected merge conflict zones
+
+- `constants.ts` comment block, against the next vendored refresh from `code-yeongyu/pi-rules`.
+
 ## 2026-08-04 - Live-context dedup for dynamic rules
 
 ### What changed and why

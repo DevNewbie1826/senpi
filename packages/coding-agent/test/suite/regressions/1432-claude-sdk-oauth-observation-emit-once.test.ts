@@ -1,5 +1,5 @@
 /**
- * Issue #1432 (observation emit-once): a claude-sdk-oauth turn that fails over
+ * Issue #1432 (observation emit-once): a anthropic-subscription turn that fails over
  * from one account to another attempts two accounts, but continuity
  * observability promises exactly one observation per completed turn - a
  * discarded attempt must emit nothing (session-observability.ts). The first
@@ -55,7 +55,7 @@ const model: Model<Api> = {
 	id: "claude-test",
 	name: "Claude test",
 	api: "claude-sdk-oauth",
-	provider: "claude-sdk-oauth",
+	provider: "anthropic-subscription",
 	baseUrl: "claude-sdk-oauth",
 	reasoning: true,
 	input: ["text", "image"],
@@ -175,7 +175,7 @@ const temporaryDirectories: string[] = [];
 async function configureTwoAccountPool(): Promise<void> {
 	const slots = [slot(ACCOUNT_PRIMARY, ACCESS_PRIMARY), slot(ACCOUNT_SECONDARY, "access-secondary")];
 	const store = new InMemoryCredentialStore();
-	await store.modify("claude-sdk-oauth", async () => ({
+	await store.modify("anthropic-subscription", async () => ({
 		...slots.reduce<ClaudeSdkOauthCredential>(
 			(credential, entry) => addAccount(credential, entry),
 			emptyCredential(),

@@ -1,3 +1,23 @@
+## 2026-09-22 - claude-sdk-oauth renamed to anthropic-subscription: the pooled-credential sentinel matcher stays legacy-aware (senpi#1989)
+
+### What changed
+
+- `packages/ai/src/auth/pool/slots.ts`: new `managedSentinelMaterials(providerId)` returns the canonical `<providerId>-managed` plus the legacy material of any renamed ancestor id (derived from `packages/ai/src/legacy-provider-ids.ts`), and `isManagedSentinelSlot` accepts EITHER material as long as both OAuth fields carry the same one. The sentinel VALUE stored inside credentials is NOT rewritten: credentials written before the rename keep `claude-sdk-oauth-managed` verbatim, and a matcher keyed only on the new id would stop recognizing those slots, resurrecting the poisoned-slot "Provider is not configured" deaths that `repairManagedSentinelSlots` exists to prune.
+- Guarded by `packages/ai/test/anthropic-subscription-rename.test.ts` (both materials match under `anthropic-subscription`; unrelated providers do not widen; the wire api id stays frozen on the prompt-cache ttl table).
+
+### Why
+
+The provider id `claude-sdk-oauth` moves to `anthropic-subscription` (display name "Claude SDK OAuth" -> "Anthropic Subscription") while every persisted token derived from the old id stays byte-identical. The managed-sentinel material is derived data written into stored credentials, so it is exactly the frozen half of the rename; the matcher is the moving half.
+
+### Why an extension could not handle it
+
+Slot repair runs inside `packages/ai`'s pooled-credential mutations (`repairManagedSentinelSlots`), which extensions never see; the sentinel material is compared before any extension hook fires.
+
+### Expected merge conflict zones
+
+- `packages/ai/src/auth/pool/slots.ts` sentinel block, against any other pooled-credential change.
+- `packages/ai/src/legacy-provider-ids.ts`, whenever another provider id is renamed.
+
 ## 2026-09-22 - openai-codex renamed to chatgpt-subscription (senpi#1989)
 
 ### What changed

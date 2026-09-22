@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listRotationSlots, streamWithCredentialRotation } from "../../../src/core/credential-pool/rotation-stream.ts";
 import { CredentialSlotRepository } from "../../../src/core/credential-pool/state-store.ts";
 
-const PROVIDER = "claude-sdk-oauth";
+const PROVIDER = "anthropic-subscription";
 const env = () => undefined;
 
 let dir: string;

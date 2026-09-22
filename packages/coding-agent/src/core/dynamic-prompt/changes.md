@@ -1,5 +1,23 @@
 # changes.md — dynamic-prompt
 
+## claude-sdk-oauth provider id renamed to anthropic-subscription in the dynamic-prompt comment (2026-09-22)
+
+### What changed
+
+- `packages/coding-agent/src/core/dynamic-prompt/build.ts`: comment names the `anthropic-subscription` lane that appends dynamic lines after the stable sections.
+
+### Why
+
+Comment accuracy after the provider-id rename; assembly order and content unchanged.
+
+### Why an extension could not handle it
+
+Comment inside the core prompt assembler; nothing to override.
+
+### Expected merge conflict zones
+
+- `build.ts` assembly comment, against prompt-section changes.
+
 ## Eval-only grep search guidance (2026-09-14)
 
 ### What changed

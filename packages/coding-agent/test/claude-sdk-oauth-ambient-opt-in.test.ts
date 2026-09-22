@@ -13,7 +13,7 @@ import {
 import { InMemorySettingsStorage, SettingsManager } from "../src/core/settings-manager.ts";
 import { authContext, composedProvider, credentialStore } from "./support/claude-sdk-oauth-provider.ts";
 
-const AUTH_CHECK = { source: "Claude SDK OAuth", type: "oauth" };
+const AUTH_CHECK = { source: "Anthropic Subscription", type: "oauth" };
 
 function optInProvider(readAmbientAuthStatus: () => Promise<boolean>, settings: ClaudeSdkOauthProviderSettings) {
 	return composedProvider(readAmbientAuthStatus, {

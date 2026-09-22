@@ -1252,7 +1252,7 @@ export class AgentSession {
 	 * Resolve the model used for compaction summarization. When the user sets a
 	 * `compaction.model` override ("provider/model"), that model is used for the
 	 * summarization call instead of the session model — this is what lets an
-	 * SDK-owned lane (claude-sdk-oauth) compact on a cheaper/different model.
+	 * SDK-owned lane (anthropic-subscription) compact on a cheaper/different model.
 	 * Any resolution failure (unset, malformed, unknown model) falls back to the
 	 * session model so compaction never silently breaks.
 	 */

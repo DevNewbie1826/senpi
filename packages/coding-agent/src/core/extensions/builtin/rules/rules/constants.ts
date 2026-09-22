@@ -101,7 +101,7 @@ export const PROJECT_RULES_END_MARKER = "</project_rules>";
 export const PROJECT_RULES_HEADING = "## Project Instructions";
 
 /**
- * How provider lanes that rebuild the system prompt (see the Claude SDK OAuth builtin) locate the
+ * How provider lanes that rebuild the system prompt (see the Anthropic Subscription builtin) locate the
  * block. The semantic markers cannot: prompt content this builtin does not own - context files
  * before it, extensions appending after it - may legitimately contain them and be extracted instead.
  */

@@ -1,5 +1,5 @@
 /**
- * Provider-scoped compaction opt-out for the `claude-sdk-oauth` main lane.
+ * Provider-scoped compaction opt-out for the `anthropic-subscription` main lane.
  *
  * That lane keeps one resident SDK session per senpi session, and the Claude
  * Agent SDK runs its own native auto-compaction over that session's transcript.

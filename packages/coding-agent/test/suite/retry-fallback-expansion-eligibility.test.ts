@@ -38,24 +38,24 @@ function lookup(models: Model<Api>[], oauthProviders: string[] = [], ineligible:
 const catalog = [
 	model("anthropic", FABLE),
 	model("anthropic", OPUS5),
-	model("claude-sdk-oauth", OPUS5),
+	model("anthropic-subscription", OPUS5),
 	model("cursor-cli-oauth", OPUS5),
 	model("kimi-coding", "k3"),
 ];
 
 describe("bare expansion eligibility gate", () => {
 	it("excludes a provider whose registration declares the lane unusable, even with an OAuth credential", () => {
-		// The regression shape: claude-sdk-oauth holds an OAuth credential (tier 0,
+		// The regression shape: anthropic-subscription holds an OAuth credential (tier 0,
 		// ranked first) but its registration declares the lane unusable. Ranking
 		// alone would hand it a top expansion slot it can never serve.
 		const chains = canonicalizeFallbackChains(
 			BARE_CHAINS,
-			lookup(catalog, ["claude-sdk-oauth"], ["claude-sdk-oauth"]),
+			lookup(catalog, ["anthropic-subscription"], ["anthropic-subscription"]),
 		);
 
 		const entries = chains[`anthropic/${FABLE}`] ?? [];
 		expect(entries.length).toBeGreaterThan(0);
-		expect(entries.some((entry) => entry.startsWith("claude-sdk-oauth/"))).toBe(false);
+		expect(entries.some((entry) => entry.startsWith("anthropic-subscription/"))).toBe(false);
 		// The freed slot goes to a provider that can actually serve.
 		expect(entries.some((entry) => entry.includes(OPUS5))).toBe(true);
 	});
@@ -64,10 +64,10 @@ describe("bare expansion eligibility gate", () => {
 		// cursor (the exact denylisted provider id) never enters bare expansion even with an
 		// OAuth credential; cursor-cli-oauth is a different provider id and is NOT denylisted.
 		const withCursor = [...catalog, model("cursor", OPUS5)];
-		const chains = canonicalizeFallbackChains(BARE_CHAINS, lookup(withCursor, ["claude-sdk-oauth", "cursor"]));
+		const chains = canonicalizeFallbackChains(BARE_CHAINS, lookup(withCursor, ["anthropic-subscription", "cursor"]));
 
 		const entries = chains[`anthropic/${FABLE}`] ?? [];
-		expect(entries.some((entry) => entry.startsWith("claude-sdk-oauth/"))).toBe(true);
+		expect(entries.some((entry) => entry.startsWith("anthropic-subscription/"))).toBe(true);
 		expect(entries.some((entry) => entry.startsWith("cursor/"))).toBe(false);
 	});
 
@@ -76,11 +76,11 @@ describe("bare expansion eligibility gate", () => {
 		const chains = canonicalizeFallbackChains(BARE_CHAINS, {
 			getAll: () => withCursor,
 			isUsingOAuth: (candidate: Model<Api>) =>
-				candidate.provider === "claude-sdk-oauth" || candidate.provider === "cursor",
+				candidate.provider === "anthropic-subscription" || candidate.provider === "cursor",
 		});
 
 		const entries = chains[`anthropic/${FABLE}`] ?? [];
-		expect(entries.some((entry) => entry.startsWith("claude-sdk-oauth/"))).toBe(true);
+		expect(entries.some((entry) => entry.startsWith("anthropic-subscription/"))).toBe(true);
 		expect(entries.some((entry) => entry.startsWith("cursor/"))).toBe(false);
 	});
 });

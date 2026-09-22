@@ -1,5 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { CLAUDE_SDK_OAUTH_PROVIDER_ID } from "./account-management.ts";
+import { CLAUDE_SDK_OAUTH_API_ID } from "./api-id.ts";
 import { sessionSyncDigest } from "./session-sync.ts";
 
 export type AssistantCommitOutcome = "clean" | "rewritten" | "not-resident";
@@ -39,7 +40,7 @@ export function assistantContentHash(message: AssistantMessage): string {
 
 export function isResidentAssistant(message: AssistantMessage, modelId: string): boolean {
 	return (
-		message.api === CLAUDE_SDK_OAUTH_PROVIDER_ID &&
+		message.api === CLAUDE_SDK_OAUTH_API_ID &&
 		message.provider === CLAUDE_SDK_OAUTH_PROVIDER_ID &&
 		message.model === modelId
 	);

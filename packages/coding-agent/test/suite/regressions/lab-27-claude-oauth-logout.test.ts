@@ -13,8 +13,8 @@ import type {
 import type { ClaudeSdkOauthTokenInjection } from "../../../src/core/extensions/builtin/claude-sdk-oauth/settings.ts";
 
 const EXPECTED_ERROR =
-	"authentication_failed: No Claude SDK OAuth accounts configured for the managed lane; " +
-	"run /login claude-sdk-oauth or set CLAUDE_CODE_OAUTH_TOKEN";
+	"authentication_failed: No Anthropic Subscription accounts configured for the managed lane; " +
+	"run /login anthropic-subscription or set CLAUDE_CODE_OAUTH_TOKEN";
 
 async function consume(messages: AsyncGenerator<SDKMessage>): Promise<void> {
 	for await (const _message of messages) void _message;

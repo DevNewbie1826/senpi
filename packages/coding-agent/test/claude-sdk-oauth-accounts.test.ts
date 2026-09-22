@@ -23,7 +23,7 @@ function makeStore(initial?: Credential): CredentialStore & { written: Credentia
 			return current;
 		},
 		async list() {
-			return current ? [{ providerId: "claude-sdk-oauth", type: current.type }] : [];
+			return current ? [{ providerId: "anthropic-subscription", type: current.type }] : [];
 		},
 		async delete() {
 			current = undefined;
@@ -109,18 +109,18 @@ describe("account slots", () => {
 				expires: Date.now() + 120_000,
 			};
 		};
-		const next = await refreshSlot(store, "claude-sdk-oauth", "default", refresher, signal);
+		const next = await refreshSlot(store, "anthropic-subscription", "default", refresher, signal);
 		const slot = listAccounts(next as ClaudeSdkOauthCredential)[0];
 		expect(receivedSignal).toBe(signal);
 		expect(slot.access).toBe("aA-new");
 		expect(slot.refresh).toBe("rA-new");
-		const stored = (await store.read("claude-sdk-oauth")) as ClaudeSdkOauthCredential;
+		const stored = (await store.read("anthropic-subscription")) as ClaudeSdkOauthCredential;
 		expect(stored.access).toBe(SENTINEL_OAUTH_FIELDS.access);
 	});
 
 	it("concurrent refreshSlot calls do not double-refresh", async () => {
 		const store = new InMemoryCredentialStore();
-		await store.modify("claude-sdk-oauth", async () =>
+		await store.modify("anthropic-subscription", async () =>
 			addAccount(emptyCredential(), { ...slotA, expires: Date.now() - 1000 }),
 		);
 		let calls = 0;
@@ -134,8 +134,8 @@ describe("account slots", () => {
 			return { refresh, access: `a-${calls}`, expires: Date.now() + 60_000 };
 		};
 		const signal = new AbortController().signal;
-		const first = refreshSlot(store, "claude-sdk-oauth", "default", refresher, signal);
-		const second = refreshSlot(store, "claude-sdk-oauth", "default", refresher, signal);
+		const first = refreshSlot(store, "anthropic-subscription", "default", refresher, signal);
+		const second = refreshSlot(store, "anthropic-subscription", "default", refresher, signal);
 		gate?.();
 		await Promise.all([first, second]);
 		expect(calls).toBe(1);

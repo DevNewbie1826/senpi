@@ -34,7 +34,7 @@ export interface ResolvedRetryFallbackSettings {
  * Shipped defaults are declared as model families (bare ids, no provider prefix).
  * `canonicalizeFallbackChains` expands them against the live registry, so the chain
  * follows Fable 5 whichever provider serves it - the builtin Anthropic provider, the
- * Claude SDK OAuth extension, a gateway, or Bedrock.
+ * Anthropic Subscription extension, a gateway, or Bedrock.
  *
  * The ladder never leaves the Anthropic Opus family. The previous shipped default was
  * removed because it led with cross-family rungs (`k3`, `kimi-k3`), which moved a Claude

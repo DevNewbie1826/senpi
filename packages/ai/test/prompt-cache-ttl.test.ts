@@ -260,7 +260,7 @@ describe("Bedrock Converse TTL", () => {
 describe("automatic and unknown cache backends", () => {
 	it("returns five minutes for the actual Claude SDK OAuth model shape", () => {
 		const model = createModel("claude-sdk-oauth", {
-			provider: "claude-sdk-oauth",
+			provider: "anthropic-subscription",
 			baseUrl: "claude-sdk-oauth",
 		});
 

@@ -74,7 +74,7 @@ describe("Claude SDK OAuth tool integration", () => {
 	});
 
 	it("executes an SDK-proposed Read through senpi's tool contract", async () => {
-		const cwd = await mkdtemp(join(tmpdir(), "claude-sdk-oauth-tools-"));
+		const cwd = await mkdtemp(join(tmpdir(), "anthropic-subscription-tools-"));
 		try {
 			await writeFile(join(cwd, "example.txt"), "executed by senpi\n", "utf8");
 			const args = mapToolArgs("Read", { file_path: "example.txt" });
@@ -124,7 +124,7 @@ describe("Claude SDK OAuth tool integration", () => {
 			},
 		} as unknown as Pick<ExtensionAPI, "on" | "appendEntry">;
 		const sessionContext = {
-			model: { provider: "claude-sdk-oauth" },
+			model: { provider: "anthropic-subscription" },
 			sessionManager: { getSessionId: () => "session-1", getBranch: () => [] },
 		} as unknown as ExtensionContext;
 		registerToolWatch(extension, watch);
@@ -160,7 +160,7 @@ describe("Claude SDK OAuth tool integration", () => {
 					role: "assistant",
 					content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "README.md" } }],
 					api: "claude-sdk-oauth",
-					provider: "claude-sdk-oauth",
+					provider: "anthropic-subscription",
 					model: "claude-test",
 					usage: {
 						input: 0,
