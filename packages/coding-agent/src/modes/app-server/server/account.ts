@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { normalizeProviderId } from "@earendil-works/pi-ai";
 import { getAgentDir } from "../../../config.ts";
 import { AuthStorage } from "../../../core/auth-storage.ts";
 import {
@@ -140,7 +141,11 @@ function requiredProvider(params: Record<string, unknown>, method: string): stri
 	if (typeof params.provider !== "string" || params.provider.length === 0) {
 		throw invalidParams(`${method} provider must be a non-empty string`);
 	}
-	return params.provider;
+	// Read boundary (senpi#1989): an older client still sends the legacy provider
+	// id in its account payloads. Normalize at this single entry point so every
+	// account method resolves the same lane; this is inbound state from an
+	// earlier version, not a legacy id typed by the user.
+	return normalizeProviderId(params.provider);
 }
 
 function requiredRecord(value: unknown, method: string): Record<string, unknown> {
