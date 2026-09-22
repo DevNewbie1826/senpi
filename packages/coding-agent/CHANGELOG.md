@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- A shared RPC host that dies now leaves a durable record instead of vanishing. The supervisor already told a clean idle exit apart from a crash, but reported the crash only to stderr - and the daemon's stderr log is truncated by the very restart that replaces the dead host, so a host dying hourly was indistinguishable from one that had never died. A crash-classified exit now appends its timestamp, signal or exit code, and the child's uptime to `<daemonDir>/crashes.jsonl`, which survives restarts and is bounded so a crash loop cannot grow it forever. A clean idle exit still writes nothing, so the line count is a crash count. ([#1950](https://github.com/code-yeongyu/senpi/issues/1950))
+
 ### Removed
 
 ## [2026.9.22] - 2026-09-21
