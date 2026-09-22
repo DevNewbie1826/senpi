@@ -1,3 +1,21 @@
+## 2026-09-22 - multi-binary coexistence pinned for the subscription rename (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/test/provider-rename-coexistence.test.ts`: a regression that builds an `~/.omo`-shaped agent directory exactly as the OLD binary wrote it - `auth.json`, `settings.json`, `models.json` and the per-account directory all in legacy spellings - and proves the new code reads every one of them, migrates each exactly once, and is byte-stable on a second run.
+
+### Why
+
+The rename ships aliases and migrations across four independent persisted surfaces. Each one was proved in isolation by its own todo, but nothing proved they work TOGETHER for the single user who matters: someone who upgrades with all four already written. This pins that case, including the one-shot property - the `auth.json` backup is taken on the first run and neither re-taken nor rewritten on the second.
+
+### Why an extension could not handle it
+
+The surfaces under test are core credential, settings, model-config and account-directory plumbing; the test drives them directly rather than through any extension.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/test/provider-rename-coexistence.test.ts`, against any other change to the migration entry points it drives.
+
 ## 2026-09-22 - normalize legacy provider ids in the lane's raw reads (senpi#1989)
 
 ### What changed
@@ -1297,7 +1315,7 @@ LOW in `oauth-login.ts` (added `check` to the returned shape + optional `readSet
 - Renamed the builtin path, provider/model ID, storage sentinels, account directory, settings key, TypeScript symbols, commands, tests, and QA scenarios from `claude-agent-sdk` to `claude-sdk-oauth`.
 - Kept the external dependency and executable packages named `@anthropic-ai/claude-agent-sdk`; only Senpi-owned identity changed.
 - Split stream coverage into prompt-bridge and stream-event suites so every edited test file remains below the 250-pure-LOC ceiling.
-- Existing persisted entries under the old provider/settings/account-directory names are intentionally not aliased; backward compatibility was not requested for this explicit identity replacement.
+- Existing persisted entries under the old provider/settings/account-directory names are intentionally not aliased; backward compatibility was not requested for this explicit identity replacement. **SUPERSEDED on 2026-09-22 by the `anthropic-subscription` rename (senpi#1989), which ships aliases and one-shot migrations instead.** That decision was made when this provider was days old and had almost no installed base; it now holds real users' subscription logins, default model and saved accounts, so an un-aliased rename would have silently logged them out. Legacy ids are now normalized at every read boundary, `auth.json` and `settings.json` are migrated once, and the account directory is moved once.
 - Merge-conflict risk: high across this directory and its provider-focused tests; PRs touching the old path must be integrated before merge.
 
 ## 2026-07-30 - Forward the bounded project rules region into the SDK append
