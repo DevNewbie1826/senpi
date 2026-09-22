@@ -605,7 +605,7 @@ The service tier on outgoing requests is resolved as:
 2. The model catalog's `compat.serviceTier`
 3. `openai.serviceTier` (the global OpenAI setting)
 
-The per-model `modelServiceTiers` memory is not part of that resolution: it applies to OpenAI Codex
+The per-model `modelServiceTiers` memory is not part of that resolution: it applies to ChatGPT Subscription
 models only, through fast mode. It acts as the session-start default for `/fast` (a remembered
 `"priority"` starts the session fast) and as an explicit `"auto"` opt-out of a catalog-inherited
 priority tier, which keeps `service_tier` off the wire. Under a `:priority` pin the memory has no

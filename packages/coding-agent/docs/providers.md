@@ -28,7 +28,7 @@ Use `/login` in interactive mode, then select a provider:
 
 Use `/logout` to clear credentials. Tokens are stored in `~/.senpi/agent/auth.json` and auto-refresh when expired. OpenRouter instead mints a user-controlled API key that does not expire automatically.
 
-### OpenAI Codex
+### ChatGPT Subscription
 
 - Requires ChatGPT Plus or Pro subscription
 - Officially endorsed by OpenAI: [Codex for OSS](https://developers.openai.com/community/codex-for-oss)
@@ -41,7 +41,7 @@ Anthropic subscription auth is active for Claude Pro/Max accounts. Third-party h
 - If the browser lands on a page saying the login belongs to a different session or an earlier attempt, that page's address was sent to another login's listener: paste the full address from the address bar into the session whose prompt is still waiting, or run the login again from that session.
 - A login that receives neither the browser callback nor a pasted redirect URL for 10 minutes fails with a timeout and releases its port; run `/login anthropic` again.
 
-### Claude SDK OAuth
+### Anthropic Subscription
 
 The `anthropic-subscription` provider routes LLM calls through the official [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) - it spawns the real Claude Code engine - while senpi executes every tool itself. Subscription usage flows through Anthropic's official Claude Code surface.
 
@@ -101,7 +101,7 @@ If your Claude Pro/Max subscription usage through `anthropic-subscription` feels
 
    | Lane | Effective TTL | Who controls it | How to override |
    | --- | --- | --- | --- |
-   | Claude SDK OAuth (subscription, `anthropic-subscription`) | 5 minutes | The Claude SDK owns `cache_control`; senpi cannot add breakpoints. senpi reports 300s for this lane so cache-aware budgets (tool waits, goal timing) size themselves correctly. | Not overridable |
+   | Anthropic Subscription (subscription, `anthropic-subscription`) | 5 minutes | The Claude SDK owns `cache_control`; senpi cannot add breakpoints. senpi reports 300s for this lane so cache-aware budgets (tool waits, goal timing) size themselves correctly. | Not overridable |
    | Direct Anthropic API (`api.anthropic.com`, API key or OAuth token) | 5 minutes | senpi follows Anthropic's default cache retention. Opting into 1h retention makes cache writes cost 2x base input vs 1.25x for 5m ([Anthropic prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching)). | Set `PI_CACHE_RETENTION=long` or `cacheRetention: "long"` |
    | Anthropic-compatible providers (kimi-coding, fireworks, gateways) | 5 minutes | The 1h TTL is gated on the native `api.anthropic.com` base URL, so these lanes stay short. | `cacheRetention` |
 

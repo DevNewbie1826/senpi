@@ -1338,7 +1338,7 @@ Response:
 
 #### set_fast_mode
 
-Turn fast mode (the OpenAI Codex `priority` service tier) on or off for the active model. The choice is remembered
+Turn fast mode (the ChatGPT Subscription `priority` service tier) on or off for the active model. The choice is remembered
 per model, so a later session on the same model starts the same way; `enabled: false` records an explicit `"auto"`
 so it also overrides a tier inherited from the model catalog.
 
@@ -1355,7 +1355,7 @@ Response:
   "data": {
     "enabled": true,
     "serviceTier": "priority",
-    "provider": "openai-codex",
+    "provider": "chatgpt-subscription",
     "modelId": "gpt-5.6-sol"
   }
 }
@@ -1369,7 +1369,7 @@ The command returns an error instead of a silent no-op when the request cannot b
 
 | Situation | `error` |
 |-----------|---------|
-| Active model is not an OpenAI Codex model | `Fast mode is only available for OpenAI Codex models.` |
+| Active model is not a ChatGPT Subscription model | `Fast mode is only available for ChatGPT Subscription models.` |
 | `enabled: false` while the model selection pins `:priority` | `Fast mode is fixed by the active model selection's priority tier.` |
 | `enabled` is not a boolean | `set_fast_mode requires a boolean 'enabled' field.` |
 
@@ -2221,7 +2221,7 @@ command, a retry fallback, or a session restore.
 ```json
 {
   "type": "model_changed",
-  "model": {"provider": "openai-codex", "id": "gpt-5.6-sol", "...": "..."},
+  "model": {"provider": "chatgpt-subscription", "id": "gpt-5.6-sol", "...": "..."},
   "thinkingLevel": "xhigh",
   "source": "cycle"
 }
