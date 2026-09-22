@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- The "File operations" section of the system prompt now names the editing tool your session actually has. It was written from the model preset rather than the live toolset, so a Grok 4.5 session - where `apply_patch` can never activate - was told to route every file edit through it, and so was any GPT model served over an API that cannot carry the tool. Sessions that do have `apply_patch` still get it as the single edit verb, the guard against editing files through `cat >`, `sed -i`, `awk -i` or inline `python` stays in both cases, and the instruction is direct again instead of asking the model to work out which tools it has ([#1968](https://github.com/code-yeongyu/senpi/issues/1968)).
+
 - A shared RPC host that dies now leaves a durable record instead of vanishing. The supervisor already told a clean idle exit apart from a crash, but reported the crash only to stderr - and the daemon's stderr log is truncated by the very restart that replaces the dead host, so a host dying hourly was indistinguishable from one that had never died. A crash-classified exit now appends its timestamp, signal or exit code, and the child's uptime to `<daemonDir>/crashes.jsonl`, which survives restarts and is bounded so a crash loop cannot grow it forever. A clean idle exit still writes nothing, so the line count is a crash count. ([#1950](https://github.com/code-yeongyu/senpi/issues/1950))
 
 - Shared RPC hosts no longer grow by one permanent copy of the extension module graph per session. Extension sources are compiled once per process and recompiled only when a source file changes, which cuts per-session retained memory on a long-lived host from tens of megabytes to well under one ([#1948](https://github.com/code-yeongyu/senpi/issues/1948)).

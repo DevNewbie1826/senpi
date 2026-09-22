@@ -9,7 +9,7 @@ prompt-preset/
 ├── index.ts             # Extension entry — hooks before_agent_start + model_select
 ├── presets.ts           # Model-id matchers + dispatch (resolvePresetName, resolvePreset)
 ├── settings.ts          # PromptPresetName settings type ("auto" | family ids)
-├── file-operations.ts   # Shared "use apply_patch, not python heredoc" tuning block (codex-style)
+├── file-operations.ts   # Shared "use the session's edit verb, not python heredoc" tuning block (codex-style), rendered from the ACTIVE tool names
 ├── gpt-eval-routing.ts  # GPT-only bridge to eval's model-aware Tool Guidelines
 ├── execution-tooling.ts # Shared eval-routing stance rule data (`EXECUTION_TOOLING_RULES`, claude + kimi dialects) rendered only when `eval` is selected; wired into every Claude and Kimi preset. The wait-as-subscription stance is NOT here: `monitor` is eval-only, so that line lives in the eval tool description (`senpi-codemode/src/prompt/eval-prompt.ts`), which is the only surface that can teach the `tool.monitor(...)` form
 ├── gpt-5.ts             # GPT-5 baseline preset
@@ -54,14 +54,14 @@ prompt-preset/
 ## PRESET SHAPE (post 2026-04-30)
 
 ```typescript
-function buildGpt55Tuning(): string {
+function buildGpt55Tuning(toolNames: readonly string[]): string {
    return `…model-specific addenda…
 
-${buildFileOperationsTuning()}`;
+${buildFileOperationsTuning({ toolNames })}`;
 }
 
 export function buildGpt55Prompt(options: BuildDynamicSystemPromptOptions): string {
-   return buildDynamicSystemPrompt({ ...options, tuningSection: buildGpt55Tuning() });
+   return buildDynamicSystemPrompt({ ...options, tuningSection: buildGpt55Tuning(options.selectedTools) });
 }
 ```
 
@@ -73,6 +73,7 @@ Exception: `gpt-5.5.ts`, `gpt-5.6.ts`, `gpt-6-astra.ts`, `kimi-k3.ts`, `claude-f
 
 - **Model-family naming, not personas**: presets are named after the model they target (`gpt-5.ts`, not `coder.ts`). The 2026-04-30 rename removed persona-style names.
 - **`file-operations.ts` is appended to EVERY GPT-5.x preset**. New GPT preset → mirror this. Negative-only directives lose to model priors; pair them with positive routing.
+- **Always hand `buildFileOperationsTuning()` the session's active tool names** — `options.selectedTools` from a `tuningSection` preset, `context.tools.map((tool) => tool.name)` from a `corePrompt` one. It renders the verb the session actually has (#1968); calling it with a stale or empty list silently drops the block or names an absent tool.
 - **`resolvePresetName()` is cheap** (used by startup header). `resolvePreset()` builds the full prompt — call only when needed.
 - **Don't duplicate identity / intent / exploration** in a preset — they're already in the default builder. The dieted core (2026-09-02/03) also carries one-plan commitment, scope fidelity, the conditional delegation rule, and the auto-compaction continuation fact — a tuning line that restates any of these is dead weight (2026-09-03 audit removed such lines from every Opus 4.x and GLM preset).
 - **A tuning line must be documented for the target model**: cite the guide section (or the preset's own probe evidence) in `changes.md`. A preset whose guide documents nothing beyond the core renders execution tooling only (`claude-opus-4-6.ts`).
@@ -81,7 +82,7 @@ Exception: `gpt-5.5.ts`, `gpt-5.6.ts`, `gpt-6-astra.ts`, `kimi-k3.ts`, `claude-f
 
 - Renaming a preset file to a persona ("coder", "architect", "thinker") — was tried, reverted.
 - Embedding full prompt scaffolding in a `tuningSection` — defeats the point of the 2026-04-30 thin-wrapper architecture. A deliberate full rewrite goes through the builder's `corePrompt` override (see `gpt-5.5.ts`), never by duplicating shared sections as tuning text.
-- Adding a non-GPT preset that copies `buildFileOperationsTuning()` — the apply_patch routing is GPT-specific.
+- Hardcoding `apply_patch` in preset prose — the tool is gated to GPT ids on OpenAI-family APIs, so a literal mention is wrong for Grok, for any GPT id on an unsupported API, and for any preset pinned through settings. Route through `buildFileOperationsTuning()` and let it read the active toolset (#1968; `grok-4.5.ts` carried exactly this bug, and its own test pinned it).
 - Mutating `BuildDynamicSystemPromptOptions` before passing through — pass via spread, add only `tuningSection`.
 
 ## NOTES
