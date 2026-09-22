@@ -33,6 +33,8 @@
 - Streamed model responses no longer stall after the headers when the CLI runs on Bun 1.3.x. HTTP dispatcher setup used to replace Bun's native `fetch` with the bundled undici implementation, whose fetch on that runtime never delivered an SSE body; Bun now keeps its own fetch, and proxy env vars plus the stream idle guards still apply. Node behaviour is unchanged. ([#1890](https://github.com/code-yeongyu/senpi/issues/1890))
 - `senpi host ensure` no longer refuses `foreign_writer` forever when the registered generation is still alive but nothing accepts connections at its public socket path - the entry is gone, or a dead listener left it behind. Nothing serves that path, so a fresh generation is started beside the stranded one, which is never signalled and keeps its registration until it exits. Before, a superseded host draining its last session locked every other client out of the endpoint until it happened to end. ([#1936](https://github.com/code-yeongyu/senpi/issues/1936))
 
+- Fixed `apply_patch` activation for provider-prefixed GPT model IDs and kept file-editing guidance consistent with the active tool set ([#1891](https://github.com/code-yeongyu/senpi/issues/1891)).
+
 ### Removed
 
 ## [2026.9.21-2] - 2026-09-21

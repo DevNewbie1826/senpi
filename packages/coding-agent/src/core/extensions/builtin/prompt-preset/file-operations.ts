@@ -20,7 +20,7 @@
 export function buildFileOperationsTuning(): string {
 	return `## File operations
 
-Use \`apply_patch\` for ALL file edits and creations. Do NOT write or modify files via bash heredoc (\`cat >\`, \`echo > \`), \`sed -i\`, \`awk -i\`, or inline \`python\`/\`python3 -c\` scripts.
+When \`apply_patch\` is active, use it for ALL file edits and creations. Otherwise use the available \`edit\` and \`write\` tools. Do NOT write or modify files via bash heredoc (\`cat >\`, \`echo > \`), \`sed -i\`, \`awk -i\`, or inline \`python\`/\`python3 -c\` scripts.
 
 Use \`read\` for ALL file inspection. Do NOT substitute \`cat\`, \`sed\`, \`head\`, \`tail\`, or inline \`python\` invoked through bash.
 

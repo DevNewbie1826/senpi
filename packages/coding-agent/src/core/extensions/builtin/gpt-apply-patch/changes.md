@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-21 - Recognize provider-prefixed GPT model ids (#1891)
+
+### What changed
+
+- `extension.ts`: recognizes GPT family segments after provider delimiters, case-insensitively, while preserving the existing API-specific JSON/freeform gate.
+
+### Why
+
+- Prefixes such as `codex/gpt-6-astra` already selected a GPT prompt but left its patch tool inactive. The regression covers preset agreement, model switches, lazy activation and real patch execution.
+
+### Why an extension could not handle it
+
+- This builtin owns the activation predicate and tool variant; another extension cannot safely override its decision.
+
+### Expected merge conflict zones
+
+- LOW: `extension.ts` model-id predicate.
+
 ## Binary-safe patch previews (2026-08-05)
 
 ### What changed
