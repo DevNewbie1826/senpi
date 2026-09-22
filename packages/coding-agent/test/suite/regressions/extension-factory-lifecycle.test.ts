@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -22,12 +22,13 @@ function resetState(): void {
 	delete (globalThis as typeof globalThis & { __extensionFactoryCacheTest?: TestState }).__extensionFactoryCacheTest;
 }
 
-function writeCountingExtension(filePath: string): void {
+function writeCountingExtension(filePath: string, padding = "a"): void {
 	writeFileSync(
 		filePath,
 		`
 const state = (globalThis.__extensionFactoryCacheTest ??= {});
 state.moduleLoads = (state.moduleLoads ?? 0) + 1;
+export const padding = ${JSON.stringify(padding)};
 
 export default function () {
 	state.factoryRuns = (state.factoryRuns ?? 0) + 1;
@@ -35,9 +36,17 @@ export default function () {
 `,
 		"utf-8",
 	);
+	const future = new Date(Date.now() + 2_000);
+	utimesSync(filePath, future, future);
 }
 
-describe("extension factory cache", () => {
+/**
+ * These run on the jiti importer (vitest workers are Node), which cannot report the files it
+ * compiled and is therefore never cached: freshness wins over reuse where staleness cannot be
+ * detected. The Bun importer's caching contract - one module generation per source version - is
+ * pinned in `test/extensions/extension-module-graph-reuse.test.ts`, which drives a real Bun process.
+ */
+describe("extension factory lifecycle on an importer that cannot report its sources", () => {
 	const roots: string[] = [];
 
 	function fixture(name: string) {
@@ -66,7 +75,7 @@ describe("extension factory cache", () => {
 		clearExtensionCache();
 	});
 
-	it("caches extension modules for cached same-cwd loads but reruns factories", async () => {
+	it("gives every load its own extension instance and runtime", async () => {
 		const { root, cwd } = fixture("same-cwd");
 		const extensionPath = join(root, "counting.ts");
 		writeCountingExtension(extensionPath);
@@ -74,25 +83,25 @@ describe("extension factory cache", () => {
 		const first = await loadExtensionsCached([extensionPath], cwd);
 		const second = await loadExtensionsCached([extensionPath], cwd);
 
-		expect(state().moduleLoads).toBe(1);
 		expect(state().factoryRuns).toBe(2);
 		expect(first.extensions[0]).not.toBe(second.extensions[0]);
 		expect(first.runtime).not.toBe(second.runtime);
 	});
 
-	it("does not cache direct loadExtensions calls", async () => {
+	it("re-evaluates rather than serving a factory it cannot verify", async () => {
 		const { root, cwd } = fixture("direct");
 		const extensionPath = join(root, "counting.ts");
 		writeCountingExtension(extensionPath);
 
 		await loadExtensions([extensionPath], cwd);
 		await loadExtensions([extensionPath], cwd);
+		await loadExtensionsCached([extensionPath], cwd);
 
-		expect(state().moduleLoads).toBe(2);
-		expect(state().factoryRuns).toBe(2);
+		expect(state().moduleLoads).toBe(3);
+		expect(state().factoryRuns).toBe(3);
 	});
 
-	it("clears the cache on resource loader reload", async () => {
+	it("picks up an edited extension on reload", async () => {
 		const { cwd, agentDir } = fixture("reload");
 		const extensionDir = join(agentDir, "extensions");
 		mkdirSync(extensionDir, { recursive: true });
@@ -110,9 +119,15 @@ describe("extension factory cache", () => {
 
 		expect(state().moduleLoads).toBe(2);
 		expect(state().factoryRuns).toBe(2);
+
+		writeCountingExtension(join(extensionDir, "counting.ts"), "bb");
+		await loader.reload();
+
+		expect(state().moduleLoads).toBe(3);
+		expect(state().factoryRuns).toBe(3);
 	});
 
-	it("keeps the cache scoped to one cwd", async () => {
+	it("does not let one cwd serve another cwd a cached factory", async () => {
 		const { root } = fixture("cross-cwd");
 		const firstCwd = join(root, "first");
 		const secondCwd = join(root, "second");
@@ -125,7 +140,7 @@ describe("extension factory cache", () => {
 		await loadExtensionsCached([extensionPath], secondCwd);
 		await loadExtensionsCached([extensionPath], secondCwd);
 
-		expect(state().moduleLoads).toBe(2);
+		expect(state().moduleLoads).toBe(3);
 		expect(state().factoryRuns).toBe(3);
 	});
 });
