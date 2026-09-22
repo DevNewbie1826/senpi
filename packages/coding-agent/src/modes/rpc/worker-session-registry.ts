@@ -1,5 +1,6 @@
 import { isAbsolute } from "node:path";
 import { ProviderScope } from "@earendil-works/pi-ai/node/provider-scope";
+import { assertValidSessionId } from "../../core/session-manager.ts";
 import type { CliRuntimeConfiguration } from "../../main.ts";
 import {
 	type LiveWorkerPaths,
@@ -60,6 +61,27 @@ export class WorkerSessionRegistry {
 	async openSession(profile: RpcSessionLaunchProfile, options?: RpcSessionOpenOptions): Promise<OpenRpcSession> {
 		if (!isAbsolute(profile.cwd) || (profile.sessionPath !== undefined && !isAbsolute(profile.sessionPath)))
 			throw new RpcSessionRegistryError("invalid_path");
+		// Same contract as RpcSessionRegistry.openSession (#1951), on the registry the multi-session
+		// host actually instantiates (#2010). Both checks run SYNCHRONOUSLY before the first await:
+		// the format check so a bad id is refused with its own code instead of surfacing as the
+		// worker's death (`session_closing`), and the collision scan so a concurrent open naming the
+		// same durable id finds this one already recorded. Re-opening the SAME path is an attach,
+		// not a collision: the id is the file's own.
+		const requestedDurableId = profile.durableSessionId;
+		if (requestedDurableId !== undefined) {
+			try {
+				assertValidSessionId(requestedDurableId);
+			} catch (cause) {
+				throw new RpcSessionRegistryError("invalid_session_id", String(cause));
+			}
+			const requestedKey = profile.sessionPath ? this.knownReservationKey(profile.sessionPath) : undefined;
+			for (const entry of this.entries.values()) {
+				if (entry.state === "closed") continue;
+				if (entry.durableSessionId !== requestedDurableId) continue;
+				if (requestedKey !== undefined && entry.reservationKey === requestedKey) continue;
+				throw new RpcSessionRegistryError("session_id_in_use");
+			}
+		}
 		if (profile.sessionPath) {
 			const key = this.knownReservationKey(profile.sessionPath);
 			const owner = key ? this.reservations.owner(key) : undefined;
@@ -78,6 +100,10 @@ export class WorkerSessionRegistry {
 			retainOnDisconnect: options?.retainOnDisconnect === true,
 			lastCommandAt: this.now(),
 			lifecycleMutex: Promise.resolve(),
+			// Recorded before the first await so the collision scan above sees an open still being
+			// built; `snapshot.state.sessionId` overwrites it with the authoritative value after
+			// commit, which on a resume is the header's id rather than the requested one.
+			...(requestedDurableId !== undefined ? { durableSessionId: requestedDurableId } : {}),
 		};
 		let workerFailure: string | undefined;
 		const worker = this.createWorker({
