@@ -7,6 +7,7 @@ import { buildClaudeOpus46Prompt } from "./claude-opus-4-6.ts";
 import { buildClaudeOpus47Prompt } from "./claude-opus-4-7.ts";
 import { buildClaudeOpus48Prompt } from "./claude-opus-4-8.ts";
 import { buildClaudeOpus5Prompt } from "./claude-opus-5.ts";
+import { buildClaudeOpus55Prompt } from "./claude-opus-5-5.ts";
 import { buildDeepseekV41FlashPrompt } from "./deepseek-v4-1-flash.ts";
 import { buildDeepseekV4FlashPrompt } from "./deepseek-v4-flash.ts";
 import { buildDeepseekV4Flash0731Prompt } from "./deepseek-v4-flash-0731.ts";
@@ -254,6 +255,13 @@ function isClaudeFable5Model(modelId: string): boolean {
 	return CLAUDE_FABLE_5_MARKERS.some((marker) => normalized.includes(marker));
 }
 
+const CLAUDE_OPUS_55_MARKERS = ["opus-5-5", "opus-5.5"] as const;
+
+function isClaudeOpus55Model(modelId: string): boolean {
+	const normalized = normalizeModelId(modelId);
+	return CLAUDE_OPUS_55_MARKERS.some((marker) => normalized.includes(marker));
+}
+
 function isClaudeOpus5Model(modelId: string): boolean {
 	return normalizeModelId(modelId).includes("opus-5");
 }
@@ -315,6 +323,10 @@ export function resolvePresetName(
 	}
 	if (isClaudeFable5Model(model.id)) {
 		return "claude-fable-5";
+	}
+	// The dotted release must resolve before the generic opus-5 substring.
+	if (isClaudeOpus55Model(model.id)) {
+		return "claude-opus-5-5";
 	}
 	if (isClaudeOpus5Model(model.id)) {
 		return "claude-opus-5";
@@ -400,6 +412,8 @@ function buildPreset(name: ResolvedPresetName, options: BuildDynamicSystemPrompt
 			return { name, prompt: buildClaudeFable51Prompt(options) };
 		case "claude-fable-5":
 			return { name, prompt: buildClaudeFable5Prompt(options) };
+		case "claude-opus-5-5":
+			return { name, prompt: buildClaudeOpus55Prompt(options) };
 		case "claude-opus-5":
 			return { name, prompt: buildClaudeOpus5Prompt(options) };
 		case "claude-opus-4-8":
