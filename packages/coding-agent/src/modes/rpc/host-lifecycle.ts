@@ -47,6 +47,12 @@ import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, isBunBinary, isBundledNode } from "../../config.ts";
 import { processIsLive, readProcessStartTime } from "../app-server/daemon/process.ts";
+import { classifyChildExit, noteChildExit } from "./host-child-exit.ts";
+
+// The exit verdict moved to ./host-child-exit.ts with the crash recording it now feeds; it stays
+// exported from here so every existing importer keeps resolving it at its original home.
+export { classifyChildExit } from "./host-child-exit.ts";
+
 import { createHostDaemonPaths, generationPaths, HOST_DAEMON_DIR_ENV } from "./host-daemon-paths.ts";
 import { releaseGeneration } from "./host-daemon-registration.ts";
 import { watchForSupersession } from "./host-supersession.ts";
@@ -181,20 +187,6 @@ export function resolveHostPolicy(
 export interface HostActivity {
 	readonly connections: number;
 	readonly activeTurns: number;
-}
-
-/**
- * How the supervisor reads its child's exit. The RPC host exits 0 only through
- * its own clean shutdown path - including its idle/empty-host policy - so that
- * is an intentional stop, not a crash: the supervisor mirrors its own idle exit
- * instead of reporting failure. Any non-zero code or signal stays a crash.
- */
-export function classifyChildExit(
-	code: number | null,
-	signal: NodeJS.Signals | null,
-): { reason: string; exitCode: number } {
-	if (code === 0 && signal === null) return { reason: "rpc host exited on its own idle policy", exitCode: 0 };
-	return { reason: `rpc host process exited unexpectedly (${code ?? signal})`, exitCode: 1 };
 }
 
 export type IdleExitDecision = "active" | "idle" | "exit";
@@ -516,12 +508,16 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 		// CREATE_NO_WINDOW gives the child a console with no window instead.
 		windowsHide: true,
 	});
+	const childStartedAt = Date.now();
 	// Nothing is ever written; the pipe exists purely so its EOF is a reliable
 	// death notification. Errors on it must not crash the supervisor.
 	child.stdio[CHILD_WATCH_FD]?.on("error", () => {});
 	child.once("exit", (code, signal) => {
 		if (shuttingDown) return;
 		const { reason, exitCode } = classifyChildExit(code, signal);
+		// Record BEFORE shutting down: `shutdown` ends in `process.exit`, so anything queued after
+		// it is never reached. Writing is best-effort and never throws into this path.
+		noteChildExit(paths.dir, code, signal, childStartedAt);
 		void shutdown(reason, exitCode);
 	});
 
