@@ -3,6 +3,7 @@
 ### What changed
 
 - `packages/agent/src/tool-arguments.ts`: new home for `prepareToolArguments` and `prepareAgentToolCallArguments`. The shim now receives `structuredClone(args)`, so what it returns is always a separate object from the one the assistant message holds.
+- `packages/agent/src/index.ts`: exports `prepareToolArguments` so a package outside the agent loop reaches the same detach seam instead of calling a tool's shim directly.
 - `packages/agent/src/agent-loop.ts`: delegates `prepareAgentToolCallArguments` to that module and re-exports it, so the public surface is unchanged. The old identity guard (`prepared === toolCall.arguments` short-circuits to the original call) is gone: it only ever held for a shim that returned its input, which is exactly the shim that had already rewritten it.
 
 ### Why
