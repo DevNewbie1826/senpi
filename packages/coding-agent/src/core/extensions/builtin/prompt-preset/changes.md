@@ -4,7 +4,7 @@
 
 ### What changed
 
-- `packages/coding-agent/src/core/extensions/builtin/prompt-preset/grok-4.7.ts`: new preset that delegates to `buildGrok46Prompt` instead of duplicating prompt text. Grok 4.7 has no prompt tuning yet, so any wording difference from the 4.6 prompt is a defect; sharing the builder makes drift structurally impossible.
+- `packages/coding-agent/src/core/extensions/builtin/prompt-preset/grok-4.7.ts`: standalone preset holding a VERBATIM copy of the Grok 4.6 prompt text — every section and string byte-identical, no import from grok-4.6.ts. Grok 4.7 has no prompt tuning yet, so any wording difference from the 4.6 prompt is a defect; the copy (not a delegation) is deliberate so this file is already the editable starting point when 4.7 gets its own tuning, and `test/suite/prompt-presets-grok-4-7.test.ts`'s byte-equality assertion is the load-bearing guard against the two copies drifting until then.
 - `packages/coding-agent/src/core/extensions/builtin/prompt-preset/presets.ts`: `hasGrok47Signal` / `isGrok47Model` in the existing regex family (same shapes as 4.6, minor version 7 — also covers Venice's dashed `grok-4-7`), a `grok-4.7` branch in `resolvePresetName` ahead of the 4.6 branch, and a `buildPreset` case.
 - `packages/coding-agent/src/core/extensions/builtin/prompt-preset/settings.ts`: `grok-4.7` joins `PromptPresetName` and `VALID_PRESETS`.
 - `packages/coding-agent/test/suite/prompt-presets-grok-4-7.test.ts`: id-shape routing (incl. aggregator + dashed ids), byte-identical 4.6/4.7 builds, 4.6-stays-4.6 negatives, settings force, and catalog-wide coverage.
