@@ -37,6 +37,22 @@ function recordAssistantUuid(entry: ClaudeSdkOauthSessionEntry, sentCount: numbe
 /** Claude Code answered "No conversation found with session ID": the bound id is dead, never resume it again. */
 const RESUME_TARGET_MISSING = /no conversation found with session id/i;
 
+/** Claude Code's wording for a fork point absent from its transcript; the captured id is the dead one. */
+const RESUME_MESSAGE_MISSING = /no message found with message\.uuid(?:\s+of)?:\s*([0-9a-fA-F-]+)/i;
+
+/**
+ * Drops only the boundary Claude Code rejected. Republishing it would make the next admission ask
+ * for the same dead id, fail the same way, and flatten again (senpi#1958); earlier boundaries stay
+ * mapped so the retry can still fork at one of them instead of re-sending the conversation.
+ */
+function forgetMissingAssistantUuid(entry: ClaudeSdkOauthSessionEntry, message: string): void {
+	const missing = RESUME_MESSAGE_MISSING.exec(message)?.[1];
+	if (missing === undefined) return;
+	for (const [index, uuid] of entry.assistantUuidByIndex) {
+		if (uuid === missing) entry.assistantUuidByIndex.delete(index);
+	}
+}
+
 function publishBinding(entry: ClaudeSdkOauthSessionEntry, binding: Parameters<typeof rememberBinding>[0]): void {
 	rememberBinding({ ...binding, sdkSessionIdConfirmed: entry.sdkSessionIdConfirmed });
 }
@@ -99,6 +115,7 @@ export function createSessionTurnAttempt(
 					resumeTargetMissing = true;
 					forgetBinding(entry.senpiSessionId);
 				} else {
+					if (error instanceof Error) forgetMissingAssistantUuid(entry, error.message);
 					rememberRetryCheckpoint(entry, hashes);
 				}
 				throw error;

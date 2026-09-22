@@ -1,3 +1,19 @@
+## 2026-09-22 - A rejected fork point is dropped, not republished (senpi#1958)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/session-turn-attempt.ts`: recognizes Claude Code's `No message found with message.uuid of: <id>` alongside the existing missing-session wording, and removes exactly that id from `assistantUuidByIndex` before the retry checkpoint is published. Earlier mapped boundaries survive in the published checkpoint. This entry does NOT make the next admission fork at one of them: with `lastAssistantUuid` gone, `retryCheckpointDecision` and the legacy `decideFromBinding` branch in `session-continuity.ts` still answer `flatten` (`timeout_retry` / `registry_miss`) instead of consulting the surviving entries, so the turn after a rejected fork point re-sends once. Consuming those entries is senpi#1973; this entry only guarantees the dead id is never requested again.
+
+### Why
+
+- The lane already forgot a binding whose SDK *session* id Claude Code reported missing, but a missing *message* id took the ordinary failure path: `rememberRetryCheckpoint` republished the same binding, whose `lastAssistantUuid` is the id the SDK had just rejected. The next admission asked for it again, failed the same way, and fell through to `resume_initialization_failed` - a full-history re-send per turn, repeating for as long as the dead id stayed published.
+- senpi#1958 measured the loop in the field: five consecutive turns re-sent 221,279, 223,068, 224,916, 227,103 and 229,153 bytes with no compaction, model switch or options change. oh-my-openagent#8424 reached the same conclusion independently in its finding 5.
+- Only the rejected id is dropped. Clearing the whole map would turn every later divergence into a flatten, which is the cost this lane exists to avoid.
+
+### Expected merge conflict zones
+
+- LOW: the constant block at the top of `session-turn-attempt.ts` and the `else` arm of the generator's `catch`.
+
 # claude-sdk-oauth
 
 ## 2026-09-17 - Re-login refreshes the slot in place; all-blocked guidance names auth failures (omo#7084, omo#8383)
