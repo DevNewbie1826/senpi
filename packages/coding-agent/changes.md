@@ -1,5 +1,24 @@
 # Local fork changes
 
+## 2026-09-22 - Grok 4.7 preset + xAI default (#1990)
+
+### What changed
+
+- `packages/coding-agent/src/core/model-resolver.ts`: `defaultModelPerProvider.xai` moves `grok-4.5` -> `grok-4.7` (port of upstream 1a584a7a56); nearest-tracker detail in `src/core/changes.md`.
+- `packages/coding-agent/test/model-resolver.test.ts`: the xai-default assertion and the initial-selection fixture (`custom` xai model + `defaultModelId`) realign to `grok-4.7` — the provider-default branch resolves `defaultModelPerProvider.xai`, so a `grok-4.5` fixture fell through to first-available.
+
+### Why
+
+- The catalog gained `xai/grok-4.7`; the default tracks the current model.
+
+### Why an extension could not handle it
+
+- The provider default is core model-resolution state, not extension-visible.
+
+### Expected merge conflict zones
+
+- LOW: `model-resolver.ts` provider-default map on upstream syncs.
+
 ## 2026-09-21 - Take es-module-lexer 3 (senpi#1895)
 
 ### What changed

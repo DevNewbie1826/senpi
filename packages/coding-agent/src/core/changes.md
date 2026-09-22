@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-22 - xAI provider default moves to grok-4.7 (senpi#1990)
+
+### What changed
+
+- `packages/coding-agent/src/core/model-resolver.ts`: `defaultModelPerProvider.xai` moves from `grok-4.5` to `grok-4.7`, porting upstream pi-mono 1a584a7a56 (`feat(ai,coding-agent): add Grok 4.7 support`) onto the fork's resolver, which still defaulted two versions behind. `test/model-resolver.test.ts` realigns with it: the xai-default assertion and the initial-selection fixture's synthetic xai model (`custom` + `defaultModelId`), because the provider-default branch resolves `defaultModelPerProvider.xai` against the runtime catalog and a `grok-4.5` fixture fell through to `first-available`.
+
+### Why
+
+- The catalog gained `xai/grok-4.7` (packages/ai shard regeneration in the same PR); the provider default tracks the current model.
+
+### Why an extension could not handle it
+
+- The provider default is core model-resolution state read during initial selection, before extension hooks can influence it.
+
+### Expected merge conflict zones
+
+- The `defaultModelPerProvider` xai entry on upstream syncs that also move the default.
+
 ## 2026-09-22 - SessionManager.open can create under a caller-chosen id (senpi#1951)
 
 ### What changed

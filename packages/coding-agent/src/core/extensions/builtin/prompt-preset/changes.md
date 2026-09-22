@@ -1,5 +1,26 @@
 # prompt-preset Extension Changes
 
+## Grok 4.7 preset reusing Grok 4.6 verbatim (2026-09-22, senpi#1990)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/prompt-preset/grok-4.7.ts`: new preset that delegates to `buildGrok46Prompt` instead of duplicating prompt text. Grok 4.7 has no prompt tuning yet, so any wording difference from the 4.6 prompt is a defect; sharing the builder makes drift structurally impossible.
+- `packages/coding-agent/src/core/extensions/builtin/prompt-preset/presets.ts`: `hasGrok47Signal` / `isGrok47Model` in the existing regex family (same shapes as 4.6, minor version 7 — also covers Venice's dashed `grok-4-7`), a `grok-4.7` branch in `resolvePresetName` ahead of the 4.6 branch, and a `buildPreset` case.
+- `packages/coding-agent/src/core/extensions/builtin/prompt-preset/settings.ts`: `grok-4.7` joins `PromptPresetName` and `VALID_PRESETS`.
+- `packages/coding-agent/test/suite/prompt-presets-grok-4-7.test.ts`: id-shape routing (incl. aggregator + dashed ids), byte-identical 4.6/4.7 builds, 4.6-stays-4.6 negatives, settings force, and catalog-wide coverage.
+
+### Why
+
+- `grok-4.7` ids matched neither the 4.5 nor the 4.6 matcher, so the model silently fell through to the untuned dynamic prompt.
+
+### Why an extension could not handle it
+
+- Preset registration is this builtin's own dispatch table.
+
+### Expected merge conflict zones
+
+- LOW: `presets.ts` branch order and `settings.ts` preset list on upstream syncs.
+
 ## 2026-09-21 - Route file edits through active tools (#1891)
 
 ### What changed
