@@ -4,6 +4,7 @@ import {
 	LEGACY_PROVIDER_IDS,
 	normalizeModelRef,
 	normalizeProviderId,
+	readByProviderId,
 	type Transport,
 } from "@earendil-works/pi-ai";
 import { SENPI_DEFAULT_RETRY_PROFILE } from "@earendil-works/pi-ai/utils/retry-profile/profiles";
@@ -890,7 +891,11 @@ export class SettingsManager {
 	}
 
 	getProviderConcurrencyLimit(providerId: string): number {
-		const value = this.settings.providers?.[providerId]?.maxConcurrency;
+		// Read boundary (senpi#1989): a `providers` block written by an earlier
+		// version is keyed by the legacy provider id, so try the canonical key
+		// first and then the legacy spelling instead of silently detaching the
+		// user's configured limit.
+		const value = readByProviderId(this.settings.providers, providerId)?.maxConcurrency;
 		return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : Infinity;
 	}
 

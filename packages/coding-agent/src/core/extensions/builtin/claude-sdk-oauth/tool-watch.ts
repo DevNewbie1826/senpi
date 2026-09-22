@@ -8,6 +8,7 @@ import type {
 	SessionTreeEvent,
 	ToolExecutionEndEvent,
 } from "../../types.ts";
+import { normalizeProviderId } from "@earendil-works/pi-ai";
 import { mapPiToolNameToSdk } from "./tools.ts";
 
 export const TOOL_WATCH_CUSTOM_TYPE = "claude-sdk-oauth-tool-watch";
@@ -193,7 +194,10 @@ export function registerToolWatch(
 		watch.deleteSession(watch.sessionKey(ctx.sessionManager.getSessionId()));
 	});
 	pi.on("tool_execution_end", (event: ToolExecutionEndEvent, ctx) => {
-		if (ctx.model?.provider !== PROVIDER_ID) return;
+		// Read boundary (senpi#1989): a session resumed from an earlier version
+		// still carries the legacy provider id on its model, so normalize before
+		// comparing. TOOL_WATCH_CUSTOM_TYPE above is a persisted token and stays.
+		if (normalizeProviderId(ctx.model?.provider ?? "") !== PROVIDER_ID) return;
 		const execution: ToolWatchEntry = {
 			type: "tool_execution_end",
 			toolCallId: event.toolCallId,

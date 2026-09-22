@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readByProviderId } from "@earendil-works/pi-ai";
 import { getModels } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../../../../config.ts";
 import { FileAuthStorageBackend } from "../../../auth-storage.ts";
@@ -39,7 +40,12 @@ function readStoredCredential(providerId: string): ClaudeSdkOauthCredential | un
 	if (!existsSync(authPath)) return undefined;
 	try {
 		const data = JSON.parse(readFileSync(authPath, "utf8")) as Record<string, ClaudeSdkOauthCredential>;
-		return data[providerId];
+		// Read boundary (senpi#1989): this raw read bypasses AuthStorage, so it
+		// never sees the auth.json key migration. An auth.json still keyed by the
+		// legacy provider id would report the lane logged out with no error at
+		// all, so try the canonical key first and then the legacy spelling.
+		// `anthropic` is untouched by the rename and still resolves exactly.
+		return readByProviderId(data, providerId);
 	} catch {
 		return undefined;
 	}
