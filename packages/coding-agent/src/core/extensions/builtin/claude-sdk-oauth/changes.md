@@ -3,6 +3,7 @@
 ### What changed
 
 - `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/session-binding.ts`: `bindingFromStoredBranch` now admits an append-only tail after the committed assistant through a new `isAppendOnlyTailEntry` predicate - the existing ledger-only set, plus `custom_message` entries and `message` entries whose role is `user` or `toolResult`. A later assistant message, and every check around this one, still fail closed.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/session-reattach.ts`: `verifyRestoredTranscript` now also requires that NO top-level `user` frame follows the anchored assistant in the SDK transcript. Admitting the append-only tail alone would have been unsafe: a process that dies between pushing a turn and committing its assistant leaves that user frame in Claude Code's transcript while the ledger still anchors the previous assistant, so a plain resume from the anchor would send it a SECOND time. The in-memory retry checkpoint that forks past such an orphan (`unansweredTurnDigest`, senpi#723) is never persisted, so the restart path has no equivalent and fails closed instead. Only the orphan COUNT is logged (`claude_sdk_oauth_restored_transcript_orphan_tail`), never content; `session-observability.ts` gained `logContinuityEvent` so this module writes through the same boundary tests already override. Forking at the anchor instead of cold-seeding is the deferred half and belongs to senpi#1973.
 - `packages/coding-agent/test/claude-sdk-oauth-binding-anchor.test.ts`: two assertions were REALIGNED, not deleted. "rejects a later user message after the committed assistant" and "rejects a model-visible custom message after the committed assistant" now expect a binding, with the reason recorded inline; new cases cover a later tool result, the terminal startup notice that triggered the report, and a later assistant message that must still reject.
 
 ### Why
@@ -15,6 +16,8 @@
 ### Expected merge conflict zones
 
 - LOW: the predicate block near `isLedgerOnlyEntry` and the single guard line in `bindingFromStoredBranch`.
+- LOW: the anchor-index block in `verifyRestoredTranscript` and the new `logContinuityEvent` export in `session-observability.ts`.
+- MEDIUM: `test/suite/regressions/7925-claude-sdk-oauth-restart-binding-ledger-entries.test.ts`, whose model-visible table was split into an append-only table and a retiring table.
 - MEDIUM: `claude-sdk-oauth-binding-anchor.test.ts`, whose two flipped assertions will conflict with any upstream edit to the same cases.
 
 ## 2026-09-22 - A rejected fork point is dropped, not republished (senpi#1958)
