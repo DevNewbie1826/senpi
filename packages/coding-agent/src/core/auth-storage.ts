@@ -16,7 +16,7 @@ import type {
 	OAuthCredential,
 	OAuthLoginCallbacks,
 } from "@earendil-works/pi-ai";
-import { findEnvKeys, getEnvApiKey } from "@earendil-works/pi-ai";
+import { findEnvKeys, getEnvApiKey, readByProviderId } from "@earendil-works/pi-ai";
 import {
 	appendLoginSlot,
 	type CredentialSlot,
@@ -347,7 +347,11 @@ export class ReadOnlyAuthStorage implements CredentialStore {
 
 	async read(providerId: string, options?: AuthOperationOptions): Promise<Credential | undefined> {
 		options?.signal?.throwIfAborted();
-		const credential = this.load()[providerId];
+		// Read boundary (senpi#1989): an auth.json written by an earlier version is
+		// keyed by the legacy provider id. Try the canonical key first, then the
+		// legacy spelling, so a credential is never reported missing after the
+		// rename. Nothing is rewritten here.
+		const credential = readByProviderId(this.load(), providerId);
 		options?.signal?.throwIfAborted();
 		if (!credential) return undefined;
 		if (credential.type !== "api_key" || !credential.key || isCommandConfigValue(credential.key)) {
@@ -549,11 +553,11 @@ export class AuthStorage implements CredentialStore {
 	}
 
 	get(provider: string): Credential | undefined {
-		return this.data[provider];
+		return readByProviderId(this.data, provider);
 	}
 
 	getProviderEnv(provider: string): Record<string, string> | undefined {
-		const credential = this.data[provider];
+		const credential = readByProviderId(this.data, provider);
 		return credential?.type === "api_key" && credential.env ? { ...credential.env } : undefined;
 	}
 
@@ -577,7 +581,7 @@ export class AuthStorage implements CredentialStore {
 	}
 
 	listSlots(provider: string): CredentialSlot[] {
-		return listSlots(this.data[provider] as PooledCredential | undefined);
+		return listSlots(readByProviderId(this.data, provider) as PooledCredential | undefined);
 	}
 
 	setSlot(provider: string, slot: CredentialSlot): void {
@@ -861,7 +865,8 @@ export function readStoredCredential(
 ): Credential | undefined {
 	try {
 		const data = JSON.parse(stripBom(readFileSync(normalizePath(authPath), "utf-8"))) as AuthStorageData;
-		return data[providerId];
+		// Read boundary (senpi#1989): try canonical, then the legacy spelling.
+		return readByProviderId(data, providerId);
 	} catch {
 		return undefined;
 	}
