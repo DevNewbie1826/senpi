@@ -11,7 +11,7 @@
 
 - `logRenderErrorOnce()` is reached from `Container.render()`, which has no TUI instance, so the path was hardcoded from `os.homedir()`. Hosts already pass a resolved agent directory (`logDirectory`), and `pi-debug.log` already honours it; only the render-error diagnostic did not.
 - Under a non-default brand the resolved agent directory is not `~/.senpi/agent`, so the only record of a component that throws every frame landed in a directory the operator never reads.
-- Suites that quarantine the agent directory but not `HOME` therefore appended to the developer's real `~/.senpi/agent/senpi-debug.log`; a single run of the coding-agent progressive-transcript suite was measured growing that file from 19,650 to 19,744 bytes.
+- Suites that quarantine the agent directory but not `HOME` append to the developer's real `~/.senpi/agent/senpi-debug.log`; a single run of the coding-agent progressive-transcript suite was measured growing that file from 19,650 to 19,744 bytes. That leak is what led here, but it is **not** fixed by this change: that suite renders a container directly and never constructs a `TuiBase`, so no host directory is published and the fallback still resolves from `HOME`. Re-measured with this change applied, the same run still grew the file (19,744 -> 19,838). Closing it belongs to the coding-agent test setup, which must quarantine `HOME` the way it already quarantines the agent directory.
 
 ### Why an extension could not handle it
 
