@@ -162,13 +162,23 @@ describe("fallback chain selectors", () => {
 		expect(resolved.chains["*"]).toBeUndefined();
 	});
 
-	it("ships the fable family an opus-only ladder", () => {
-		const ladder = ["claude-opus-5:max", "claude-opus-4-8:max", "claude-opus-4-6:max"];
+	it("ships the fable family an opus-only ladder led by Opus 5.5 at max", () => {
+		const ladder = ["claude-opus-5-5:max", "claude-opus-5:max", "claude-opus-4-8:max", "claude-opus-4-6:max"];
 		const resolved = resolveRetryFallbackSettings(undefined);
 
 		expect(resolved.chains["claude-fable-5-1"]).toEqual(ladder);
 		expect(resolved.chains["claude-fable-5"]).toEqual(ladder);
 		expect(resolved.modelFallback).toBe(true);
+	});
+
+	it("ships Opus 5.5 its own same-family step-down ladder", () => {
+		const resolved = resolveRetryFallbackSettings(undefined);
+
+		expect(resolved.chains["claude-opus-5-5"]).toEqual([
+			"claude-opus-5:max",
+			"claude-opus-4-8:max",
+			"claude-opus-4-6:max",
+		]);
 	});
 
 	it("keeps every shipped rung inside the anthropic opus family", () => {

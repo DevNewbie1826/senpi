@@ -43,9 +43,10 @@ export interface ResolvedRetryFallbackSettings {
  * wildcard lane.
  */
 export const DEFAULT_FALLBACK_CHAINS: FallbackChains = {
-	// Every rung is `:max` because `claude-opus-4-6` publishes only that thinking level.
-	"claude-fable-5-1": ["claude-opus-5:max", "claude-opus-4-8:max", "claude-opus-4-6:max"],
-	"claude-fable-5": ["claude-opus-5:max", "claude-opus-4-8:max", "claude-opus-4-6:max"],
+	// Every rung is `:max`: Opus 5.5 is recommended at max, and `claude-opus-4-6` publishes only that thinking level.
+	"claude-fable-5-1": ["claude-opus-5-5:max", "claude-opus-5:max", "claude-opus-4-8:max", "claude-opus-4-6:max"],
+	"claude-fable-5": ["claude-opus-5-5:max", "claude-opus-5:max", "claude-opus-4-8:max", "claude-opus-4-6:max"],
+	"claude-opus-5-5": ["claude-opus-5:max", "claude-opus-4-8:max", "claude-opus-4-6:max"],
 };
 
 function cloneDefaultFallbackChains(): Record<string, readonly string[]> {
