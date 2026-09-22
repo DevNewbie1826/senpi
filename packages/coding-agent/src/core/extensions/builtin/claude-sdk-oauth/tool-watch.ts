@@ -1,4 +1,5 @@
 import type { Context } from "@earendil-works/pi-ai";
+import { normalizeProviderId } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "../../../session-manager.ts";
 import type {
 	ExtensionAPI,
@@ -8,7 +9,6 @@ import type {
 	SessionTreeEvent,
 	ToolExecutionEndEvent,
 } from "../../types.ts";
-import { normalizeProviderId } from "@earendil-works/pi-ai";
 import { mapPiToolNameToSdk } from "./tools.ts";
 
 export const TOOL_WATCH_CUSTOM_TYPE = "claude-sdk-oauth-tool-watch";

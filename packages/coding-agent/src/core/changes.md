@@ -1,3 +1,29 @@
+## 2026-09-22 - normalize legacy provider ids at core read boundaries (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/auth-storage.ts`: every provider-keyed credential read (`read`, `get`, `getProviderEnv`, slot listing, and the standalone `readStoredCredential`) tries the canonical key and then the legacy spelling.
+- `packages/coding-agent/src/core/settings-manager.ts`: `getProviderConcurrencyLimit` reads `Settings.providers` through the same fallback; `migrateSettings` does not rewrite that block.
+- `packages/coding-agent/src/core/session-manager.ts`: all three model-restore paths (explicit `model_change`, the fallback window's `originalProvider`, the assistant-message echo) normalize on read, as does the explicit-selection comparison.
+- `packages/coding-agent/src/core/credential-accounts.ts`: the three subscription-lane comparisons compare normalized ids.
+- `packages/coding-agent/src/core/credential-pool/env-slots.ts`: `primaryEnvVar` compares normalized; `CLAUDE_CODE_OAUTH_TOKEN` is a frozen env-var name and is unchanged.
+- `packages/coding-agent/src/core/model-config.ts`: `models.json` overlay keys and `disabledProviders` are normalized on read, an explicit canonical entry wins over a legacy one, and the config carries non-fatal warnings with exactly ONE naming every id that moved.
+- `packages/coding-agent/src/core/model-runtime.ts`: `recomposeProvider` composes under the canonical id, and `getWarnings` surfaces the models.json notices.
+
+### Why
+
+A user upgrading across the rename has the LEGACY provider id written into auth.json, settings.json, models.json and their session files. Without these read boundaries each one detaches silently: credentials report the lane logged out, a configured `maxConcurrency` stops applying, a models.json overlay stops attaching, and an old session resumes on an unknown provider. Nothing here rewrites state - these are read-side fallbacks only.
+
+### Why an extension could not handle it
+
+All of these run inside core credential, settings, session and model-runtime plumbing, before and beneath the extension API.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/auth-storage.ts` accessor bodies.
+- `packages/coding-agent/src/core/session-manager.ts` the model-restore branches in `getSessionContextSettings`.
+- `packages/coding-agent/src/core/model-config.ts` the `parse` provider loop and the constructor signature (a warnings argument was added).
+
 ## 2026-09-22 - settings.json provider-key migration (senpi#1989)
 
 ### What changed

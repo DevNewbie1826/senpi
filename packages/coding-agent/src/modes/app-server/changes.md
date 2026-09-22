@@ -1,3 +1,21 @@
+## 2026-09-22 - normalize legacy provider ids on account payloads (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/modes/app-server/server/account.ts`: `requiredProvider` normalizes the client-supplied provider id, covering the get / pin / remove account methods at their single entry point.
+
+### Why
+
+An older client (a pinned desktop runtime, a stale RPC caller) still sends the LEGACY provider id in its account payloads. That is inbound state written by an earlier version, not a legacy id typed by the user, so it is normalized rather than rejected.
+
+### Why an extension could not handle it
+
+The app-server parses and validates params before any extension sees the request.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/app-server/server/account.ts` `requiredProvider`, against any other param-validation change.
+
 # changes
 
 ## 2026-09-17 - Keep a thread's MCP inventory current after deferred attach (senpi#1781)

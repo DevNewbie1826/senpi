@@ -1,3 +1,21 @@
+## 2026-09-22 - surface models.json provider-rename warnings (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`: renders `modelRuntime.getWarnings()` through `showWarning` at startup, beside the existing models.json error line.
+
+### Why
+
+A models.json written with the legacy provider ids still works (the keys are normalized on read), so it is NOT a load failure and must not use the models.json ERROR channel. The user still needs to be told once which ids moved so they can update the file.
+
+### Why an extension could not handle it
+
+Startup diagnostics are rendered by interactive mode itself; an extension cannot add a line to that startup sequence.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` the startup diagnostics block around the models.json error render.
+
 ## 2026-09-21 - Transcript explains transport drops and never renders the replay marker (senpi#1628)
 
 ### What changed
