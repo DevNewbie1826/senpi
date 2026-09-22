@@ -1,3 +1,23 @@
+## 2026-09-22 - normalize legacy provider ids in the lane's raw reads (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/index.ts`: `readStoredCredential` reads auth.json through the canonical key and then the legacy spelling.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/tool-watch.ts`: the provider comparison normalizes `ctx.model?.provider` before comparing.
+
+### Why
+
+The lane's auth.json read BYPASSES AuthStorage entirely (a raw `readFileSync` with a swallow-all `catch`), so it never observes the auth.json key migration; a miss there reports the lane logged out with no error at all. tool-watch compares against a session model that, for a session resumed from an earlier version, still carries the legacy id. The adjacent `TOOL_WATCH_CUSTOM_TYPE` is a persisted token and stays byte-identical.
+
+### Why an extension could not handle it
+
+This IS the provider extension's own code; the raw read runs inside its oauth config before any other extension observes it.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/index.ts` `readStoredCredential`.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/tool-watch.ts` the constant block and the `tool_execution_end` guard.
+
 ## 2026-09-22 - read the renamed provider settings block (senpi#1989)
 
 ### What changed

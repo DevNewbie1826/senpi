@@ -30,6 +30,7 @@ import {
 	type ModelsSimpleStreamOptions,
 	type ModelsStore,
 	type MutableModels,
+	normalizeProviderId,
 	type Provider,
 	type ProviderHeaders,
 	type ProviderRequestOptions,
@@ -356,7 +357,11 @@ export class ModelRuntime implements Models {
 		]);
 	}
 
-	private recomposeProvider(providerId: string): void {
+	private recomposeProvider(rawProviderId: string): void {
+		// Read boundary (senpi#1989): compose under the canonical id so a legacy id
+		// reaching this path (an extension registration, a stored overlay key) lands
+		// on the same provider instead of composing a second, empty one.
+		const providerId = normalizeProviderId(rawProviderId);
 		if (this.config.isProviderDisabled(providerId)) {
 			this.models.deleteProvider(providerId);
 			this.compositionErrors.delete(providerId);
@@ -547,6 +552,11 @@ export class ModelRuntime implements Models {
 
 	hasAvailabilitySnapshot(): boolean {
 		return this.availabilityInitialized;
+	}
+
+	/** Non-fatal models.json notices (e.g. renamed provider ids), rendered as warnings. */
+	getWarnings(): readonly string[] {
+		return this.config.getWarnings();
 	}
 
 	getError(): string | undefined {

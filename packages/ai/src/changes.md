@@ -1,3 +1,21 @@
+## 2026-09-22 - legacy provider id read helpers (senpi#1989)
+
+### What changed
+
+- `packages/ai/src/legacy-provider-ids.ts`: adds `legacyProviderIdsFor` (canonical id -> its legacy spellings) and `readByProviderId`, which reads a provider-keyed record by trying the canonical key first and then every legacy spelling that normalizes to it. Never throws and never rewrites.
+
+### Why
+
+Todo 8 normalizes the legacy provider id at every READ boundary. Each boundary needs the same "try canonical, then legacy" lookup, and a second copy of that map in each caller would drift. Providers that were never renamed (`anthropic`, `openai`) return no legacy spelling, so they resolve exactly and the subscription lane can never inherit the metered lane's state.
+
+### Why an extension could not handle it
+
+These helpers are consumed by core credential, settings, session and model-config code that runs before extensions load.
+
+### Expected merge conflict zones
+
+- `packages/ai/src/legacy-provider-ids.ts`, against any other addition to the legacy-id surface.
+
 ## 2026-09-22 - claude-sdk-oauth renamed to anthropic-subscription: the pooled-credential sentinel matcher stays legacy-aware (senpi#1989)
 
 ### What changed

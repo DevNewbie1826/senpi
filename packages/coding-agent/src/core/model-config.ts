@@ -2,6 +2,7 @@
 
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { normalizeProviderId } from "@earendil-works/pi-ai";
 import type { TLocalizedValidationError } from "typebox/error";
 import { stripJsonComments } from "../utils/json.ts";
 import { normalizePath } from "../utils/paths.ts";
@@ -456,15 +457,18 @@ export class ModelConfig {
 	private readonly providers: ReadonlyMap<string, ModelsJsonProvider>;
 	private readonly disabledProviders: ReadonlySet<string>;
 	private readonly error: string | undefined;
+	private readonly warnings: readonly string[];
 
 	private constructor(
 		providers: ReadonlyMap<string, ModelsJsonProvider>,
 		disabledProviders: ReadonlySet<string> = new Set(),
 		error?: string,
+		warnings: readonly string[] = [],
 	) {
 		this.providers = providers;
 		this.disabledProviders = disabledProviders;
 		this.error = error;
+		this.warnings = warnings;
 	}
 
 	private static parse(content: string, path: string): ModelConfig {
@@ -522,10 +526,26 @@ export class ModelConfig {
 
 		const config = parsed as ModelsJson;
 		const providers = new Map<string, ModelsJsonProvider>();
+		// Read boundary (senpi#1989): a models.json written before the rename keys
+		// its overlay by the legacy provider id. Normalize the key so the overlay
+		// still attaches, and tell the user ONCE which ids moved. The file itself is
+		// never rewritten.
+		const renamed: string[] = [];
 		for (const [providerId, provider] of Object.entries(config.providers)) {
-			providers.set(providerId, deepFreeze(structuredClone(provider)));
+			const canonical = normalizeProviderId(providerId);
+			if (canonical !== providerId) renamed.push(`${providerId} -> ${canonical}`);
+			// An explicit canonical entry wins over a legacy one that normalizes onto it.
+			if (canonical !== providerId && providers.has(canonical)) continue;
+			providers.set(canonical, deepFreeze(structuredClone(provider)));
 		}
-		return new ModelConfig(providers, new Set(config.disabledProviders ?? []));
+		const disabled = new Set((config.disabledProviders ?? []).map((id) => normalizeProviderId(id)));
+		const warnings =
+			renamed.length > 0
+				? [
+						`models.json uses renamed provider ids (${renamed.join(", ")}). They still work, but update the file to the new ids.`,
+					]
+				: [];
+		return new ModelConfig(providers, disabled, undefined, warnings);
 	}
 
 	static async load(modelsJsonPath: string | undefined): Promise<ModelConfig> {
@@ -574,5 +594,10 @@ export class ModelConfig {
 
 	getError(): string | undefined {
 		return this.error;
+	}
+
+	/** Non-fatal notices raised while reading models.json (e.g. renamed provider ids). */
+	getWarnings(): readonly string[] {
+		return this.warnings;
 	}
 }

@@ -78,7 +78,11 @@ interface FakeSession {
 	prompt: MockFn;
 	reserveQueuedInputOrder: MockFn;
 	extensionRunner: { getCommand: (name: string) => unknown };
-	modelRuntime: { getError: () => string | undefined; refresh: () => Promise<unknown> };
+	modelRuntime: {
+		getError: () => string | undefined;
+		getWarnings: () => readonly string[];
+		refresh: () => Promise<unknown>;
+	};
 	fallbackValidationWarnings: readonly string[];
 }
 
@@ -197,7 +201,11 @@ function createModeContext(): ModeContext {
 		prompt: vi.fn(async () => {}),
 		reserveQueuedInputOrder: vi.fn(() => 0),
 		extensionRunner: { getCommand: vi.fn(() => undefined) },
-		modelRuntime: { getError: vi.fn(() => undefined), refresh: vi.fn(async () => undefined) },
+		modelRuntime: {
+			getError: vi.fn(() => undefined),
+			getWarnings: vi.fn(() => []),
+			refresh: vi.fn(async () => undefined),
+		},
 		fallbackValidationWarnings: [],
 	};
 	const context: ModeContext = Object.assign(

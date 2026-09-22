@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Message, TextContent, ThinkingSelection, Usage } from "@earendil-works/pi-ai";
+import { normalizeProviderId } from "@earendil-works/pi-ai";
 import { randomBytes, randomUUID } from "crypto";
 import {
 	appendFileSync,
@@ -498,7 +499,10 @@ function getSessionContextSettings(
 					preFallbackThinkingLevel = thinkingLevel;
 					preFallbackThinkingSelection = thinkingSelection;
 					if (entry.originalProvider && entry.originalModelId) {
-						model = { provider: entry.originalProvider, modelId: entry.originalModelId };
+						// Read boundary (senpi#1989): a session recorded by an earlier
+						// version carries the legacy provider id, so normalize on read.
+						// No rewrite is added here.
+						model = { provider: normalizeProviderId(entry.originalProvider), modelId: entry.originalModelId };
 						isModelSelectionExplicit = true;
 					}
 				}
@@ -517,13 +521,13 @@ function getSessionContextSettings(
 				// model id must not become an authoritative selection; the fallback-original restore
 				// above guards the same way, and a later assistant message still restores the model.
 				if (entry.provider && entry.modelId) {
-					model = { provider: entry.provider, modelId: entry.modelId };
+					model = { provider: normalizeProviderId(entry.provider), modelId: entry.modelId };
 					isModelSelectionExplicit = true;
 				}
 			}
 		} else if (entry.type === "message" && entry.message.role === "assistant" && !isInFallbackWindow) {
-			if (isModelSelectionExplicit && model?.provider === entry.message.provider) continue;
-			model = { provider: entry.message.provider, modelId: entry.message.model };
+			if (isModelSelectionExplicit && model?.provider === normalizeProviderId(entry.message.provider)) continue;
+			model = { provider: normalizeProviderId(entry.message.provider), modelId: entry.message.model };
 			isModelSelectionExplicit = false;
 		}
 	}

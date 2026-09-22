@@ -1807,6 +1807,10 @@ export class InteractiveMode {
 			this.showError(`models.json error: ${modelsJsonError}`);
 		}
 
+		for (const warning of this.session.modelRuntime.getWarnings()) {
+			this.showWarning(warning);
+		}
+
 		if (modelFallbackMessage) {
 			this.showWarning(modelFallbackMessage);
 		}

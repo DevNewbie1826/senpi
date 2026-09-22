@@ -66,7 +66,11 @@ type RunContext = {
 	version: string;
 	options: Record<string, never>;
 	session: {
-		modelRuntime: { getError: () => string | undefined; refresh: () => Promise<void> };
+		modelRuntime: {
+			getError: () => string | undefined;
+			getWarnings: () => readonly string[];
+			refresh: () => Promise<void>;
+		};
 		fallbackValidationWarnings: readonly string[];
 		prompt: (text: string, options?: unknown) => Promise<void>;
 	};
@@ -250,7 +254,11 @@ describe("InteractiveMode startup input", () => {
 			version: "test",
 			options: {},
 			session: {
-				modelRuntime: { getError: vi.fn(() => undefined), refresh: vi.fn(async () => undefined) },
+				modelRuntime: {
+					getError: vi.fn(() => undefined),
+					getWarnings: vi.fn(() => []),
+					refresh: vi.fn(async () => undefined),
+				},
 				fallbackValidationWarnings: [],
 				prompt,
 			},
