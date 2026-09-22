@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Render-error diagnostics are written to the log directory the host supplies instead of a hardcoded `~/.senpi/agent`, so they stay with the operator's other logs under any brand and a test run no longer appends to the developer's real home directory ([#2001](https://github.com/code-yeongyu/senpi/pull/2001)).
+
 ### Removed
 
 ## [2026.9.22] - 2026-09-21
