@@ -279,6 +279,7 @@ const EAGER_TOOL_INPUT_STREAMING_UNSUPPORTED_ANTHROPIC_MODELS = new Set([
 const ANTHROPIC_ALLOWED_FALLBACK_MODELS = {
 	"claude-fable-5-1": ["claude-opus-4-8", "claude-opus-5"],
 	"claude-fable-5": ["claude-opus-4-8", "claude-opus-5"],
+	"claude-opus-5-5": ["claude-opus-4-8", "claude-opus-5"],
 	"claude-opus-5": ["claude-opus-4-8"],
 } satisfies Record<string, string[]>;
 
@@ -387,7 +388,7 @@ const ANT_LING_RING_THINKING_LEVEL_MAP = {
 	xhigh: "xhigh",
 } as const;
 
-const BEDROCK_INFERENCE_PROFILE_ONLY_MODEL_IDS = new Set(["anthropic.claude-opus-5"]);
+const BEDROCK_INFERENCE_PROFILE_ONLY_MODEL_IDS = new Set(["anthropic.claude-opus-5", "anthropic.claude-opus-5-5"]);
 const MODELS_DEV_OPENAI_UNSUPPORTED_MODEL_IDS = new Set(["gpt-5.6"]);
 const OPENAI_TOOL_SEARCH_MODEL_IDS = new Set([
 	"gpt-5.4",
@@ -709,9 +710,15 @@ const VERIFIED_ANTHROPIC_MID_CONVO_EFFORT_PROVIDERS = new Set(["anthropic", "ope
 function supportsAnthropicMidConvoEffort(modelId: string): boolean {
 	const id = modelId.toLowerCase().replace(/^~?anthropic\//, "");
 	return (
-		/^claude-opus-5(?:-\d{8})?$/.test(id) ||
+		/^claude-opus-5(?:[.-]5)?(?:-\d{8})?$/.test(id) ||
 		/^claude-(?:fable|mythos)-5(?:[.-]1)(?:-\d{8})?$/.test(id)
 	);
+}
+
+// Opus 5.5 rejects `thinking: {type: "disabled"}` and `{type: "enabled"}` alike (400: `"thinking.type.disabled"
+// is not supported for this model`); only adaptive thinking is accepted.
+function isAnthropicAdaptiveOnlyModel(modelId: string): boolean {
+	return modelId.includes("fable-5") || modelId.includes("opus-5-5") || modelId.includes("opus-5.5");
 }
 
 function isAnthropicAdaptiveThinkingModel(modelId: string): boolean {
@@ -1130,11 +1137,11 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	) {
 		mergeThinkingLevelMap(model, { xhigh: "xhigh", max: "max" });
 	}
-	if (model.id.includes("fable-5")) {
+	if (isAnthropicAdaptiveOnlyModel(model.id)) {
 		mergeThinkingLevelMap(model, { xhigh: "xhigh", max: "max" });
 		if (model.api === "anthropic-messages") {
-			// Fable 5 rejects `thinking: {type: "disabled"}` (verified 400: `"thinking.type.disabled"
-			// is not supported for this model`) and defaults to adaptive thinking when the field is
+			// Fable 5 and Opus 5.5 reject `thinking: {type: "disabled"}` (verified 400: `"thinking.type.disabled"
+			// is not supported for this model`) and default to adaptive thinking when the field is
 			// omitted, so the Messages provider pins the cheapest effort for a thinking-off turn.
 			// Encoding that as a compat fact instead of `thinkingLevelMap.off: null` keeps `off` a
 			// selectable level while still keeping `thinking.type: "disabled"` off the wire.

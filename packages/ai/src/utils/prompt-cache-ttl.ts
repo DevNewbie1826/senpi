@@ -19,7 +19,11 @@ export function isAnthropicApiBaseUrl(baseUrl: string): boolean {
 	}
 }
 
-const CLAUDE_FABLE_OR_MYTHOS_MODEL_ID = /^claude-(?:fable|mythos)(?:-|$)/i;
+/**
+ * Families that reject forced tool use (`tool_choice` `any` / `tool` return 400): every Fable and
+ * Mythos release, and Claude Opus 5.5 (`claude-opus-5-5`; gateways may spell it `claude-opus-5.5`).
+ */
+const FORCED_TOOL_CHOICE_REJECTING_MODEL_ID = /^claude-(?:(?:fable|mythos)(?:-|$)|opus-5[.-]5(?:[.-]|$))/i;
 
 /**
  * Default for `supportsToolReferences`: first-party Anthropic models except
@@ -60,7 +64,7 @@ export function getAnthropicCompat(
 		supportsTemperature: model.compat?.supportsTemperature ?? true,
 		supportsToolChoice: model.compat?.supportsToolChoice ?? true,
 		supportsForcedToolChoice:
-			model.compat?.supportsForcedToolChoice ?? !CLAUDE_FABLE_OR_MYTHOS_MODEL_ID.test(model.id),
+			model.compat?.supportsForcedToolChoice ?? !FORCED_TOOL_CHOICE_REJECTING_MODEL_ID.test(model.id),
 		allowEmptySignature: model.compat?.allowEmptySignature ?? false,
 		unsignedThinkingReplay:
 			model.compat?.unsignedThinkingReplay ?? (model.compat?.allowEmptySignature ? "empty-signature" : "text"),

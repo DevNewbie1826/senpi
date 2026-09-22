@@ -6,9 +6,15 @@
 
 ### Added
 
+- Claude Opus 5.5 (`claude-opus-5-5`, released 2026-09-22) joins the catalog on Anthropic, Amazon Bedrock (global/us/eu/jp/au inference profiles), OpenRouter and Vercel AI Gateway: 1M context, 128k output, \$4/\$20 per 1M tokens with \$0.20 cache reads, `xhigh` and `max` effort, and `claude-opus-5` as its server-side refusal fallback.
+
 ### Changed
 
 ### Fixed
+
+- Claude Opus 5.5 is usable on the release that first exposed it. 2026.9.22-3 shipped a partial catalog row for `claude-opus-5-5`, so selecting the model and turning thinking off sent `thinking: {type: "disabled"}` and the request failed with a 400; per-message effort and the server-side refusal fallback were missing too, Amazon Bedrock listed the bare `anthropic.claude-opus-5-5` id that is reachable only through an inference profile, and no prompt preset matched the model, so it ran on the generic system prompt. The row now carries the full set, Bedrock lists only the five profiles, and the model has its own preset.
+
+- Requests to Claude Opus 5.5 never carry `thinking: {type: "disabled"}` or a forced `tool_choice` (`any` / a named tool). Opus 5.5 rejects both with a 400 where Opus 5 accepted them, so a thinking-off turn now pins effort `low` and a forced-tool turn sends `tool_choice` omitted, on the Anthropic Messages and Bedrock providers alike, including gateway rows that carry no catalog metadata.
 
 ### Removed
 

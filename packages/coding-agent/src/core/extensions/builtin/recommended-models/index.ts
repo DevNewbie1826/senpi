@@ -17,7 +17,7 @@ export const RECOMMENDED_DEFAULT_MODELS = [
 	["gpt-6-astra", "high"],
 	["gpt-5.6-sol", "medium"],
 	["claude-fable-5-1", "high"],
-	["claude-opus-5", "xhigh"],
+	["claude-opus-5-5", "max"],
 	["glm-5.2", "max"],
 ] as const satisfies ReadonlyArray<readonly [string, ThinkingLevel]>;
 

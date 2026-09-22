@@ -1,5 +1,30 @@
 # prompt-preset Extension Changes
 
+## 2026-09-22 - Claude Opus 5.5 preset
+
+### What changed
+
+- `claude-opus-5-5.ts`: new full-core preset via `corePrompt`. Anthropic's "Prompting Claude Opus 5.5" guide says Opus 5 prompts carry over, so the text is the dieted `claude-opus-5` core with the guide's coding-agent deltas applied at one home each (prompt-engineering A/B/C pass, nothing appended without replacing something):
+  - Style: the guide's "Unattended agentic runs" section documents that 5.5 ends turns with text while work is still owed - a summary that announces the next step, an offer to continue unless told otherwise, a list of non-blocking decisions, or a milestone report - and that it responds to instructions naming those stops plus the stops that are wanted. The Opus 5 "check your last paragraph" sentence covered only the first and is replaced by a paragraph naming all four and the two legitimate stops (destructive action, user-only input), with status notes riding on the next tool call.
+  - Working the Task: "Explore context in multi-app workflows" (look through the sources that could bear on a loosely specified task before changing anything) folded into the existing read-wide sentence; the Opus 5 delegation-cap paragraph reframed around "Time signals for multi-agent harnesses" (time spent is a cost; hand out only tracks whose parallel run finishes the task sooner).
+  - Deliberately absent: think-carefully / reasoning-in-text lines (thinking is always on; `reasoning_extraction` is a refusal category), thinking-disabled artifact mitigations (thinking cannot be disabled), effort guidance (harness setting), pasted-content tags (user-message contract), frontend anti-pattern lists (project context owns design rules).
+  - Probe (o200k, eval+monitor+task+todo selected, `/tmp/preset-probe-opus55-20260922/probe.ts`): claude-opus-5 1899 -> claude-opus-5-5 2002 tokens; the +103 is the stop-discipline paragraph after a trim pass (2023 before it).
+- `presets.ts`: `isClaudeOpus55Model` (`opus-5-5` / `opus-5.5` markers, so Bedrock profiles, Vertex `@default`, and OpenRouter's dotted id all resolve) checked BEFORE the generic `opus-5` substring, which would otherwise swallow it; `claude-opus-5-5` dispatch case.
+- `settings.ts`: `claude-opus-5-5` joins `PromptPresetName` and `VALID_PRESETS`.
+- Tests: `test/suite/prompt-presets-claude-opus-5-5.test.ts` (id shapes, 5 stays on 5, settings force, catalog sweep), `prompt-presets-claude-opus-5.test.ts` excludes 5.5 from its catalog sweep and negative list, `brand-identity.test.ts` lists the new file and builder.
+
+### Why
+
+- `claude-opus-5-5` ids matched the `opus-5` substring and silently received the Opus 5 prompt, which lacks the turn-ending discipline the 5.5 guide documents as the model's new failure shape in unattended runs.
+
+### Why an extension could not handle it
+
+- Preset matching and the per-model cores live inside this builtin.
+
+### Expected merge conflict zones
+
+- LOW: `presets.ts` matcher block and dispatch switch; `settings.ts` union.
+
 ## 2026-09-22 - Render the File operations block from the active toolset (#1968)
 
 ### What changed

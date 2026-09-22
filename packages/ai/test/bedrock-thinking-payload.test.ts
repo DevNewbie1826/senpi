@@ -345,6 +345,14 @@ describe("Bedrock adaptive thinking-off parity", () => {
 		expect(payload.additionalModelRequestFields?.output_config).toEqual({ effort: "low" });
 	});
 
+	it("pins effort low for Bedrock Claude Opus 5.5 when reasoning is off", async () => {
+		const model = getModel("amazon-bedrock", "global.anthropic.claude-opus-5-5") as Model<"bedrock-converse-stream">;
+		const payload = await capturePayloadWithoutReasoning(model, makeContext());
+
+		expect(payload.additionalModelRequestFields?.thinking).toBeUndefined();
+		expect(payload.additionalModelRequestFields?.output_config).toEqual({ effort: "low" });
+	});
+
 	it("still sends no thinking config for a budget-based Claude when reasoning is off", async () => {
 		const model = getModel(
 			"amazon-bedrock",

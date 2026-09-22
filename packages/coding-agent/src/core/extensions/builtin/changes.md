@@ -1,3 +1,21 @@
+## 2026-09-22 - Claude Opus 5.5 becomes the recommended Opus
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/recommended-models/index.ts`: `RECOMMENDED_DEFAULT_MODELS` carries `["claude-opus-5-5", "max"]` in the slot `["claude-opus-5", "xhigh"]` held (after `claude-fable-5-1`, before `glm-5.2`). Opus 5 stays a selectable model; it is no longer a recommendation.
+
+### Why
+
+Claude Opus 5.5 (2026-09-22) matches or beats Opus 5 at `high` while running at its own `medium`, and the product decision is to run it at `max` wherever Opus 5 ran at `xhigh`. A session that lands on an implicit Anthropic default should therefore pick 5.5 at `max` when it is authenticated.
+
+### Why an extension could not handle it
+
+The shipped priority list is the binary default every session gets without a `settings.recommendedModels` override.
+
+### Expected merge conflict zones
+
+- LOW in `packages/coding-agent/src/core/extensions/builtin/recommended-models/index.ts` around `RECOMMENDED_DEFAULT_MODELS`.
+
 ## 2026-09-22 - chatgpt-subscription provider id in the account and tier extensions (senpi#1989)
 
 ### What changed

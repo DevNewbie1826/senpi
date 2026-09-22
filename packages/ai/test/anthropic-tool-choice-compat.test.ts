@@ -142,6 +142,40 @@ describe("Anthropic tool_choice compatibility", () => {
 		expect(payload.tool_choice).toEqual({ type: "auto" });
 	});
 
+	it("omits forced any tool_choice for Claude Opus 5.5 while preserving tools", async () => {
+		const payload = await capturePayload(getModel("anthropic", "claude-opus-5-5"), "any");
+
+		expect(payload.tools).toHaveLength(1);
+		expect(payload.tool_choice).toBeUndefined();
+	});
+
+	it("omits forced named tool_choice for a gateway Opus 5.5 row with no compat", async () => {
+		const model: Model<"anthropic-messages"> = {
+			...getModel("anthropic", "claude-opus-5-5"),
+			provider: "custom-gateway",
+			compat: undefined,
+		};
+
+		const payload = await capturePayload(model, { type: "tool", name: "get_weather" });
+
+		expect(payload.tools).toHaveLength(1);
+		expect(payload.tool_choice).toBeUndefined();
+	});
+
+	it("keeps auto tool_choice for Claude Opus 5.5", async () => {
+		const payload = await capturePayload(getModel("anthropic", "claude-opus-5-5"), "auto");
+
+		expect(payload.tools).toHaveLength(1);
+		expect(payload.tool_choice).toEqual({ type: "auto" });
+	});
+
+	it("keeps forced named tool_choice for Claude Opus 5", async () => {
+		const payload = await capturePayload(getModel("anthropic", "claude-opus-5"), "any");
+
+		expect(payload.tools).toHaveLength(1);
+		expect(payload.tool_choice).toEqual({ type: "any" });
+	});
+
 	it("keeps forced named tool_choice for Claude Sonnet 4.6", async () => {
 		const payload = await capturePayload(getModel("anthropic", "claude-sonnet-4-6"), {
 			type: "tool",

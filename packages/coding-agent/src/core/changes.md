@@ -1,3 +1,23 @@
+## 2026-09-22 - Claude Opus 5.5 leads the shipped fallback ladders
+
+### What changed
+
+- `packages/coding-agent/src/core/retry-fallback/settings.ts`: `DEFAULT_FALLBACK_CHAINS["claude-fable-5-1"]` and `["claude-fable-5"]` become `["claude-opus-5-5:max", "claude-opus-5:max", "claude-opus-4-8:max", "claude-opus-4-6:max"]`, and a new `"claude-opus-5-5"` key ships `["claude-opus-5:max", "claude-opus-4-8:max", "claude-opus-4-6:max"]`. Every rung stays `:max` (Opus 5.5 is recommended at max; `claude-opus-4-6` publishes only that level).
+- `test/settings-manager-retry-fallback.test.ts` and `test/suite/retry-fallback-chains.test.ts` re-pin the ladders and the shipped key set.
+
+### Why
+
+- Claude Opus 5.5 is the recommended Opus as of 2026-09-22 and runs at `max` wherever Opus 5 ran at `xhigh`. A Fable session that falls back should step down onto it first; an Opus 5.5 session needs its own same-family ladder so a refusal or a 429 does not end the turn with `no_chain`.
+- The ladder still never leaves the Anthropic Opus family (senpi#1860 rationale unchanged).
+
+### Why an extension could not handle it
+
+- Chain resolution runs inside `settings-manager.ts` -> `resolveRetryFallbackSettings` before any extension is bound; no hook contributes fallback chains.
+
+### Expected merge conflict zones
+
+- LOW: the `DEFAULT_FALLBACK_CHAINS` literal in `packages/coding-agent/src/core/retry-fallback/settings.ts`.
+
 ## 2026-09-22 - normalize legacy provider ids at core read boundaries (senpi#1989)
 
 ### What changed
