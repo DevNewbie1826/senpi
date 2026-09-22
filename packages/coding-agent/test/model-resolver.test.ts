@@ -741,7 +741,7 @@ describe("default model selection", () => {
 	});
 
 	test("xai default tracks current model", () => {
-		expect(defaultModelPerProvider.xai).toBe("grok-4.5");
+		expect(defaultModelPerProvider.xai).toBe("grok-4.7");
 	});
 
 	test("qwen token plan individual default tracks current model", () => {
@@ -931,7 +931,7 @@ describe("default model selection", () => {
 		};
 		const custom: Model<"anthropic-messages"> = {
 			...openAiDefault,
-			id: "grok-4.5",
+			id: "grok-4.7",
 			provider: "xai",
 		};
 		const runtime = {
@@ -958,7 +958,7 @@ describe("default model selection", () => {
 			scopedModels: [],
 			isContinuing: false,
 			defaultProvider: "xai",
-			defaultModelId: "grok-4.5",
+			defaultModelId: "grok-4.7",
 			modelRuntime: runtime,
 		});
 		const providerDefault = await findInitialModel({

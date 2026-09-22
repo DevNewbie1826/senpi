@@ -6,6 +6,7 @@
 
 ### Added
 
+- Grok 4.7 is a supported model family: every grok-4.7 id shape (including aggregator ids like `openrouter/x-ai/grok-4.7` and Venice's dashed `grok-4-7`) routes to a prompt preset that reuses the Grok 4.6 system prompt verbatim — Grok 4.7 has no separate prompt tuning yet, so any wording difference would be a defect. `grok-4.7` is also the new `promptPreset` setting value, and the xAI provider default model moves from grok-4.5 to grok-4.7. ([#1990](https://github.com/code-yeongyu/senpi/issues/1990))
 - RPC `open_session` accepts an optional `durableSessionId`, so a client that already owns a stable id for the conversation can create the session under that id instead of mapping to a host-minted one. Advertised as host capability `durable_session_id`; applies to session creation only, since re-opening an existing session file keeps that file's header id. A malformed id is refused with `invalid_session_id` and an id a live session already holds with `session_id_in_use`. ([#1951](https://github.com/code-yeongyu/senpi/issues/1951))
 
 ### Changed
