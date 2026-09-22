@@ -5,6 +5,7 @@
 - `packages/coding-agent/src/modes/rpc/rpc-types.ts`: `open_session` accepts an optional `durableSessionId`. Two new stable error codes, `invalid_session_id` and `session_id_in_use`, join the `RpcErrorCode` union.
 - `packages/coding-agent/src/modes/rpc/custom-capability.ts`: new host capability `durable_session_id`, advertised from `get_protocol_info` by the multi-session router only.
 - `packages/coding-agent/src/modes/rpc/session-registry.ts`: `RpcSessionLaunchProfile.durableSessionId` flows into `SessionManager`. `validateProfile` rejects a malformed id with `invalid_session_id` (reusing `assertValidSessionId`), and `openSession` refuses an id a LIVE session already holds with `session_id_in_use`. That collision scan and the entry's own `durableSessionId` are both taken SYNCHRONOUSLY, before the first await, so two concurrent opens naming one id cannot both pass. Re-opening the SAME path is exempt: that is an attach, and the id is the file's own.
+- `packages/coding-agent/src/modes/rpc/rpc-mode.ts`: the D1 normative table lists `durableSessionId` among `open_session`'s params, the stable error-code list gains `invalid_session_id` and `session_id_in_use`, and the D6 identity notes explain why the field is not named `sessionId` and why it applies to create only.
 - `packages/coding-agent/src/core/session-manager.ts`: `SessionManager.open` takes `NewSessionOptions`, and the private constructor forwards them into `_setSessionFile`, which applies them at both `_resetToNewSession` call sites - the missing-file branch and the empty-file branch. An existing, non-empty session file never reaches either, which is what makes a supplied id unable to overwrite a header id.
 
 ### Why
@@ -16,6 +17,13 @@
 ### Why an extension could not handle it
 
 - The field is part of the `open_session` wire contract, its validation runs inside the session registry before any runtime exists, and the collision guard needs the registry's view of every live session. No extension surface reaches any of those.
+
+### Expected merge conflict zones
+
+- `rpc-types.ts`: the `open_session` union member and the `RpcErrorCode` union both grow by additive lines; upstream edits to either list land in the same place.
+- `session-command-router.ts`: the `get_protocol_info` capability set and the `openSession` profile literal each gain one entry.
+- `session-registry.ts`: the prologue of `openSession` gains the synchronous collision guard directly above the path-reservation block, and `RpcSessionRegistryError`'s code union grows.
+- `session-manager.ts`: `static open`'s signature and the `_setSessionFile` call in the private constructor; any upstream change to either signature conflicts textually.
 
 ## 2026-09-21 - Start a generation beside a stranded foreign one (#1936)
 

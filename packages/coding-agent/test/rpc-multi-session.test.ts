@@ -58,6 +58,7 @@ describe("multi-session RPC routing", () => {
 					"session_context",
 					"session_kind",
 					"auto_title_per_session",
+					"durable_session_id",
 				],
 				mode: "multi",
 				// Host identity (`protocol-identity.ts`): the instance is this process, the

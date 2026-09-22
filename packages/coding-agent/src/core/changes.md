@@ -1,5 +1,25 @@
 # changes
 
+## 2026-09-22 - SessionManager.open can create under a caller-chosen id (senpi#1951)
+
+### What changed
+
+- `packages/coding-agent/src/core/session-manager.ts`: `static open(path, sessionDir?, cwdOverride?, options?)` now accepts `NewSessionOptions`, and the private constructor forwards them into `_setSessionFile`, which applies them at BOTH `_resetToNewSession` call sites: the branch where the path does not exist yet and the branch where the file exists but is empty. Opening an existing, non-empty session file reaches neither branch, so the header's id stays authoritative exactly as before. `SessionManager.create` already took the same options; this closes the asymmetry between the two constructors.
+
+### Why
+
+- The RPC host gained `open_session.durableSessionId`, which lets a caller that already owns a stable record id for the conversation create the session under that id instead of maintaining a second identity and a mapping. That value has to reach `_resetToNewSession`, and for the callers that matter it could not: a client naming its own session file always lands in `open`, not `create`, and with a not-yet-existing path `_setSessionFile` fell through to `_resetToNewSession()` with no options and minted a fresh uuidv7. The supplied id would have been silently dropped on precisely the path every real embedder uses.
+
+### Why an extension could not handle it
+
+- Session identity is assigned inside `SessionManager` before any extension is loaded for that session, and the id is written into the JSONL header the first flush persists. No extension hook runs early enough to influence it.
+
+### Expected merge conflict zones
+
+- `static open`'s parameter list and its `new SessionManager(...)` call, which previously passed `undefined` in the options slot.
+- The private constructor's `_setSessionFile(sessionFile, preloadedFileEntries)` call.
+- The `_setSessionFile` signature and its two `_resetToNewSession` call sites; upstream changes to the empty-file recovery branch land in the same lines.
+
 ## 2026-09-21 - A WebSocket drop inside a credential pool no longer kills the turn (senpi#1628)
 
 ### What changed
