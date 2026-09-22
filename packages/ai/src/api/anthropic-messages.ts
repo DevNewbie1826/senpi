@@ -275,7 +275,7 @@ const NATIVE_XHIGH_EFFORT_MODEL_MARKERS = [
  * this as `compat.supportsDisabledThinking: false`, but `models.json` entries and third-party
  * gateway rows carry no generated compat, so the family fact has to live here as well.
  */
-const DISABLED_THINKING_REJECTING_MODEL_MARKERS = ["fable-5", "mythos-5"] as const;
+const DISABLED_THINKING_REJECTING_MODEL_MARKERS = ["fable-5", "mythos-5", "opus-5-5", "opus-5.5"] as const;
 const UNSUPPORTED_NATIVE_COMPUTER_TOOL_MODEL_MARKERS = [
 	"opus-4-6",
 	"opus-4.6",
