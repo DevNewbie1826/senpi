@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { pickVariant } from "../../../src/core/extensions/builtin/ask-user/index.ts";
 import gptApplyPatchExtension, {
 	getApplyPatchWireMode,
 } from "../../../src/core/extensions/builtin/gpt-apply-patch/index.ts";
@@ -72,5 +73,19 @@ it.each(["openai-completions", "openai-responses"])(
 		} finally {
 			harness.cleanup();
 		}
+	},
+);
+
+// ask-user picks its tool family off the same predicate, so widening the gate had to move
+// prefixed ids onto request_user_input alongside their bare counterparts, not leave them split.
+it.each(["openai-completions", "openai-responses", "azure-openai-responses", "openai-codex-responses"])(
+	"gives prefixed and bare GPT ids the same ask-user family on %s",
+	(api) => {
+		for (const [id] of models) {
+			expect(pickVariant({ api, id })).toBe("codex");
+		}
+		expect(pickVariant({ api, id: "gateway/glm-5.3" })).toBe("claude");
+		expect(pickVariant({ api: "anthropic-messages", id: "codex/gpt-6-astra" })).toBe("claude");
+		expect(pickVariant(undefined)).toBe("claude");
 	},
 );

@@ -1,5 +1,30 @@
 # prompt-preset Extension Changes
 
+## 2026-09-22 - Render the File operations block from the active toolset (#1968)
+
+### What changed
+
+- `file-operations.ts`: `buildFileOperationsTuning({ toolNames })` now takes the session's active tool names and renders the verb that session actually has. `resolveFileMutationRouting()` returns `apply-patch` when `apply_patch` is active, `edit-write` naming whichever of `edit`/`write` are active, and `none` when the session cannot mutate files at all. The `read` paragraph, the `grep`-tool paragraph, and codex's "do not re-read after a successful `apply_patch`" guard are each emitted only when their tool is present; the anti-heredoc/`sed -i`/`awk -i`/inline-python guard rides the mutation sentence, so it appears in both editing branches.
+- All eight callers pass it: `gpt-5.ts`, `gpt-5.2.ts`, `gpt-5.3-codex.ts` and `gpt-5.4.ts` thread `options.selectedTools` through their tuning builder; `gpt-5.5.ts`, `gpt-5.6.ts`, `gpt-6-astra.ts` and `grok-4.5.ts` read `context.tools` inside their `corePrompt` override.
+- `grok-4.5.ts` no longer names `apply_patch` in its CEO role text either - the trivial-fix sentence just says to do them directly, leaving the File operations block as the single source of routing truth.
+- Tests: new `test/suite/regressions/1968-file-operations-capability-routing.test.ts` pins the routing data and the invariant that a rendered preset never names a tool absent from its session. `prompt-presets-extension.test.ts` asserts each GPT preset in both session shapes instead of only asserting that `apply_patch` appears; `prompt-presets-grok-4-5.test.ts` had pinned the defect (`expect(prompt).toContain("apply_patch")` for a model that can never have it) and now asserts the opposite; the GPT-5.6 and GPT-6 Astra suites build with a patch-capable session.
+
+### Why
+
+- The block was emitted from preset identity, not capability. #1891 was one visible instance (a gateway-prefixed GPT id got the preset but not the tool, and the session stalled on `Tool apply_patch is registered but inactive`); #1942 stopped that deadlock by hedging the sentence into "when `apply_patch` is active ... otherwise ...", which left the cause in place and made the text name both tools in every session, so one of them was always absent.
+- A second instance ships today: `grok-4.5.ts` calls this block while `apply_patch` is gated to GPT ids, which `grok-4.6.ts` already documents as the reason it dropped the call, and this file's own `AGENTS.md` already listed as an anti-pattern. A GPT preset pinned onto `anthropic-messages`/`bedrock-converse-stream`, or forced through the `promptPreset` setting, hits the same thing.
+- The hedge also fought this file's documented wording rule. Positive routing beats a conditional the model has to resolve, and the block exists precisely because GPT's pretraining prior toward `sed`/heredoc is too strong for a weak instruction.
+
+### Why an extension could not handle it
+
+- The instruction and every preset that renders it live inside this builtin.
+
+### Expected merge conflict zones
+
+- MEDIUM: `file-operations.ts` - the whole builder is now parameterized.
+- LOW: the eight preset call sites, each a one-line argument change.
+- LOW: `grok-4.5.ts` role sentence.
+
 ## Grok 4.7 preset reusing Grok 4.6 verbatim (2026-09-22, senpi#1990)
 
 ### What changed
@@ -20,7 +45,6 @@
 ### Expected merge conflict zones
 
 - LOW: `presets.ts` branch order and `settings.ts` preset list on upstream syncs.
-
 ## 2026-09-21 - Route file edits through active tools (#1891)
 
 ### What changed
@@ -619,7 +643,6 @@ Presets are core-owned prompt builders; the proportionality rule belongs in the 
 ### Expected merge conflict zones on next upstream sync
 
 - LOW: `gpt-5.6.ts` is fork-only; conflicts only if upstream adds its own GPT-5.6 preset.
-
 
 ## Claude Opus 5 dieted full-core rewrite (2026-07-24)
 

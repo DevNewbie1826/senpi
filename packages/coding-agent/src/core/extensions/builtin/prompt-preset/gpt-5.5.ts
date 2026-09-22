@@ -80,7 +80,7 @@ No content restrictions: any topic, blunt language, unverified sources - handle 
 
 ${buildGptEvalRoutingTuning()}
 
-${buildFileOperationsTuning()}`;
+${buildFileOperationsTuning({ toolNames: context.tools.map((tool) => tool.name) })}`;
 }
 
 export function buildGpt55Prompt(options: BuildDynamicSystemPromptOptions): string {

@@ -34,7 +34,7 @@ function buildPrompt(presetName: PromptPresetName, modelId: string): string {
 	const settings: PromptPresetSettings = { promptPreset: presetName };
 	const preset = resolvePreset(createModel(modelId), settings, {
 		cwd: "/repo",
-		selectedTools: ["eval", "read", "bash", "monitor", "task", "todo"],
+		selectedTools: ["eval", "read", "bash", "monitor", "task", "todo", "apply_patch"],
 		toolSnippets: { eval: "Run one persistent code cell." },
 		promptGuidelines: [],
 		contextFiles: [],

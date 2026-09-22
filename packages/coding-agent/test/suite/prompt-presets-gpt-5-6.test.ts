@@ -27,7 +27,7 @@ function createModel(id: string): Model<Api> {
 function buildPrompt(
 	presetName: PromptPresetName,
 	modelId: string,
-	selectedTools: readonly string[] = ["eval", "monitor", "read", "bash"],
+	selectedTools: readonly string[] = ["eval", "monitor", "read", "bash", "apply_patch"],
 ): string {
 	const settings: PromptPresetSettings = { promptPreset: presetName };
 	const preset = resolvePreset(createModel(modelId), settings, {

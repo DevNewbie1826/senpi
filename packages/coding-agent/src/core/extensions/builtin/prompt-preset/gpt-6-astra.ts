@@ -371,7 +371,7 @@ Code reviews: findings first, ordered by severity with file references, then ope
 
 The task is over the moment all of these hold: every requested behavior works in observable use with nothing deferred, the checks for the change's tier are clean or explained, and the final message is delivered. Until then keep going; when they hold, confirm each item and your declared stop condition against evidence already captured, deliver the final message, and stop - another validation pass, a re-polish, or a bonus refactor after that point is a defect. Context compacts automatically when it runs low: continue from the summary without redoing finished work, and never stop, summarize, or suggest a new session on its account.
 
-${buildFileOperationsTuning()}`;
+${buildFileOperationsTuning({ toolNames: context.tools.map((tool) => tool.name) })}`;
 }
 
 export function buildGpt6AstraPrompt(options: BuildDynamicSystemPromptOptions): string {
