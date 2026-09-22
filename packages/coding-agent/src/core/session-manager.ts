@@ -929,7 +929,7 @@ export class SessionManager {
 		});
 
 		if (sessionFile) {
-			this._setSessionFile(sessionFile, preloadedFileEntries);
+			this._setSessionFile(sessionFile, preloadedFileEntries, newSessionOptions);
 		} else if (preloadedFileEntries?.length) {
 			this._loadEntries(preloadedFileEntries, newSessionOptions);
 		} else {
@@ -959,7 +959,11 @@ export class SessionManager {
 		this._setSessionFile(sessionFile);
 	}
 
-	private _setSessionFile(sessionFile: string, preloadedFileEntries?: FileEntry[]): void {
+	private _setSessionFile(
+		sessionFile: string,
+		preloadedFileEntries?: FileEntry[],
+		newSessionOptions?: NewSessionOptions,
+	): void {
 		if (this.persist) reserveSessionWrite(resolvePath(sessionFile));
 		this.sessionFile = resolvePath(sessionFile);
 		this.mirrorTrimmed = false;
@@ -976,7 +980,8 @@ export class SessionManager {
 				}
 				// The explicit path is already granted above and keeps being written here:
 				// allocating a second path would take a grant no writer ever uses.
-				this._resetToNewSession();
+				// An empty file carries no identity yet, so a caller-supplied id still applies.
+				this._resetToNewSession(newSessionOptions);
 				this._rewriteFile();
 				this.flushed = true;
 				return;
@@ -1004,7 +1009,10 @@ export class SessionManager {
 			this.flushed = true;
 		} else {
 			// Same here: the explicit path from --session stays the only granted one.
-			this._resetToNewSession();
+			// The file does not exist yet, so this open CREATES the session: a caller-supplied
+			// id is the session's identity from here on. An EXISTING file never reaches this
+			// branch, which is why a supplied id can never overwrite a header id.
+			this._resetToNewSession(newSessionOptions);
 		}
 	}
 
@@ -2059,8 +2067,10 @@ export class SessionManager {
 	 * @param path Path to session file
 	 * @param sessionDir Optional session directory for /new or /branch. If omitted, derives from file's parent.
 	 * @param cwdOverride Optional cwd override instead of the session header cwd.
+	 * @param options Applied only when this open CREATES the session (the path does not exist
+	 * yet, or exists and is empty). An existing session file keeps the id in its header.
 	 */
-	static open(path: string, sessionDir?: string, cwdOverride?: string): SessionManager {
+	static open(path: string, sessionDir?: string, cwdOverride?: string, options?: NewSessionOptions): SessionManager {
 		const resolvedPath = resolvePath(path);
 		reserveSessionWrite(resolvedPath);
 		let header: SessionHeader | null = null;
@@ -2086,7 +2096,7 @@ export class SessionManager {
 		const cwd = cwdOverride ?? (header ? getSessionHeaderCwd(header) : undefined) ?? process.cwd();
 		// If no sessionDir provided, derive from file's parent directory
 		const dir = sessionDir ? normalizePath(sessionDir) : resolve(resolvedPath, "..");
-		return new SessionManager(cwd, dir, resolvedPath, true, undefined, preloadedFileEntries);
+		return new SessionManager(cwd, dir, resolvedPath, true, options, preloadedFileEntries);
 	}
 
 	/**
