@@ -16,6 +16,24 @@ This IS the provider extension's own settings reader; the migration happens in c
 
 - `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/settings.ts` `loadClaudeSdkOauthProviderSettings` and the `SettingsWithClaudeSdkOauthProvider` type.
 
+## 2026-09-22 - move the per-account directory to the canonical name (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/config-dir-credentials.ts`: new `resolveAccountsDirectory` performs a one-shot, idempotent move of `<agentDir>/claude-sdk-oauth-accounts` -> `<agentDir>/anthropic-subscription-accounts` the first time the lane resolves an account dir; `writeConfigDirCredential` routes through it. Slot names and file contents are preserved byte-for-byte.
+
+### Why
+
+The per-account directory was named for the old provider id. After the rename an existing multi-account user's stored Claude config dirs would be stranded under the legacy name. The move is idempotent (no legacy tree -> canonical name used directly), never merges two trees (if the canonical dir already exists the legacy tree is set aside with a timestamp suffix), and survives a cross-device or Windows sharing-violation `rename` failure by falling back to copy-then-remove with the source left authoritative on a mid-copy failure. A failed move is non-fatal and retried on the next resolve.
+
+### Why an extension could not handle it
+
+The account directory is owned and written by this provider extension; the move must happen where the path is built, before the Claude CLI reads the credential from it.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/config-dir-credentials.ts` `resolveAccountsDirectory` and the accounts-dir name constants.
+
 ## 2026-09-22 - claude-sdk-oauth provider id renamed to anthropic-subscription across the extension (senpi#1989)
 
 ### What changed
