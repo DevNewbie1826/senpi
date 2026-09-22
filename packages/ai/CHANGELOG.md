@@ -16,6 +16,8 @@
 
 ### Removed
 
+- OpenRouter catalog regeneration drops six retired `:batch` variants (`minimax/minimax-m3:batch`, `moonshotai/kimi-k3:batch`, `openai/gpt-oss-120b:batch`, `qwen/qwen3.5-9b:batch`, `qwen/qwen3.8-2.4t-a95b:batch`, `thinkingmachines/inkling:batch`) and the delisted, directly-selectable model `openrouter/kwaipilot/kat-coder-pro-v2` — configurations naming those ids must move to their non-batch counterparts or another provider. opencode's free tier moves from `mimo-v2.5-free` to `mimo-v2.6-flash-free`. ([#1990](https://github.com/code-yeongyu/senpi/issues/1990))
+
 ## [2026.9.22] - 2026-09-21
 
 ### Breaking Changes

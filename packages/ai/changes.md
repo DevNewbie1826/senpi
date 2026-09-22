@@ -9,11 +9,14 @@
 - `src/providers/data/` regenerated (one `bun run generate-models --strict` run):
   `xai.json` + `github-copilot.json` gain `grok-4.7`; `xiaomi.json` + the three
   `xiaomi-token-plan-*.json` + `opencode-go.json` + `openrouter.json` + `vercel-ai-gateway.json`
-  gain the mimo-v2.6 family; `venice.json` gains its dashed `grok-4-7`; `opencode.json` swaps
-  the retired `mimo-v2.5-free` alias for `mimo-v2.6-flash-free`; `openrouter.json` additionally
-  drops seven retired `:batch` ids and gains `nex-agi/nex-n2.5-pro` (live catalog drift the
-  generator reports honestly). `opencode.json` deliberately does NOT gain grok-4.7 — opencode
-  does not serve it.
+  gain the mimo-v2.6 family; `venice.json` gains its dashed `grok-4-7`; `opencode.json` replaces
+  the selectable free model `mimo-v2.5-free` with `mimo-v2.6-flash-free` (opencode retired the
+  v2.5 free tier); `openrouter.json` additionally drops six retired `:batch` ids
+  (`minimax/minimax-m3:batch`, `moonshotai/kimi-k3:batch`, `openai/gpt-oss-120b:batch`,
+  `qwen/qwen3.5-9b:batch`, `qwen/qwen3.8-2.4t-a95b:batch`, `thinkingmachines/inkling:batch`)
+  and the directly-selectable model `kwaipilot/kat-coder-pro-v2` (also delisted), and gains
+  `nex-agi/nex-n2.5-pro` (live catalog drift the generator reports honestly).
+  `opencode.json` deliberately does NOT gain grok-4.7 — opencode does not serve it.
 - `test/xai-responses.test.ts`, `test/model-catalog-types.test.ts`, `test/stream.test.ts`:
   Grok 4.7 effort/capabilities/tiered-pricing coverage, xai+xiaomi catalog type and
   shard-scoped presence assertions (aggregator surface, grok-4.6 / mimo-v2.5-pro controls),
