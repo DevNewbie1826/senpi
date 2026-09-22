@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Preparing a tool call's arguments no longer rewrites the assistant message the model actually produced. Shims that normalize in place — the `eval` run summary clamp and the `edit` tool's `edits` coercion — now run against a detached copy. On the `claude-sdk-oauth` lane this removes the dominant cause of `Session continuity lost - resent the full conversation (assistant_rewritten)`, where a clamped summary made an otherwise unchanged turn look rewritten and forced a full-history re-send. ([#1472](https://github.com/code-yeongyu/senpi/issues/1472))
+
 ### Removed
 
 ## [2026.9.22] - 2026-09-21

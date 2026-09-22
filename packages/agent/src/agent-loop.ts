@@ -24,6 +24,7 @@ import {
 	shouldTerminateAssistantTurn,
 } from "./assistant-terminal-state.ts";
 import { getDefaultStreamFn, withEmptyAssistantRecovery } from "./stream-fn.ts";
+import { prepareAgentToolCallArguments } from "./tool-arguments.ts";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -1037,19 +1038,7 @@ export interface PreparedAgentToolCall {
 	args: unknown;
 }
 
-export function prepareAgentToolCallArguments(tool: AgentTool, toolCall: AgentToolCall): AgentToolCall {
-	if (!tool.prepareArguments) {
-		return toolCall;
-	}
-	const preparedArguments = tool.prepareArguments(toolCall.arguments);
-	if (preparedArguments === toolCall.arguments) {
-		return toolCall;
-	}
-	return {
-		...toolCall,
-		arguments: preparedArguments as Record<string, unknown>,
-	};
-}
+export { prepareAgentToolCallArguments };
 
 export function prepareAgentToolCall(tool: AgentTool, toolCall: AgentToolCall): PreparedAgentToolCall {
 	const preparedToolCall = prepareAgentToolCallArguments(tool, toolCall);
