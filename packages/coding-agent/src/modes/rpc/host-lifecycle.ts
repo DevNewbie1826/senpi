@@ -465,6 +465,35 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 	const internalSecret = process.platform === "win32" ? await createSocketSecret(internalSecretPath) : undefined;
 	const clientSockets = new Set<Socket>();
 	const busySessions = new Map<string, number>();
+	// Declared before anything that can reach `currentActivity()`. A client accepted during startup
+	// asks for the activity snapshot, and a `const` read before its initializer runs is a
+	// ReferenceError that fails the connection - which is how a successor's first `open_session`
+	// came back `success: false` during a handoff.
+	let observerSocket: Socket | undefined;
+	const observerLink = createObserverLink({
+		open: async () => {
+			const secret = internalSecret;
+			const next = createConnection(resolveSocketTransportAddress(internalSocket, process.platform, secret));
+			if (secret) sendSocketHandshake(next, secret);
+			await waitForConnect(next, 5_000);
+			observerSocket = next;
+			attachJsonlLineReader(next, observeHostEvent, { maxLineLength: MAX_RPC_LINE_CHARACTERS });
+			return {
+				onLost: (handler) => {
+					next.once("close", handler);
+					next.once("error", handler);
+				},
+			};
+		},
+		settled: () => shuttingDown,
+		retryDelayMs: 250,
+		now: Date.now,
+		setTimer: (run, ms) => {
+			const timer = setTimeout(run, ms);
+			timer.unref?.();
+			return { cancel: () => clearTimeout(timer) };
+		},
+	});
 	let childExitWatchTimer: ReturnType<typeof setInterval> | undefined;
 	let stopSupersessionWatch: (() => void) | undefined;
 	let shuttingDown = false;
@@ -662,31 +691,6 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 		}
 	}
 
-	let observerSocket: Socket | undefined;
-	const observerLink = createObserverLink({
-		open: async () => {
-			const secret = internalSecret;
-			const next = createConnection(resolveSocketTransportAddress(internalSocket, process.platform, secret));
-			if (secret) sendSocketHandshake(next, secret);
-			await waitForConnect(next, 5_000);
-			observerSocket = next;
-			attachJsonlLineReader(next, observeHostEvent, { maxLineLength: MAX_RPC_LINE_CHARACTERS });
-			return {
-				onLost: (handler) => {
-					next.once("close", handler);
-					next.once("error", handler);
-				},
-			};
-		},
-		settled: () => shuttingDown,
-		retryDelayMs: 250,
-		now: Date.now,
-		setTimer: (run, ms) => {
-			const timer = setTimeout(run, ms);
-			timer.unref?.();
-			return { cancel: () => clearTimeout(timer) };
-		},
-	});
 	let publicSocketOwned = false;
 	let publicSocketIdentity: SocketFileIdentity | undefined;
 	function supervisorLog(message: string): void {
