@@ -1,0 +1,30 @@
+# POST-REBASE gate - senpi#1969 on f2bfaa5914
+$ (packages/ai) bunx vitest --run test/retry-profile-classifiers.test.ts test/retry.test.ts
+
+ RUN  v5.0.1 /Users/yeongyu/.worktrees/senpi-1969/packages/ai
+
+····························································································································
+
+ Test Files  2 passed (2)
+      Tests  124 passed (124)
+   Start at  14:51:36
+   Duration  521ms (transform 63%, tests 25%, import 10%, worker 2%)
+
+EXIT CODE: 0
+
+$ (packages/coding-agent) bunx vitest --run test/suite/retry-fallback-billing-swap.test.ts
+
+ RUN  v5.0.1 /Users/yeongyu/.worktrees/senpi-1969/packages/coding-agent
+
+·····················
+
+ Test Files  1 passed (1)
+      Tests  21 passed (21)
+   Start at  14:51:37
+   Duration  25.71s (transform 89%, import 8%, tests 2%)
+
+  Transform  transforming modules took 22.86s · 89% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+
+EXIT CODE: 0
