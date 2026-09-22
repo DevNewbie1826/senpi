@@ -4,6 +4,8 @@
 
 ### Breaking Changes
 
+- Typing a renamed provider id now tells you the new one: `/login openai-codex` and `--provider claude-sdk-oauth` fail with the new id named, instead of a generic error or an empty selector. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
+
 ### Fixed
 
 - The "File operations" section of the system prompt now names the editing tool your session actually has. It was written from the model preset rather than the live toolset, so a Grok 4.5 session - where `apply_patch` can never activate - was told to route every file edit through it, and so was any GPT model served over an API that cannot carry the tool. Sessions that do have `apply_patch` still get it as the single edit verb, the guard against editing files through `cat >`, `sed -i`, `awk -i` or inline `python` stays in both cases, and the instruction is direct again instead of asking the model to work out which tools it has ([#1968](https://github.com/code-yeongyu/senpi/issues/1968)).
@@ -22,7 +24,6 @@
 
 - Settings, credentials, sessions and `models.json` written before the subscription provider rename keep working: the old provider ids are resolved on read everywhere they are stored, and senpi tells you once which ids to update in `models.json`. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
 
-- Typing a renamed provider id now tells you the new one: `/login openai-codex` and `--provider claude-sdk-oauth` fail with the new id named, instead of a generic error or an empty selector. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
 
 - Your saved settings survive the subscription provider rename: `defaultProvider`, `defaultModel`, favourites, per-model thinking/tier maps and fallback chains written under `openai-codex`/`claude-sdk-oauth` are rewritten once to `chatgpt-subscription`/`anthropic-subscription` on first load. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
 
