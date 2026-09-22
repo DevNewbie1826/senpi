@@ -6,6 +6,8 @@
 
 ### Added
 
+- Grok 4.7 joins the xAI catalog with its documented long-context tiered pricing (\$2/\$6 per 1M tokens below 200k prompt tokens, \$4/\$12 at or above, cached input \$0.50/\$1.00), and MiMo-V2.6-Pro joins the Xiaomi catalog (\$0.435/\$0.87). Both are reachable on their direct provider shards as well as the aggregator mirrors that already serve them (GitHub Copilot, OpenRouter, Venice, Vercel AI Gateway, opencode-go, Xiaomi token plans). Grok 4.5/4.6 also pick up the context-tier pricing models.dev already publishes for them, now that the xAI generator path keeps tiered costs instead of flattening them. ([#1990](https://github.com/code-yeongyu/senpi/issues/1990))
+
 ### Changed
 
 ### Fixed
