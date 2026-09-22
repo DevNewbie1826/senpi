@@ -24,7 +24,7 @@
 
 - Shared RPC hosts no longer grow by one permanent copy of the extension module graph per session. Extension sources are compiled once per process and recompiled only when a source file changes, which cuts per-session retained memory on a long-lived host from tens of megabytes to well under one ([#1948](https://github.com/code-yeongyu/senpi/issues/1948)).
 
-- Preparing a tool call's arguments no longer rewrites the assistant message the model actually produced. Shims that normalize in place — the `eval` run summary clamp and the `edit` tool's `edits` coercion — now run against a detached copy. On the `claude-sdk-oauth` lane this removes the dominant cause of `Session continuity lost - resent the full conversation (assistant_rewritten)`, where a clamped summary made an otherwise unchanged turn look rewritten and forced a full-history re-send. ([#1472](https://github.com/code-yeongyu/senpi/issues/1472))
+- Preparing a tool call's arguments no longer rewrites the assistant message the model actually produced. Shims that normalize in place — the `eval` run summary clamp and the `edit` tool's `edits` coercion — now run against a detached copy. On the `claude-sdk-oauth` lane this removes the dominant cause of `Session continuity lost - resent the full conversation (assistant_rewritten)`, where a clamped summary made an otherwise unchanged turn look rewritten and forced a full-history re-send. The advertised 80-character limit on an `eval` summary is unchanged: it is now enforced where it belongs, on the rendered line, so a rebuilt transcript shows the same truncated summary a live turn does. ([#1472](https://github.com/code-yeongyu/senpi/issues/1472))
 
 ### Removed
 

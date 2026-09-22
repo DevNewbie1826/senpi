@@ -5,6 +5,7 @@
 - `packages/agent/src/tool-arguments.ts`: new home for `prepareToolArguments` and `prepareAgentToolCallArguments`. The shim now receives `structuredClone(args)`, so what it returns is always a separate object from the one the assistant message holds.
 - `packages/agent/src/index.ts`: exports `prepareToolArguments` so a package outside the agent loop reaches the same detach seam instead of calling a tool's shim directly.
 - `packages/agent/src/agent-loop.ts`: delegates `prepareAgentToolCallArguments` to that module and re-exports it, so the public surface is unchanged. The old identity guard (`prepared === toolCall.arguments` short-circuits to the original call) is gone: it only ever held for a shim that returned its input, which is exactly the shim that had already rewritten it.
+- `packages/senpi-codemode/src/tool/render.ts`: the eval call renderer clamps the summary it displays through `clampEvalSummary`. Before this change the in-place mutation clamped the message itself, so every render surface inherited the limit for free; with preparation detached, the persisted assistant keeps the provider's full summary and a rebuilt transcript would have shown it untruncated. The clamp is idempotent, so a live turn (whose `tool_execution_start` already carries the prepared arguments) renders identically.
 
 ### Why
 
