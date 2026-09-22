@@ -1,4 +1,4 @@
-import { prepareAgentToolCall } from "@earendil-works/pi-agent-core";
+import { prepareToolArguments } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { createEvalTool } from "../../../../senpi-codemode/src/tool/eval-tool.ts";
@@ -52,8 +52,11 @@ function runSummary(summary: string): Record<string, unknown> {
 function commitAfterPreparing(message: AssistantMessage): { outcome: string; executed: Record<string, unknown> } {
 	const boundary = new AssistantCommitBoundary();
 	boundary.captureProviderFinal("session-1", message);
-	const prepared = prepareAgentToolCall(evalTool, toolCallOf(message));
-	return { outcome: boundary.commit("session-1", message, MODEL_ID), executed: prepared.toolCall.arguments };
+	const executed = prepareToolArguments(evalTool.prepareArguments, toolCallOf(message).arguments);
+	return {
+		outcome: boundary.commit("session-1", message, MODEL_ID),
+		executed: executed as Record<string, unknown>,
+	};
 }
 
 describe("issue #1472: preparing eval arguments must not break Claude SDK continuity", () => {

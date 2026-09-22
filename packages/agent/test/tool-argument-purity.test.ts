@@ -12,7 +12,7 @@ const PARAMETERS = Type.Object({
 // evidence if the fixture behaves like production: eval-tool.ts assigns and deletes
 // `record.summary`, and harness/tools/edit.ts assigns `args.edits`. Both return the
 // same reference they were handed.
-function inPlaceNormalizingTool(): AgentTool<typeof PARAMETERS> {
+function inPlaceNormalizingTool(): AgentTool {
 	return {
 		name: "in_place_normalizer",
 		label: "In-place normalizer",
@@ -28,7 +28,7 @@ function inPlaceNormalizingTool(): AgentTool<typeof PARAMETERS> {
 	};
 }
 
-function keyDeletingTool(): AgentTool<typeof PARAMETERS> {
+function keyDeletingTool(): AgentTool {
 	return {
 		...inPlaceNormalizingTool(),
 		prepareArguments: (args) => {
