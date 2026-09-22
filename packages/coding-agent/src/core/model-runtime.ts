@@ -549,6 +549,11 @@ export class ModelRuntime implements Models {
 		return this.availabilityInitialized;
 	}
 
+	/** Non-fatal models.json notices (e.g. renamed provider ids), rendered as warnings. */
+	getWarnings(): readonly string[] {
+		return this.config.getWarnings();
+	}
+
 	getError(): string | undefined {
 		const errors: string[] = [];
 		const configError = this.config.getError();
