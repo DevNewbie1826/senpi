@@ -9,6 +9,7 @@ import { AZURE_OPENAI_RESPONSES_MODELS } from "./providers/azure-openai-response
 import { BAI_MODELS } from "./providers/bai.models.ts";
 import { BASETEN_MODELS } from "./providers/baseten.models.ts";
 import { CEREBRAS_MODELS } from "./providers/cerebras.models.ts";
+import { CHATGPT_SUBSCRIPTION_MODELS } from "./providers/chatgpt-subscription.models.ts";
 import { CLOUDFLARE_AI_GATEWAY_MODELS } from "./providers/cloudflare-ai-gateway.models.ts";
 import { CLOUDFLARE_WORKERS_AI_MODELS } from "./providers/cloudflare-workers-ai.models.ts";
 import { DEEPSEEK_MODELS } from "./providers/deepseek.models.ts";
@@ -25,7 +26,6 @@ import { MOONSHOTAI_MODELS } from "./providers/moonshotai.models.ts";
 import { MOONSHOTAI_CN_MODELS } from "./providers/moonshotai-cn.models.ts";
 import { NVIDIA_MODELS } from "./providers/nvidia.models.ts";
 import { OPENAI_MODELS } from "./providers/openai.models.ts";
-import { CHATGPT_SUBSCRIPTION_MODELS } from "./providers/chatgpt-subscription.models.ts";
 import { OPENCODE_MODELS } from "./providers/opencode.models.ts";
 import { OPENCODE_GO_MODELS } from "./providers/opencode-go.models.ts";
 import { OPENGATEWAY_MODELS } from "./providers/opengateway.models.ts";
@@ -53,6 +53,7 @@ export const MODELS: {
 	readonly "bai": typeof BAI_MODELS;
 	readonly "baseten": typeof BASETEN_MODELS;
 	readonly "cerebras": typeof CEREBRAS_MODELS;
+	readonly "chatgpt-subscription": typeof CHATGPT_SUBSCRIPTION_MODELS;
 	readonly "cloudflare-ai-gateway": typeof CLOUDFLARE_AI_GATEWAY_MODELS;
 	readonly "cloudflare-workers-ai": typeof CLOUDFLARE_WORKERS_AI_MODELS;
 	readonly "deepseek": typeof DEEPSEEK_MODELS;
@@ -69,7 +70,6 @@ export const MODELS: {
 	readonly "moonshotai-cn": typeof MOONSHOTAI_CN_MODELS;
 	readonly "nvidia": typeof NVIDIA_MODELS;
 	readonly "openai": typeof OPENAI_MODELS;
-	readonly "chatgpt-subscription": typeof CHATGPT_SUBSCRIPTION_MODELS;
 	readonly "opencode": typeof OPENCODE_MODELS;
 	readonly "opencode-go": typeof OPENCODE_GO_MODELS;
 	readonly "opengateway": typeof OPENGATEWAY_MODELS;
@@ -96,6 +96,7 @@ export const MODELS: {
 	"bai": BAI_MODELS,
 	"baseten": BASETEN_MODELS,
 	"cerebras": CEREBRAS_MODELS,
+	"chatgpt-subscription": CHATGPT_SUBSCRIPTION_MODELS,
 	"cloudflare-ai-gateway": CLOUDFLARE_AI_GATEWAY_MODELS,
 	"cloudflare-workers-ai": CLOUDFLARE_WORKERS_AI_MODELS,
 	"deepseek": DEEPSEEK_MODELS,
@@ -112,7 +113,6 @@ export const MODELS: {
 	"moonshotai-cn": MOONSHOTAI_CN_MODELS,
 	"nvidia": NVIDIA_MODELS,
 	"openai": OPENAI_MODELS,
-	"chatgpt-subscription": CHATGPT_SUBSCRIPTION_MODELS,
 	"opencode": OPENCODE_MODELS,
 	"opencode-go": OPENCODE_GO_MODELS,
 	"opengateway": OPENGATEWAY_MODELS,
