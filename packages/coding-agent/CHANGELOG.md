@@ -16,6 +16,8 @@
 
 - Settings, credentials, sessions and `models.json` written before the subscription provider rename keep working: the old provider ids are resolved on read everywhere they are stored, and senpi tells you once which ids to update in `models.json`. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
 
+- Typing a renamed provider id now tells you the new one: `/login openai-codex` and `--provider claude-sdk-oauth` fail with the new id named, instead of a generic error or an empty selector. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
+
 - Your saved settings survive the subscription provider rename: `defaultProvider`, `defaultModel`, favourites, per-model thinking/tier maps and fallback chains written under `openai-codex`/`claude-sdk-oauth` are rewritten once to `chatgpt-subscription`/`anthropic-subscription` on first load. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
 
 - Your saved Claude subscription accounts survive the provider rename: the per-account directory is moved once from the old name to `anthropic-subscription-accounts`, preserving each account's stored login. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))

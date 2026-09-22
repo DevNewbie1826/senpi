@@ -363,7 +363,7 @@ When unset, senpi leaves provider payloads unchanged. This setting currently app
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `claudeSdkOauthProvider.enabled` | boolean | `false` | Enable the ambient (host-CLI-derived) lane of `claude-sdk-oauth`. Env override: `SENPI_CLAUDE_SDK_OAUTH_ENABLED`. Explicit senpi-side logins (stored OAuth accounts in `auth.json`, `CLAUDE_CODE_OAUTH_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN_<n>` env accounts) keep the provider available with this unset |
+| `anthropicSubscriptionProvider.enabled` | boolean | `false` | Enable the ambient (host-CLI-derived) lane of `anthropic-subscription`. Env override: `SENPI_CLAUDE_SDK_OAUTH_ENABLED`. Explicit senpi-side logins (stored OAuth accounts in `auth.json`, `CLAUDE_CODE_OAUTH_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN_<n>` env accounts) keep the provider available with this unset |
 | `cursorCliOauthProvider.enabled` | boolean | `false` | Enable the `cursor-cli-oauth` fallback lane and automatic native credential bootstrap. Env override: `SENPI_CURSOR_CLI_OAUTH_ENABLED` |
 | `providers.<id>.maxConcurrency` | number | unlimited | Cap the streaming requests senpi keeps in flight against one provider, keyed by registry provider id (`anthropic`, `openai`, ...). `0`, a negative value, a fraction, or an absent key all mean unlimited |
 
@@ -383,7 +383,7 @@ Both ambient-auth providers are explicit opt-in: a vendor CLI being logged in on
 
 ```json
 {
-  "claudeSdkOauthProvider": {
+  "anthropicSubscriptionProvider": {
     "enabled": true
   },
   "cursorCliOauthProvider": {
@@ -560,11 +560,11 @@ Only `session_shutdown` is bounded; other extension events (including ask-user a
 ```json
 {
   "modelThinkingLevels": {
-    "openai-codex/gpt-5.6-sol": "xhigh",
+    "chatgpt-subscription/gpt-5.6-sol": "xhigh",
     "anthropic/claude-fable-5-1": "high"
   },
   "modelServiceTiers": {
-    "openai-codex/gpt-5.6-sol": "priority"
+    "chatgpt-subscription/gpt-5.6-sol": "priority"
   }
 }
 ```
