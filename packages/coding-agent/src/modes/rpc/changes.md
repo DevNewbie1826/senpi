@@ -1,3 +1,23 @@
+## 2026-09-22 - A worker that fails during open reports the failure, not `session_closing` (#1953)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/worker-session-registry.ts`: `openSession` remembers the reason its worker reported through the `failure` callback. The post-`commit()` guard that sees an entry which left `opening` now throws `open_failed: <reason>` when a worker failure caused it, and keeps `session_closing` only for the case it documents - an entry somebody else is closing. The registry also takes an optional `createWorker` factory, defaulting to the real `SessionWorkerClient`, so the failure path can be driven without a worker thread.
+- `packages/coding-agent/test/suite/regressions/issue-1953-worker-failure-open-error.test.ts`: regression for the code the client receives.
+
+### Why
+
+- The worker's `failure` callback flips the entry to `quarantined` asynchronously, so a worker that dies mid-open leaves the guard looking at a state that is no longer `opening`. It answered `session_closing`, which tells the client the opposite of what happened: nothing was closing, the worker died. The real reason only reached stderr, which is how a red run shows `senpi rpc session rpc-1 quarantined: worker-failed` on one side and `session_closing` on the wire on the other.
+- `open_failed: <detail>` already exists as a stable wire code and `RpcSessionRegistryError` already formats its reason, so this needs no new code on the protocol surface.
+
+### Why an extension could not handle it
+
+- This is the transport-side registry's own open path; extensions run inside a session that this code has not finished creating.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/worker-session-registry.ts`: the `openSession` worker construction block and the guard after `worker.commit()`.
+
 ## 2026-09-22 - Drain a generation whose public entry is GONE, not only one that was replaced (#1961)
 
 ### What changed

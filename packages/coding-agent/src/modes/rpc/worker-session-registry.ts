@@ -79,6 +79,7 @@ export class WorkerSessionRegistry {
 			lastCommandAt: this.now(),
 			lifecycleMutex: Promise.resolve(),
 		};
+		let workerFailure: string | undefined;
 		const worker = this.createWorker({
 			reserve: (path) => this.reserve(handle, path),
 			reconcile: (livePaths) => this.reconcile(handle, livePaths),
@@ -90,6 +91,10 @@ export class WorkerSessionRegistry {
 				entry.closeResolve?.();
 			},
 			failure: (error) => {
+				// The open below only learns that its entry left `opening`, never why. Without this the
+				// caller is told `session_closing` - a path whose owner is tearing down - for a worker
+				// that died, and the actual reason reaches stderr alone (#1953).
+				workerFailure = error;
 				entry.state = "quarantined";
 				process.stderr.write(`senpi rpc session ${handle} quarantined: ${error}\n`);
 			},
@@ -111,7 +116,10 @@ export class WorkerSessionRegistry {
 			entry.requestedPathKey = profile.sessionPath ? path : undefined;
 			entry.sessionPath = path;
 			const snapshot = await worker.commit();
-			if (entry.state !== "opening") throw new RpcSessionRegistryError("session_closing");
+			if (entry.state !== "opening")
+				throw workerFailure === undefined
+					? new RpcSessionRegistryError("session_closing")
+					: new RpcSessionRegistryError("open_failed", workerFailure);
 			entry.durableSessionId = snapshot.state.sessionId;
 			entry.cwd = snapshot.state.cwd;
 			entry.state = "open";
