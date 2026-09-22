@@ -10,7 +10,7 @@ import {
 import type { HostMcpRegistry } from "../../core/extensions/builtin/mcp/host-registry.ts";
 import type { SessionContext, SessionKind, SessionStartEvent } from "../../core/extensions/types.ts";
 import { EMPTY_SESSION_CONTEXT } from "../../core/extensions/types.ts";
-import { SessionManager } from "../../core/session-manager.ts";
+import { assertValidSessionId, SessionManager } from "../../core/session-manager.ts";
 import { SESSION_PATH_RETRY_AFTER_MS, type SessionPathReservations } from "./host-reservations.ts";
 import { beginSessionClose, closeMarkedSession, closeSession, type SessionTeardownHost } from "./session-teardown.ts";
 import type { SessionWorkerClient } from "./session-worker-client.ts";
@@ -18,6 +18,11 @@ import type { SessionWorkerClient } from "./session-worker-client.ts";
 /** The immutable flags selected when a routing session is opened. */
 export interface RpcSessionLaunchProfile extends AgentSessionLaunchProfile {
 	sessionPath?: string;
+	/**
+	 * Durable session id chosen by the caller, applied ONLY when this open creates the session.
+	 * An existing session file keeps the id in its header, so a resume never rewrites identity.
+	 */
+	durableSessionId?: string;
 }
 
 export type SessionRuntime = AgentSessionRuntime;
@@ -67,8 +72,10 @@ export class RpcSessionRegistryError extends Error {
 		| "unknown_session"
 		| "session_closing"
 		| "session_path_in_use"
+		| "session_id_in_use"
 		| "session_reservation_limit"
 		| "invalid_path"
+		| "invalid_session_id"
 		| "host_memory_pressure"
 		| "open_failed";
 	/** Machine-readable context for the wire (`errorData`): who holds a path, when to retry. */
@@ -214,6 +221,20 @@ export class RpcSessionRegistry {
 		this.validateProfile(profile);
 		this.syncRuntimeMetadata();
 		const sessionPath = profile.sessionPath ? canonicalPath(profile.sessionPath) : undefined;
+		// Taken SYNCHRONOUSLY, before any await, exactly like the path reservation below: a
+		// concurrent open naming the same durable id must find this one already recorded rather
+		// than a window between the decision and the record of it. Two LIVE sessions may never
+		// share a durable id - every per-session artifact a client keys by it would collide.
+		// Re-opening the SAME file is an attach/resume, not a collision: the id is the file's own.
+		const requestedDurableId = profile.durableSessionId;
+		if (requestedDurableId !== undefined) {
+			for (const entry of this.entries.values()) {
+				if (entry.state === "closed") continue;
+				if (entry.durableSessionId !== requestedDurableId) continue;
+				if (sessionPath !== undefined && entry.reservationKey === sessionPath) continue;
+				throw new RpcSessionRegistryError("session_id_in_use");
+			}
+		}
 		if (sessionPath) await this.settleClosingReservation(sessionPath);
 		if (sessionPath && this.reservations.has(sessionPath)) {
 			// Attach-on-open: a live session outlives individual client attachments, so a
@@ -337,11 +358,16 @@ export class RpcSessionRegistry {
 			);
 			return operation;
 		};
+		// Recorded before the first await so the synchronous collision guard above sees an open
+		// that is still being built. `manager.getSessionId()` overwrites it below with the
+		// authoritative value, which on a resume is the header's id, not the requested one.
+		if (requestedDurableId !== undefined) entry.durableSessionId = requestedDurableId;
 		this.entries.set(handle, entry);
 		try {
+			const newSessionOptions = requestedDurableId !== undefined ? { id: requestedDurableId } : undefined;
 			const manager = sessionPath
-				? SessionManager.open(sessionPath, undefined, storedProfile.cwd)
-				: SessionManager.create(storedProfile.cwd);
+				? SessionManager.open(sessionPath, undefined, storedProfile.cwd, newSessionOptions)
+				: SessionManager.create(storedProfile.cwd, undefined, newSessionOptions);
 			entry.runtime = await runWithProviderScope(entry.scope, () =>
 				createAgentSessionRuntime(this.options.createRuntime, {
 					cwd: manager.getCwd(),
@@ -511,6 +537,13 @@ export class RpcSessionRegistry {
 	private validateProfile(profile: RpcSessionLaunchProfile): void {
 		if (!isAbsolute(profile.cwd) || (profile.sessionPath !== undefined && !isAbsolute(profile.sessionPath))) {
 			throw new RpcSessionRegistryError("invalid_path");
+		}
+		if (profile.durableSessionId !== undefined) {
+			try {
+				assertValidSessionId(profile.durableSessionId);
+			} catch (cause) {
+				throw new RpcSessionRegistryError("invalid_session_id", String(cause));
+			}
 		}
 	}
 }

@@ -6,6 +6,8 @@
 
 ### Added
 
+- RPC `open_session` accepts an optional `durableSessionId`, so a client that already owns a stable id for the conversation can create the session under that id instead of mapping to a host-minted one. Advertised as host capability `durable_session_id`; applies to session creation only, since re-opening an existing session file keeps that file's header id. A malformed id is refused with `invalid_session_id` and an id a live session already holds with `session_id_in_use`. ([#1951](https://github.com/code-yeongyu/senpi/issues/1951))
+
 ### Changed
 
 ### Fixed

@@ -57,6 +57,14 @@ export const SESSION_KIND_CAPABILITY = "session_kind";
 export const AUTO_TITLE_PER_SESSION_CAPABILITY = "auto_title_per_session";
 
 /**
+ * HOST capability: this host honors `open_session.durableSessionId`, so a caller that already
+ * owns a stable record id for the conversation can CREATE the session under that id and keep
+ * one identity instead of maintaining a mapping. Ignored on resume, where the session file's
+ * header id stays authoritative.
+ */
+export const DURABLE_SESSION_ID_CAPABILITY = "durable_session_id";
+
+/**
  * Env var carrying client capabilities to a single-connection stdio RPC host
  * (comma-separated). A launcher may set it from a client handshake; a plain
  * stdio client leaves it unset and sees byte-identical default behavior.
