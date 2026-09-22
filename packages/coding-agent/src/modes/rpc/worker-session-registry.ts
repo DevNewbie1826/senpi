@@ -19,6 +19,16 @@ import {
 import { SessionWorkerClient } from "./session-worker-client.ts";
 import { SESSION_WORKER_LIMITS, type SessionWriteGrant } from "./session-worker-protocol.ts";
 
+type SessionWorkerCallbacks = ConstructorParameters<typeof SessionWorkerClient>[0];
+
+export interface WorkerSessionRegistryOptions {
+	readonly configuration: CliRuntimeConfiguration;
+	readonly closeGraceMs: number;
+	readonly now: () => number;
+	/** Production builds the real worker; a caller may supply one to drive a lifecycle path deterministically. */
+	readonly createWorker?: (callbacks: SessionWorkerCallbacks) => SessionWorkerClient;
+}
+
 /** Transport-side lifecycle owner. Caller paths are never inspected on this event loop. */
 export class WorkerSessionRegistry {
 	private readonly entries = new Map<string, RpcSessionEntry>();
@@ -27,12 +37,14 @@ export class WorkerSessionRegistry {
 	readonly closeGraceMs: number;
 	private readonly now: () => number;
 
-	private readonly options: { configuration: CliRuntimeConfiguration; closeGraceMs: number; now: () => number };
+	private readonly options: WorkerSessionRegistryOptions;
+	private readonly createWorker: (callbacks: SessionWorkerCallbacks) => SessionWorkerClient;
 
-	constructor(options: { configuration: CliRuntimeConfiguration; closeGraceMs: number; now: () => number }) {
+	constructor(options: WorkerSessionRegistryOptions) {
 		this.options = options;
 		this.closeGraceMs = options.closeGraceMs;
 		this.now = options.now;
+		this.createWorker = options.createWorker ?? ((callbacks) => new SessionWorkerClient(callbacks));
 	}
 
 	get size(): number {
@@ -67,7 +79,7 @@ export class WorkerSessionRegistry {
 			lastCommandAt: this.now(),
 			lifecycleMutex: Promise.resolve(),
 		};
-		const worker = new SessionWorkerClient({
+		const worker = this.createWorker({
 			reserve: (path) => this.reserve(handle, path),
 			reconcile: (livePaths) => this.reconcile(handle, livePaths),
 			exit: () => {
