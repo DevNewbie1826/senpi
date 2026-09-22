@@ -1,4 +1,5 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { SENPI_DEFAULT_RETRY_PROFILE } from "@earendil-works/pi-ai/utils/retry-profile/profiles";
 import { afterEach, describe, expect, it } from "vitest";
 import { isBillingErrorMessage } from "../../src/core/retry-fallback/billing.ts";
 import { createHarness, type Harness } from "./harness.ts";
@@ -24,14 +25,16 @@ const usageLimitExhaustedError =
 const billingError = () => fauxAssistantMessage("", { stopReason: "error", errorMessage: creditBalanceError });
 const creditsRequiredBillingError = () =>
 	fauxAssistantMessage("", { stopReason: "error", errorMessage: creditsRequiredError });
+const usageLimitBillingError = () =>
+	fauxAssistantMessage("", { stopReason: "error", errorMessage: usageLimitExhaustedError });
 const hardError = () => fauxAssistantMessage("", { stopReason: "error", errorMessage: terminalNonBillingError });
 
-function createChainHarness(now: () => number): Promise<Harness> {
+function createChainHarness(now: () => number, maxRetries = 0): Promise<Harness> {
 	return createHarness({
 		models: [{ id: "faux-1" }, { id: "faux-2" }],
 		fallbackNow: now,
 		settings: {
-			retry: { enabled: true, maxRetries: 0, baseDelayMs: 1, fallbackChains: { [primary]: [fallback] } },
+			retry: { enabled: true, maxRetries, baseDelayMs: 1, fallbackChains: { [primary]: [fallback] } },
 		},
 	});
 }
@@ -91,6 +94,57 @@ describe("retry fallback billing swap", () => {
 
 		expect(harness.eventsOfType("retry_fallback_reverted")).toEqual([]);
 		expect(harness.session.model?.id).toBe("faux-2");
+	});
+
+	it("switches to the fallback on the first usage_limit_reached failure and pins it as billing", async () => {
+		let now = 0;
+		// 5 mirrors the senpi-default turn budget: the switch must happen on the
+		// FIRST failure without spending any of that same-model budget.
+		const harness = await createChainHarness(() => now, 5);
+		harnesses.push(harness);
+		harness.setResponses([
+			usageLimitBillingError(),
+			fauxAssistantMessage("fallback answer"),
+			fauxAssistantMessage("still fallback"),
+		]);
+
+		await harness.session.prompt("first");
+
+		expect(harness.faux.getCallLog().map((call) => call.modelId)).toEqual(["faux-1", "faux-2"]);
+		expect(harness.eventsOfType("retry_fallback_applied").map((event) => event.reason)).toEqual(["billing"]);
+
+		// Far past every cooldown: the billing-class switch must hold the fallback for
+		// the rest of the session instead of reverting into the quota-dead primary.
+		now += 31 * 60_000;
+		await harness.session.prompt("second");
+
+		expect(harness.eventsOfType("retry_fallback_reverted")).toEqual([]);
+		expect(harness.session.model?.id).toBe("faux-2");
+		expect(harness.faux.getCallLog().map((call) => call.modelId)).toEqual(["faux-1", "faux-2", "faux-2"]);
+	});
+
+	it("fails on the first attempt when no fallback is configured, keeping the error turn", async () => {
+		const harness = await createHarness({
+			settings: { retry: { enabled: true, maxRetries: 5, baseDelayMs: 1 } },
+		});
+		harnesses.push(harness);
+		harness.setResponses([usageLimitBillingError()]);
+
+		await harness.session.prompt("hello");
+
+		expect(harness.faux.state.callCount).toBe(1);
+		expect(harness.eventsOfType("auto_retry_start")).toEqual([]);
+		expect(harness.eventsOfType("retry_fallback_applied")).toEqual([]);
+		// The terminal failure keeps its assistant message shape: stopReason "error"
+		// is what kept the turn eligible for a fallback chain in the first place.
+		expect(harness.session.state.messages.at(-1)).toMatchObject({
+			stopReason: "error",
+			errorMessage: usageLimitExhaustedError,
+		});
+	});
+
+	it("keeps the senpi-default fallback policy for terminal verdicts at immediate-if-eligible", () => {
+		expect(SENPI_DEFAULT_RETRY_PROFILE.fallback.terminal).toBe("immediate-if-eligible");
 	});
 
 	it("keeps a non-billing hard error temporary and revertable", async () => {
