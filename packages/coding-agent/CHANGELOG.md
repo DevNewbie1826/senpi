@@ -4,6 +4,10 @@
 
 ### Breaking Changes
 
+### Fixed
+
+- Reusing a transcript container after teardown re-arms progressive hydration instead of leaving it permanently halted, so `clear()` and `detachAll()` reset the hydration halt alongside the watermark rather than only the watermark. Teardown still halts hydration; only reuse re-arms it. Latent today, since the chat container is constructed once and never disposed ([#2002](https://github.com/code-yeongyu/senpi/pull/2002)).
+
 ### Added
 
 ### Changed
