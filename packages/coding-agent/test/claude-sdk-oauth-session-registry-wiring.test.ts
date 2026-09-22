@@ -83,7 +83,7 @@ function assistant(text: string, timestamp: number): AssistantMessage {
 		role: "assistant",
 		content: [{ type: "text", text }],
 		api: "claude-sdk-oauth",
-		provider: "claude-sdk-oauth",
+		provider: "anthropic-subscription",
 		model: "claude-test",
 		usage: {
 			input: 0,
@@ -144,14 +144,14 @@ describe("Claude SDK OAuth session registry lifecycle wiring", () => {
 				{
 					type: "model_select",
 					model: { provider: "openai", id: "gpt-test" },
-					previousModel: { provider: "claude-sdk-oauth", id: "claude-test" },
+					previousModel: { provider: "anthropic-subscription", id: "claude-test" },
 				},
 				context("provider-switch"),
 			);
 			await handler(
 				{
 					type: "model_select",
-					model: { provider: "claude-sdk-oauth", id: "claude-test" },
+					model: { provider: "anthropic-subscription", id: "claude-test" },
 					previousModel: { provider: "openai", id: "gpt-test" },
 				},
 				context("provider-switch"),

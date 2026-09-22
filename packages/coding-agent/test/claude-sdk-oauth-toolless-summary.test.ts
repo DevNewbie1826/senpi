@@ -22,7 +22,7 @@ const model: Model<Api> = {
 	id: "claude-sonnet-4-6",
 	name: "Claude test",
 	api: "claude-sdk-oauth",
-	provider: "claude-sdk-oauth",
+	provider: "anthropic-subscription",
 	baseUrl: "claude-sdk-oauth",
 	reasoning: false,
 	input: ["text"],
@@ -150,7 +150,7 @@ describe("claude-sdk-oauth tool-less requests", () => {
 					role: "assistant",
 					content: [{ type: "text", text: "recovered summary" }],
 					api: "claude-sdk-oauth",
-					provider: "claude-sdk-oauth",
+					provider: "anthropic-subscription",
 					model: model.id,
 					usage: {
 						input: 0,

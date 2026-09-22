@@ -1,6 +1,6 @@
 import type { SdkErrorKind } from "./errors.ts";
 
-const PROVIDER = "claude-sdk-oauth";
+const PROVIDER = "anthropic-subscription";
 
 export function noAccountGuidance(hasAnthropicCredential: boolean): string {
 	const lines = [
@@ -82,7 +82,7 @@ export type SystemPromptMode = "full" | "override" | "preset-append";
 export function overrideSystemPromptGuidance(path: string | undefined, reason: string): string {
 	const target = path === undefined ? "systemPromptFile" : `systemPromptFile "${path}"`;
 	return [
-		`Claude SDK OAuth override prompt could not load ${target}: ${reason}.`,
+		`Anthropic Subscription override prompt could not load ${target}: ${reason}.`,
 		'Set claudeSdkOauthProvider.systemPromptFile to a readable, non-empty UTF-8 prompt file, or select systemPromptMode "full".',
 	].join(" ");
 }

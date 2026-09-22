@@ -1,5 +1,5 @@
 /**
- * Issue #1432: in a two-account claude-sdk-oauth session, the first account's
+ * Issue #1432: in a two-account anthropic-subscription session, the first account's
  * pre-delta rate-limit failure discards its resident attempt and publishes an
  * in-memory retry checkpoint; the replacement account's attempt used to hit
  * decideFromBinding's account_changed branch and flatten the whole conversation
@@ -58,7 +58,7 @@ const model: Model<Api> = {
 	id: "claude-test",
 	name: "Claude test",
 	api: "claude-sdk-oauth",
-	provider: "claude-sdk-oauth",
+	provider: "anthropic-subscription",
 	baseUrl: "claude-sdk-oauth",
 	reasoning: true,
 	input: ["text", "image"],
@@ -178,7 +178,7 @@ const temporaryDirectories: string[] = [];
 async function configureTwoAccountPool(): Promise<void> {
 	const slots = [slot(ACCOUNT_PRIMARY, ACCESS_PRIMARY), slot(ACCOUNT_SECONDARY, "access-secondary")];
 	const store = new InMemoryCredentialStore();
-	await store.modify("claude-sdk-oauth", async () => ({
+	await store.modify("anthropic-subscription", async () => ({
 		...slots.reduce<ClaudeSdkOauthCredential>(
 			(credential, entry) => addAccount(credential, entry),
 			emptyCredential(),

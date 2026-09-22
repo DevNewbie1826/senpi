@@ -6,8 +6,8 @@ import { createHarness, type Harness } from "./harness.ts";
 
 const primary = "faux/faux-1";
 const fallback = "faux/faux-2";
-const claudePrimary = "claude-sdk-oauth/faux-1";
-const claudeFallback = "claude-sdk-oauth/faux-2";
+const claudePrimary = "anthropic-subscription/faux-1";
+const claudeFallback = "anthropic-subscription/faux-2";
 const insufficientQuota = "billing error: insufficient_quota";
 const toolSchemaRejection =
 	'500 server_error: Invalid request: tools.function.parameters.type is required and must be "object"';
@@ -240,7 +240,7 @@ describe("retry fallback hard errors", () => {
 
 	it("does not hop providers on a bare invalid_request from the Claude SDK lane", async () => {
 		const harness = await createHarness({
-			provider: "claude-sdk-oauth",
+			provider: "anthropic-subscription",
 			models: [{ id: "faux-1" }, { id: "faux-2" }],
 			settings: {
 				retry: {
@@ -293,7 +293,7 @@ describe("retry fallback hard errors", () => {
 
 	it("retries a Claude SDK session lock on the same model instead of hopping providers", async () => {
 		const harness = await createHarness({
-			provider: "claude-sdk-oauth",
+			provider: "anthropic-subscription",
 			models: [{ id: "faux-1" }, { id: "faux-2" }],
 			settings: {
 				retry: {
@@ -320,7 +320,7 @@ describe("retry fallback hard errors", () => {
 
 	it("does not hop providers when a Claude SDK session lock exhausts same-model retries", async () => {
 		const harness = await createHarness({
-			provider: "claude-sdk-oauth",
+			provider: "anthropic-subscription",
 			models: [{ id: "faux-1" }, { id: "faux-2" }],
 			settings: {
 				retry: {
@@ -346,7 +346,7 @@ describe("retry fallback hard errors", () => {
 
 	it("does not switch providers on a Claude SDK lane auth miss", async () => {
 		const harness = await createHarness({
-			provider: "claude-sdk-oauth",
+			provider: "anthropic-subscription",
 			models: [{ id: "faux-1" }, { id: "faux-2" }],
 			settings: {
 				retry: {
@@ -357,7 +357,7 @@ describe("retry fallback hard errors", () => {
 			},
 		});
 		harnesses.push(harness);
-		const authMiss = "Provider is not configured: claude-sdk-oauth";
+		const authMiss = "Provider is not configured: anthropic-subscription";
 		harness.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: authMiss })]);
 
 		await harness.session.prompt("hello");

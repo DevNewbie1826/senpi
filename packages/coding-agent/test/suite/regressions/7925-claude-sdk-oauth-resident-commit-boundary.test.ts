@@ -1,5 +1,5 @@
 /**
- * oh-my-openagent#7925: after a cold-seed turn on the resident claude-sdk-oauth
+ * oh-my-openagent#7925: after a cold-seed turn on the resident anthropic-subscription
  * lane, the NEXT turn flattened again with `assistant_rewritten` even though no
  * extension touched the assistant. The commit boundary compared a hash taken at
  * the last `message_update` against the `message_end` message, and every field
@@ -15,6 +15,7 @@
 import type { AgentTool, StreamFn } from "@earendil-works/pi-agent-core";
 import { wrapStreamWithModelRecovery } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { CLAUDE_SDK_OAUTH_API_ID } from "../../../src/core/extensions/builtin/claude-sdk-oauth/api-id.ts";
 import { AssistantCommitBoundary } from "../../../src/core/extensions/builtin/claude-sdk-oauth/session-commit-boundary.ts";
 import type { ContinuityObservation } from "../../../src/core/extensions/builtin/claude-sdk-oauth/session-observability.ts";
 import {
@@ -98,7 +99,7 @@ describe("oh-my-openagent#7925 resident commit boundary", () => {
 		installScriptedSdk(thinkingThenText);
 
 		const harness = await createHarness({
-			api: SCRIPTED_PROVIDER,
+			api: CLAUDE_SDK_OAUTH_API_ID,
 			provider: SCRIPTED_PROVIDER,
 			models: [{ id: MODEL_ID }],
 			tools: [echoTool],
@@ -137,7 +138,7 @@ describe("oh-my-openagent#7925 resident commit boundary", () => {
 		};
 		const streamed = {
 			role: "assistant" as const,
-			api: SCRIPTED_PROVIDER,
+			api: CLAUDE_SDK_OAUTH_API_ID,
 			provider: SCRIPTED_PROVIDER,
 			model: MODEL_ID,
 			content: [

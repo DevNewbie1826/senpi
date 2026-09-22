@@ -6,7 +6,7 @@ const MODEL: Model<Api> = {
 	id: "claude-opus-5",
 	name: "Claude Opus 5",
 	api: "claude-sdk-oauth",
-	provider: "claude-sdk-oauth",
+	provider: "anthropic-subscription",
 	baseUrl: "claude-sdk-oauth",
 	reasoning: true,
 	input: ["text"],

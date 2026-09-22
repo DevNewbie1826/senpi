@@ -2,6 +2,7 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { CLAUDE_SDK_OAUTH_PROVIDER_ID } from "../src/core/extensions/builtin/claude-sdk-oauth/account-management.ts";
+import { CLAUDE_SDK_OAUTH_API_ID } from "../src/core/extensions/builtin/claude-sdk-oauth/api-id.ts";
 import type { SdkQueryHandle } from "../src/core/extensions/builtin/claude-sdk-oauth/sdk-boundary.ts";
 import {
 	closeSession,
@@ -59,7 +60,7 @@ async function emit(
 function assistant(text: string, overrides: Partial<AssistantMessage> = {}): AssistantMessage {
 	return {
 		role: "assistant",
-		api: CLAUDE_SDK_OAUTH_PROVIDER_ID,
+		api: CLAUDE_SDK_OAUTH_API_ID,
 		provider: CLAUDE_SDK_OAUTH_PROVIDER_ID,
 		model: "claude-opus-4-5",
 		content: [{ type: "text", text }],

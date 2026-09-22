@@ -1,3 +1,33 @@
+## 2026-09-22 - claude-sdk-oauth provider id renamed to anthropic-subscription across the extension (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/account-management.ts`: `CLAUDE_SDK_OAUTH_PROVIDER_ID` value is `"anthropic-subscription"` (symbol name unchanged).
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/session-commit-boundary.ts`: `isResidentAssistant` compares `message.api === CLAUDE_SDK_OAUTH_API_ID` and `message.provider === CLAUDE_SDK_OAUTH_PROVIDER_ID`. The old code compared BOTH fields to the provider-id constant, which only worked while api id === provider id; after the value rename it would always be false and the #7925 resident commit boundary would silently die.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/tool-watch.ts`: runtime `PROVIDER_ID` comparison moves to the new id; `TOOL_WATCH_CUSTOM_TYPE` (`claude-sdk-oauth-tool-watch`) is a persisted session custom-entry type and stays.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/guidance.ts`: rendered guidance (`/login anthropic-subscription`) and the override-prompt error use the new id/label.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/oauth-login.ts`: login label is `"Anthropic Subscription (Claude Pro/Max)"`; auth-check source follows.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/account-command.ts`: label constant and every notify/description string read "Anthropic Subscription".
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/affinity.ts`, `bounded-queue.ts`, `failover.ts`, `session-stream.ts`, `session-registry.ts`, `session-registry-pump.ts`, `session-reattach.ts`, `session-turn-claim.ts`: user-visible error/notify strings use the new label. `DEFAULT_AFFINITY_KEY` (`claude-sdk-oauth-default`) is FROZEN — it is the HRW hash-domain constant; renaming it silently remaps every unpinned session to a different account.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/session-observability.ts`: the close-cause regex accepts BOTH phrasings (`Claude SDK OAuth query|Anthropic Subscription query`) so classification survives the renamed pump messages.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/auth-lane.ts`: the no-managed-accounts error names the new lane and `/login anthropic-subscription`; `CLAUDE_CODE_OAUTH_TOKEN` unchanged.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/errors.ts`: doc comment names the new label.
+- Frozen and untouched in this directory: `api-id.ts` wire id, `accounts.ts` `claude-sdk-oauth-managed` literals, `session-binding.ts` `claude-sdk-oauth-binding`, `session-binding-store.ts` `.claude-sdk-oauth-binding.json`, `config-dir-credentials.ts` `claude-sdk-oauth-accounts` directory, every `claude_sdk_oauth_*` diagnostic token, module paths and symbols.
+
+### Why
+
+Same rename series as the api-id split entry directly below: the provider id moves, the wire api id and all persisted identities do not. The builtin extension id in `builtin/index.ts` also stays `"claude-sdk-oauth"` because user settings persist it in `enabledBuiltinExtensions`/`disabledBuiltinExtensions`.
+
+### Why an extension could not handle it
+
+This IS the extension; the provider id is its own registration constant and the strings are its own rendered output.
+
+### Expected merge conflict zones
+
+- `account-management.ts` (the constant), against any other id-following change.
+- `session-commit-boundary.ts` `isResidentAssistant`, against #7925-lineage changes.
+- `session-registry-pump.ts` error strings, against observability classification changes (`session-observability.ts` must accept both phrasings).
+
 ## 2026-09-22 - Split the wire api id from the provider id (senpi#1989)
 
 ### What changed

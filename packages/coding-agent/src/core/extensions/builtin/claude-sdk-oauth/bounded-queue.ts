@@ -35,7 +35,7 @@ export class BoundedAsyncQueue<T> implements AsyncIterableIterator<T> {
 			return;
 		}
 		if (this.values.length >= this.capacity) {
-			throw new Error(`Claude SDK OAuth session stream queue exceeded ${this.capacity} messages`);
+			throw new Error(`Anthropic Subscription session stream queue exceeded ${this.capacity} messages`);
 		}
 		this.values.push(value);
 	}

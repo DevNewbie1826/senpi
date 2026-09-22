@@ -21,7 +21,7 @@ function flattenMessage(details: Record<string, unknown>): AssistantMessage {
 		role: "assistant",
 		content: [{ type: "text", text: "ok" }],
 		api: "claude-sdk-oauth",
-		provider: "claude-sdk-oauth",
+		provider: "anthropic-subscription",
 		model: "claude-test",
 		usage: {
 			input: 0,

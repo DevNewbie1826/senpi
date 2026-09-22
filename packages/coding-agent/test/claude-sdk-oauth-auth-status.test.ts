@@ -57,7 +57,7 @@ describe("claude-sdk-oauth availability", () => {
 
 		expect(await check({ ctx: authContext(), credential })).toEqual({
 			type: "oauth",
-			source: "Claude SDK OAuth",
+			source: "Anthropic Subscription",
 		});
 		expect(readAmbientAuthStatus).not.toHaveBeenCalled();
 	});
@@ -75,7 +75,7 @@ describe("claude-sdk-oauth availability", () => {
 		const check = availabilityCheck(readAmbientAuthStatus);
 		expect(await check({ ctx: authContext({ CLAUDE_CODE_OAUTH_TOKEN: "env-token" }) })).toEqual({
 			type: "oauth",
-			source: "Claude SDK OAuth",
+			source: "Anthropic Subscription",
 		});
 		expect(readAmbientAuthStatus).not.toHaveBeenCalled();
 	});
@@ -87,7 +87,7 @@ describe("claude-sdk-oauth availability", () => {
 		);
 		expect(await check({ ctx: authContext() })).toEqual({
 			type: "oauth",
-			source: "Claude SDK OAuth",
+			source: "Anthropic Subscription",
 		});
 	});
 
@@ -117,7 +117,7 @@ describe("claude-sdk-oauth availability", () => {
 
 		expect(await check({ ctx: authContext(), credential })).toEqual({
 			type: "oauth",
-			source: "Claude SDK OAuth",
+			source: "Anthropic Subscription",
 		});
 	});
 
@@ -128,7 +128,7 @@ describe("claude-sdk-oauth availability", () => {
 
 		expect(await check({ ctx: authContext(), credential })).toEqual({
 			type: "oauth",
-			source: "Claude SDK OAuth",
+			source: "Anthropic Subscription",
 		});
 		expect(readAmbientAuthStatus).not.toHaveBeenCalled();
 	});

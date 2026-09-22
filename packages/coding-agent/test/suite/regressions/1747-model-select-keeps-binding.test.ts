@@ -37,7 +37,7 @@ function selectModel(provider: string, id: string) {
 	return {
 		type: "model_select",
 		model: { id, provider },
-		previousModel: { id: "claude-test", provider: "claude-sdk-oauth" },
+		previousModel: { id: "claude-test", provider: "anthropic-subscription" },
 	};
 }
 
@@ -78,7 +78,7 @@ describe("issue #1747 model selector keeps a resumable Claude binding", () => {
 		await emit(
 			turn.extension.handlers,
 			"model_select",
-			selectModel("claude-sdk-oauth", "claude-test"),
+			selectModel("anthropic-subscription", "claude-test"),
 			turn.eventContext,
 		);
 

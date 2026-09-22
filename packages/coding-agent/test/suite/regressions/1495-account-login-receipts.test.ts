@@ -64,23 +64,23 @@ describe("committed account receipts", () => {
 			const storage = AuthStorage.inMemory();
 			const models = createModels({ credentials: storage });
 			const config = createOAuthConfig({
-				readCurrent: async () => storage.get("claude-sdk-oauth") as ClaudeSdkOauthCredential | undefined,
+				readCurrent: async () => storage.get("anthropic-subscription") as ClaudeSdkOauthCredential | undefined,
 				readAnthropicCredential: async () => (importFirst ? fresh : undefined),
 				loginFlow: flow,
 			});
 			models.setProvider(composedProvider(async () => false, { oauth: config }));
 			const receipts: unknown[] = [];
-			await models.login("claude-sdk-oauth", "oauth", interaction(receipts, "yes"));
+			await models.login("anthropic-subscription", "oauth", interaction(receipts, "yes"));
 			const first = importFirst ? "imported-anthropic" : "default";
-			await renameCredentialAccount(storage, "claude-sdk-oauth", first, "Personal");
-			await models.login("claude-sdk-oauth", "oauth", interaction(receipts));
+			await renameCredentialAccount(storage, "anthropic-subscription", first, "Personal");
+			await models.login("anthropic-subscription", "oauth", interaction(receipts));
 			// The Claude envelope adapter owns slot naming end to end (it prompts
 			// for the second id itself), so both receipts are provider-origin.
 			expect(receipts).toEqual([
-				{ providerId: "claude-sdk-oauth", name: first, origin: "provider" },
-				{ providerId: "claude-sdk-oauth", name: "second", origin: "provider" },
+				{ providerId: "anthropic-subscription", name: first, origin: "provider" },
+				{ providerId: "anthropic-subscription", name: "second", origin: "provider" },
 			]);
-			const saved = storage.get("claude-sdk-oauth") as ClaudeSdkOauthCredential;
+			const saved = storage.get("anthropic-subscription") as ClaudeSdkOauthCredential;
 			expect(saved).toMatchObject(SENTINEL_OAUTH_FIELDS);
 			expect(saved.accounts?.map(({ name, displayName }) => ({ name, displayName }))).toEqual([
 				{ name: first, displayName: "Personal" },

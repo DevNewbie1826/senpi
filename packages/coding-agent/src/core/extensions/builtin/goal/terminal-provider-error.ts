@@ -2,7 +2,7 @@ import { isClassifierRefusal } from "@earendil-works/pi-ai";
 import type { AgentEndEvent } from "../../types.ts";
 import { lastAssistantMessage } from "./last-assistant-message.ts";
 
-// The claude-sdk-oauth account-rotating proxy reports total account exhaustion as
+// The anthropic-subscription account-rotating proxy reports total account exhaustion as
 // an assistant message with `stopReason: "stop"` and zero usage, so it slips past
 // the stopReason checks below and the goal reads it as a clean turn end. Match the
 // two stable phrases of that exact response; the account count and the `Retry in

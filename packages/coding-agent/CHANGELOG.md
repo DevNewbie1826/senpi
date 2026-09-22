@@ -12,6 +12,8 @@
 
 ### Changed
 
+- The Claude subscription provider is now `anthropic-subscription`, shown as **Anthropic Subscription**, instead of `claude-sdk-oauth` / "Claude SDK OAuth" — the id named an SDK integration detail, not the thing you are signing in with. The wire api id stays `claude-sdk-oauth`, and nothing persisted moves: stored accounts, the binding sidecar, `CLAUDE_CODE_OAUTH_TOKEN*` env vars, and session diagnostics keep their exact names, so existing installs keep working without re-login. The subscription lane also keeps its first rung in the fallback precedence table. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
+
 ### Fixed
 
 ### Removed

@@ -34,7 +34,7 @@ const model: Model<Api> = {
 	id: "claude-sonnet-5",
 	name: "Claude Sonnet 5",
 	api: "claude-sdk-oauth",
-	provider: "claude-sdk-oauth",
+	provider: "anthropic-subscription",
 	baseUrl: "claude-sdk-oauth",
 	reasoning: true,
 	input: ["text"],
@@ -44,7 +44,7 @@ const model: Model<Api> = {
 };
 
 const context: Context = { messages: [] };
-const providerId = "claude-sdk-oauth";
+const providerId = "anthropic-subscription";
 const originalAgentDir = process.env.SENPI_CODING_AGENT_DIR;
 const temporaryDirectories: string[] = [];
 
@@ -183,7 +183,7 @@ describe("issue #6784: stored Claude SDK OAuth account is used by default", () =
 				ctx,
 				credential,
 			}),
-		).toEqual({ type: "oauth", source: "Claude SDK OAuth" });
+		).toEqual({ type: "oauth", source: "Anthropic Subscription" });
 		expect(readAmbientAuthStatus).not.toHaveBeenCalled();
 	});
 });

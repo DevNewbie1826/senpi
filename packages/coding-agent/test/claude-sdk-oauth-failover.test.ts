@@ -24,7 +24,7 @@ const now = 10_000;
 
 async function storeWithAccounts(): Promise<CredentialStore> {
 	const store = new InMemoryCredentialStore();
-	await store.modify("claude-sdk-oauth", async () =>
+	await store.modify("anthropic-subscription", async () =>
 		accountPool.reduce<ClaudeSdkOauthCredential>(
 			(credential, account) => addAccount(credential, account),
 			emptyCredential(),
@@ -111,7 +111,7 @@ describe("Claude SDK OAuth failover", () => {
 				},
 				classify: classifySdkError,
 				store,
-				providerId: "claude-sdk-oauth",
+				providerId: "anthropic-subscription",
 				now: () => now,
 				onFailover: (event) => {
 					failovers.push(`${event.account.name}:${event.classification.kind}`);
@@ -122,7 +122,7 @@ describe("Claude SDK OAuth failover", () => {
 		expect(attempts).toEqual(expected.slice(0, 2));
 		expect(events).toEqual([{ type: "done", value: expected[1] }]);
 		expect(failovers).toEqual([`${expected[0]}:rate_limit`]);
-		const credential = (await store.read("claude-sdk-oauth")) as ClaudeSdkOauthCredential;
+		const credential = (await store.read("anthropic-subscription")) as ClaudeSdkOauthCredential;
 		const blocked = credential.accounts?.find((account) => account.name === expected[0]);
 		expect(blocked).toMatchObject({ blockReason: "rate_limit", blockedUntil: now + 2_500 });
 	});
@@ -144,7 +144,7 @@ describe("Claude SDK OAuth failover", () => {
 			},
 			classify: classifySdkError,
 			store,
-			providerId: "claude-sdk-oauth",
+			providerId: "anthropic-subscription",
 			now: () => now,
 			onFailover: (event) => {
 				failovers.push(event.account.name);
@@ -167,7 +167,7 @@ describe("Claude SDK OAuth failover", () => {
 		]);
 		expect(attempts).toHaveLength(1);
 		expect(failovers).toEqual(attempts);
-		const credential = (await store.read("claude-sdk-oauth")) as ClaudeSdkOauthCredential;
+		const credential = (await store.read("anthropic-subscription")) as ClaudeSdkOauthCredential;
 		expect(credential.accounts?.find((account) => account.name === attempts[0])).toMatchObject({
 			blockReason: "rate_limit",
 		});
@@ -192,7 +192,7 @@ describe("Claude SDK OAuth failover", () => {
 			},
 			classify: classifySdkError,
 			store,
-			providerId: "claude-sdk-oauth",
+			providerId: "anthropic-subscription",
 			now: () => now,
 			errorFromEvent: (event) => (event.value === "billing_error" ? new Error("billing_error") : undefined),
 		});
@@ -215,11 +215,11 @@ describe("Claude SDK OAuth failover", () => {
 			},
 			classify: classifySdkError,
 			store,
-			providerId: "claude-sdk-oauth",
+			providerId: "anthropic-subscription",
 			now: () => now,
 		});
 		await expect(collect(stream)).rejects.toBeInstanceOf(ClassifiedSdkError);
-		const credential = (await store.read("claude-sdk-oauth")) as ClaudeSdkOauthCredential;
+		const credential = (await store.read("anthropic-subscription")) as ClaudeSdkOauthCredential;
 		expect(credential.accounts?.[0]).toMatchObject({ blockReason: "auth_error" });
 		expect(credential.accounts?.[0]?.blockedUntil).toBeUndefined();
 	});

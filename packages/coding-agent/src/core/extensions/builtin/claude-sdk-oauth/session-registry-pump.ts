@@ -36,7 +36,7 @@ export class ConcurrentSessionTurnAdmissionError extends Error {
 	readonly code = "claude_sdk_oauth_concurrent_turn_admission";
 
 	constructor(sessionId: string) {
-		super(`Concurrent Claude SDK OAuth turn admission for session ${sessionId}`);
+		super(`Concurrent Anthropic Subscription turn admission for session ${sessionId}`);
 		this.name = "ConcurrentSessionTurnAdmissionError";
 	}
 }
@@ -95,7 +95,9 @@ function finishTurn(
 	message: Extract<SDKMessage, { type: "result" }>,
 ): void {
 	if (!resultMatchesTurn(message, turn)) {
-		throw new SessionTurnAttributionError("Claude SDK OAuth result user_message_uuid did not match the active turn");
+		throw new SessionTurnAttributionError(
+			"Anthropic Subscription result user_message_uuid did not match the active turn",
+		);
 	}
 	if (entry.state === "TURN_CLAIMED") transitionToTurnStreaming(entry);
 	if (!turn.aborted) deliver(entry, turn, message);
@@ -143,7 +145,7 @@ function handleMessage(
 			// is an attribution error.
 			throw (
 				sdkResultFailure(message) ??
-				new SessionTurnAttributionError("Claude SDK OAuth result arrived before replay claim")
+				new SessionTurnAttributionError("Anthropic Subscription result arrived before replay claim")
 			);
 		}
 		return false;
@@ -171,7 +173,7 @@ async function runPump(registry: ClaudeSdkOauthSessionRegistry, entry: ClaudeSdk
 		while (true) {
 			const { value, done } = await iterator.next();
 			if (done) {
-				failTurn(registry, entry, new Error("Claude SDK OAuth query ended before the active turn completed"));
+				failTurn(registry, entry, new Error("Anthropic Subscription query ended before the active turn completed"));
 				return;
 			}
 			if (handleMessage(registry, entry, value)) return;
@@ -200,7 +202,8 @@ export function submitSessionTurn(
 			if (turn.aborted) return;
 			turn.aborted = true;
 			turn.cancelAbort = (request.scheduleAbort ?? scheduleAbort)(
-				() => abortTurn(registry, entry, turn, new Error("Claude SDK OAuth interrupted turn did not terminate")),
+				() =>
+					abortTurn(registry, entry, turn, new Error("Anthropic Subscription interrupted turn did not terminate")),
 				SESSION_TURN_ABORT_GRACE_MS,
 			);
 			void entry.query
@@ -210,7 +213,7 @@ export function submitSessionTurn(
 				})
 				.catch((error: unknown) => {
 					const detail = error instanceof Error ? error.message : String(error);
-					abortTurn(registry, entry, turn, new Error(`Claude SDK OAuth query interrupt failed: ${detail}`));
+					abortTurn(registry, entry, turn, new Error(`Anthropic Subscription query interrupt failed: ${detail}`));
 				});
 		};
 		turn = {

@@ -1,3 +1,28 @@
+## 2026-09-22 - claude-sdk-oauth provider id renamed to anthropic-subscription in core resolution, accounts and fallback precedence (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/retry-fallback/expansion.ts`: `PROVIDER_PRECEDENCE` is `["anthropic-subscription", "anthropic", "kimi-coding"]` — the subscription lane holds the SAME rung (first) `claude-sdk-oauth` held. A pure string swap would have dropped it from the ordered table, and absent providers sort alphabetically last, demoting the subscription lane behind the metered `anthropic` API-key lane (reproduced as omo #8051/#8059). Order is preserved, not just membership.
+- `packages/coding-agent/src/core/retry-fallback/settings.ts`: comment names the lane by its new display name.
+- `packages/coding-agent/src/core/credential-accounts.ts`: the three provider-key comparisons (`===`/`!==`) use `"anthropic-subscription"`.
+- `packages/coding-agent/src/core/credential-pool/env-slots.ts`: the provider comparison moves to the new id; the returned `CLAUDE_CODE_OAUTH_TOKEN` env name is unchanged.
+- `packages/coding-agent/src/core/provider-display-names.ts`: `"anthropic-subscription": "Anthropic Subscription"` added beside `anthropic`.
+- `packages/coding-agent/src/core/agent-session.ts`: comment names the SDK-owned lane by its new id.
+
+### Why
+
+The id named an SDK integration detail rather than the thing a user signs in with. The wire api id `claude-sdk-oauth` and every persisted token (managed sentinel, compact entry type, compact-boundary diagnostic + schema, binding sidecar, `CLAUDE_CODE_OAUTH_TOKEN*` env vars, `claude_sdk_oauth_*` diagnostics) are deliberately NOT renamed — renaming any of them orphans data on existing installs. The precedence table is the one place a naive rename would have shipped a silent ordering regression, so it is pinned by `packages/coding-agent/test/suite/anthropic-subscription-rename.test.ts`.
+
+### Why an extension could not handle it
+
+`PROVIDER_PRECEDENCE` is a module-private table inside `core/retry-fallback/expansion.ts`, and the credential-account/env-slot comparisons run inside core credential plumbing before extension hooks see the provider key. The display-name map is core-owned (`BUILT_IN_PROVIDER_DISPLAY_NAMES`).
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/retry-fallback/expansion.ts` `PROVIDER_PRECEDENCE`, against any tie-break change.
+- `packages/coding-agent/src/core/provider-display-names.ts`, against any other provider addition.
+- `packages/coding-agent/src/core/credential-accounts.ts` provider comparisons, against pooled-account changes.
+
 ## 2026-09-22 - chatgpt-subscription provider id in core resolution and display (senpi#1989)
 
 ### What changed

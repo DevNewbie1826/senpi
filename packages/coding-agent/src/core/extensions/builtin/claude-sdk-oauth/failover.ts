@@ -170,5 +170,5 @@ export async function* runFailover<TEvent>(options: FailoverOptions<TEvent>): As
 			if (visibleDeltaEmitted) throw classified;
 		}
 	}
-	throw lastError ?? new Error("Claude SDK OAuth failover exhausted without an attempt");
+	throw lastError ?? new Error("Anthropic Subscription failover exhausted without an attempt");
 }

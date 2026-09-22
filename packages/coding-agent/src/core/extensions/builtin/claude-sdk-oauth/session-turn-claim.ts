@@ -20,7 +20,7 @@ export function bufferBeforeReplay(
 	turn.preReplay.push(message);
 	turn.preReplayBytes += Buffer.byteLength(JSON.stringify(message));
 	if (turn.preReplay.length > turn.limits.maxMessages || turn.preReplayBytes > turn.limits.maxBytes) {
-		throw new SessionTurnAttributionError("Claude SDK OAuth pre-replay buffer overflow");
+		throw new SessionTurnAttributionError("Anthropic Subscription pre-replay buffer overflow");
 	}
 	if (!registry.isCurrentGeneration(entry.senpiSessionId, turn.generation)) turn.preReplay.length = 0;
 }

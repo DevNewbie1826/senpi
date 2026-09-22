@@ -30,7 +30,7 @@ const model: Model<Api> = {
 	id: "claude-test",
 	name: "Claude test",
 	api: "claude-sdk-oauth",
-	provider: "claude-sdk-oauth",
+	provider: "anthropic-subscription",
 	baseUrl: "claude-sdk-oauth",
 	reasoning: true,
 	input: ["text", "image"],
@@ -116,7 +116,7 @@ function assistant(text: string, timestamp: number): AssistantMessage {
 		role: "assistant",
 		content: [{ type: "text", text }],
 		api: "claude-sdk-oauth",
-		provider: "claude-sdk-oauth",
+		provider: "anthropic-subscription",
 		model: model.id,
 		usage: {
 			input: 0,
@@ -323,13 +323,13 @@ describe("Claude SDK OAuth continuity observations", () => {
 	});
 
 	it("sanitizes arbitrary close and pump errors into the fixed cause vocabulary", () => {
-		expect(sanitizeCloseCause(new Error("Claude SDK OAuth query ended before the active turn completed"))).toBe(
+		expect(sanitizeCloseCause(new Error("Anthropic Subscription query ended before the active turn completed"))).toBe(
 			"query_failed",
 		);
-		expect(sanitizeCloseCause("Claude SDK OAuth result user_message_uuid did not match the active turn")).toBe(
+		expect(sanitizeCloseCause("Anthropic Subscription result user_message_uuid did not match the active turn")).toBe(
 			"turn_attribution_failed",
 		);
-		expect(sanitizeCloseCause("Claude SDK OAuth interrupted turn did not terminate")).toBe("abort_timeout");
+		expect(sanitizeCloseCause("Anthropic Subscription interrupted turn did not terminate")).toBe("abort_timeout");
 		expect(sanitizeCloseCause(new Error("weird failure with token sk-ant-oops"))).toBe("other");
 	});
 

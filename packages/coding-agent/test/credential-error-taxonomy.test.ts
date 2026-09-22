@@ -87,7 +87,7 @@ describe("credential error taxonomy", () => {
 		// when the slot the rotation picked carries no usable auth (the sentinel
 		// slots a shipped bug wrote). One such slot must block ITSELF and let the
 		// pool try the healthy siblings, not fail the request.
-		const action = classifyCredentialFailure(new Error("Provider is not configured: claude-sdk-oauth"));
+		const action = classifyCredentialFailure(new Error("Provider is not configured: anthropic-subscription"));
 		expect(action).toEqual({ kind: "failover", block: { reason: "auth_error" } });
 	});
 

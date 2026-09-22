@@ -2,6 +2,7 @@ import { type Api, type Context, createAssistantMessageEventStream, type Model }
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
 import { emptyCredential } from "../../src/core/extensions/builtin/claude-sdk-oauth/accounts.ts";
+import { CLAUDE_SDK_OAUTH_API_ID } from "../../src/core/extensions/builtin/claude-sdk-oauth/api-id.ts";
 import {
 	CLAUDE_SDK_OAUTH_PROVIDER_ID,
 	registerClaudeSdkOauthExtension,
@@ -80,12 +81,12 @@ describe("claude-sdk-oauth builtin provider", () => {
 	it("registers the provider with OAuth, catalog models and a stream fn", () => {
 		const { registration } = captureRegistration();
 		const builtinIds = builtinExtensions.map((extension) => extension.id);
-		expect(CLAUDE_SDK_OAUTH_PROVIDER_ID).toBe("claude-sdk-oauth");
+		expect(CLAUDE_SDK_OAUTH_PROVIDER_ID).toBe("anthropic-subscription");
 		expect(builtinIds).toContain("claude-sdk-oauth");
 		expect(builtinIds).not.toContain("claude-agent-sdk");
 		expect(builtinIds).not.toContain("claude-oauth");
 		expect(registration.name).toBe(CLAUDE_SDK_OAUTH_PROVIDER_ID);
-		expect(registration.config.baseUrl).toBe(CLAUDE_SDK_OAUTH_PROVIDER_ID);
+		expect(registration.config.baseUrl).toBe(CLAUDE_SDK_OAUTH_API_ID);
 		expect(registration.config.apiKey).toBeUndefined();
 		expect(registration.config.models?.length).toBeGreaterThan(0);
 		expect(typeof registration.config.streamSimple).toBe("function");
@@ -142,7 +143,7 @@ describe("claude-sdk-oauth builtin provider", () => {
 		await createRuntimeWithProvider(registration.config, storage);
 		expect(storage.getOAuthProviders()).toContainEqual({
 			id: CLAUDE_SDK_OAUTH_PROVIDER_ID,
-			name: "Claude SDK OAuth (Claude Pro/Max)",
+			name: "Anthropic Subscription (Claude Pro/Max)",
 		});
 	});
 

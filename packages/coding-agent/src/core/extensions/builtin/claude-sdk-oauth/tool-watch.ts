@@ -11,7 +11,7 @@ import type {
 import { mapPiToolNameToSdk } from "./tools.ts";
 
 export const TOOL_WATCH_CUSTOM_TYPE = "claude-sdk-oauth-tool-watch";
-const PROVIDER_ID = "claude-sdk-oauth";
+const PROVIDER_ID = "anthropic-subscription";
 const MAX_TRACKED_TOOL_EXECUTIONS = 256;
 const MAX_TRACKED_TOOL_CONTENT_CHARS = 4_000;
 const MAX_LEDGER_TOOL_RESULTS = 4;
