@@ -40,6 +40,24 @@ CLI parsing and the interactive login command are core surfaces that run before 
 ### Expected merge conflict zones
 
 
+
+## 2026-09-22 - A caller-chosen session id is written to disk at open (#2010)
+
+### What changed
+
+- `packages/coding-agent/src/core/session-manager.ts`: in `_setSessionFile`'s missing-file branch, when `NewSessionOptions.id` is present the header is written immediately (`_rewriteFile()`, `flushed = true`) instead of waiting for the first assistant message.
+
+### Why
+
+- Deferring the file until an assistant message exists is the right default for a HOST-minted id: nothing references it yet. It is the wrong default for a CALLER-chosen id, which the caller already holds in its own records. Without this, a create under a chosen id followed by a close before the first reply left no file, and a reopen of that path minted a different identity - the id the caller stored pointed at nothing. Measured on the real host before the fix: reopen returned a fresh uuidv7 and `existsSync(path)` was false.
+
+### Why an extension could not handle it
+
+- Session identity and its first persistence happen inside `SessionManager` before any extension is bound to the session.
+
+### Expected merge conflict zones
+
+- The `else` branch of `_setSessionFile` that handles a not-yet-existing path.
 ## 2026-09-22 - settings.json provider-key migration (senpi#1989)
 
 ### What changed

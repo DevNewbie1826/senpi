@@ -1017,6 +1017,14 @@ export class SessionManager {
 			// id is the session's identity from here on. An EXISTING file never reaches this
 			// branch, which is why a supplied id can never overwrite a header id.
 			this._resetToNewSession(newSessionOptions);
+			// A host-minted id is referenced by nothing yet, so its file may wait for the first
+			// assistant message. A CALLER-chosen id is already held in the caller's own records:
+			// the file has to answer to it now, or a reopen before the first reply would mint a
+			// different identity and the caller's record would point at nothing (#2010).
+			if (newSessionOptions?.id !== undefined) {
+				this._rewriteFile();
+				this.flushed = true;
+			}
 		}
 	}
 
