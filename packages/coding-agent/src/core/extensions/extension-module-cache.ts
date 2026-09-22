@@ -55,8 +55,13 @@ function sourcesUnchanged(live: Generation): boolean {
 	return true;
 }
 
+/**
+ * Stop REUSING a generation; never revoke it. A session loaded under it can still lazily
+ * `import()` from its graph long after its factory returned, and disposing the importer makes
+ * that throw. Its modules stay registered either way - that residue is the price of a source edit,
+ * not something a dispose could reclaim.
+ */
 function dropGeneration(): void {
-	generation?.importer.dispose?.();
 	generation = undefined;
 	pendingImporter = undefined;
 }

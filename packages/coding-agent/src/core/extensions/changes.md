@@ -7,6 +7,7 @@
 - New `extension-module-cache.ts` owns the process-wide extension module generation: the live importer, the factories compiled under it, and a fingerprint (`mtimeNs:size`) of every source file that generation compiled. `cachedExtensionFactory()` serves a compiled factory while every recorded file is unchanged, `extensionModuleImporter()` hands out the one live importer, and `rememberExtensionFactory()` records a freshly compiled factory. A changed or deleted source drops the whole generation, so the next load compiles a new one.
 - `loader.ts` loads through that cache on every path: the per-cwd LRU factory cache (`extensionCacheByCwd`, `MAX_EXTENSION_CACHE_CWD_ENTRIES`, `ExtensionCacheToken`) and the `useCache` opt-in are gone, `loadExtensions` and `loadExtensionsCached` behave identically, and `clearExtensionCache` re-exports the cache module's.
 - `bun-extension-importer.ts` exposes `compiledFiles()`, the source files its graph transpiled. An importer without it (the Node jiti path) is never cached, because its graph cannot be checked for staleness.
+- Invalidation stops REUSING a generation and never disposes it: a session loaded under it can still lazily `import()` from its graph after its factory returned, and a disposed graph makes that throw `ExtensionGenerationDisposedError`. Its modules stay registered either way.
 
 ### Why
 

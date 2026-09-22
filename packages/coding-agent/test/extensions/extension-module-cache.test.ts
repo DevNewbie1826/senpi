@@ -91,9 +91,10 @@ describe("extension module cache", () => {
 		writeSource(entry, "export default () => 1;\n");
 		touchForward(entry);
 
-		// Then
+		// Then: the stale generation is no longer served, and its graph is left runnable for the
+		// sessions still holding factories from it.
 		expect(cachedExtensionFactory(entry)).toBeUndefined();
-		expect(state.disposed).toBe(1);
+		expect(state.disposed).toBe(0);
 	});
 
 	it("drops the generation when a compiled dependency changes", async () => {
