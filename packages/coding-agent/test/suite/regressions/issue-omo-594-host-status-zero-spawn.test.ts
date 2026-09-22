@@ -100,12 +100,47 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 import { readHostProcessMetrics } from "../../../src/modes/rpc/host-process-metrics.ts";
+import { parseKernelProcessTable } from "../../../src/modes/rpc/host-process-table.ts";
 import { zombieChildCount } from "../rpc-host-reaper-support.ts";
 
 /** Status reads per test: a desktop client polls the daemon status well within this cadence. */
 const STATUS_READS = 30;
 /** Bounded wait for the probe children to become observable zombies; ends on the observation. */
 const SETTLE_DEADLINE_MS = 15_000;
+
+/** The pinned darwin arm64 `kinfo_proc` layout, written independently of the reader's constants. */
+const KINFO_STRIDE = 648;
+const KINFO_PID = 40;
+const KINFO_PPID = 560;
+const KINFO_STAT = 36;
+/** Any p_stat other than SZOMB (5) stands in for a live process. */
+const LIVE_STAT = 2;
+const SZOMB_STAT = 5;
+
+interface SyntheticKernelRow {
+	readonly pid: number;
+	readonly ppid: number;
+	readonly stat: number;
+}
+
+/** Builds a raw sysctl-shaped buffer; a wrong stride or ppid offset simulates layout drift. */
+function syntheticKernelTable(
+	rows: readonly SyntheticKernelRow[],
+	layout: { stride?: number; ppidOffset?: number } = {},
+): Uint8Array {
+	const stride = layout.stride ?? KINFO_STRIDE;
+	const ppidOffset = layout.ppidOffset ?? KINFO_PPID;
+	const table = new Uint8Array(rows.length * stride);
+	const view = new DataView(table.buffer);
+	rows.forEach((row, index) => {
+		view.setUint32(index * stride + KINFO_PID, row.pid, true);
+		if (index * stride + ppidOffset + 4 <= table.byteLength) {
+			view.setUint32(index * stride + ppidOffset, row.ppid, true);
+		}
+		table[index * stride + KINFO_STAT] = row.stat;
+	});
+	return table;
+}
 
 async function settledZombieCount(): Promise<number> {
 	const deadline = Date.now() + SETTLE_DEADLINE_MS;
@@ -144,10 +179,57 @@ describe("rpc host status reads (omo-desktop#594)", () => {
 		expect(result.reads).toBe(6);
 		expect(result.zombiesBeforeReap).toBe(8);
 		expect(result.zombiesAfterReap).toBe(0);
+		// The tiny-buffer run forced the first sysctl to overflow; the reader still answered.
+		expect(result.overflowRecovered).toBe(true);
 	}, 120_000);
+
+	it("parses a kinfo_proc table at the pinned offsets and fails closed on layout drift", () => {
+		const resident = (pid: number) => (pid === process.pid ? 4096 : 8192);
+
+		// Positive: this process, one live child, one zombie child - all at the pinned offsets.
+		const pinned = syntheticKernelTable([
+			{ pid: process.pid, ppid: process.ppid, stat: LIVE_STAT },
+			{ pid: 4242, ppid: process.pid, stat: LIVE_STAT },
+			{ pid: 4243, ppid: process.pid, stat: SZOMB_STAT },
+		]);
+		const rows = parseKernelProcessTable(pinned, 3, resident);
+		expect(rows?.find((row) => row.pid === process.pid)?.ppid).toBe(process.ppid);
+		expect(rows?.filter((row) => row.state === "Z").map((row) => row.pid)).toEqual([4243]);
+
+		// Wrong ppid offset: the self row's ppid no longer matches the kernel's view.
+		const shiftedPpid = syntheticKernelTable([{ pid: process.pid, ppid: process.ppid, stat: LIVE_STAT }], {
+			ppidOffset: 564,
+		});
+		expect(parseKernelProcessTable(shiftedPpid, 1, resident)).toBeUndefined();
+
+		// Wrong stride: the kernel writes rows at a 600-byte spacing, so the self row's pid
+		// (at 600+40) never lands on any 648-aligned pid slot and the self-check finds nothing.
+		const wrongStride = syntheticKernelTable(
+			[
+				{ pid: 901, ppid: 1, stat: LIVE_STAT },
+				{ pid: process.pid, ppid: process.ppid, stat: LIVE_STAT },
+				{ pid: 903, ppid: 1, stat: LIVE_STAT },
+				{ pid: 904, ppid: 1, stat: LIVE_STAT },
+				{ pid: 905, ppid: 1, stat: LIVE_STAT },
+				{ pid: 906, ppid: 1, stat: LIVE_STAT },
+				{ pid: 907, ppid: 1, stat: LIVE_STAT },
+			],
+			{ stride: 600 },
+		);
+		expect(parseKernelProcessTable(wrongStride, 6, resident)).toBeUndefined();
+
+		// A table that calls this live process a zombie describes a layout we do not trust.
+		const zombieSelf = syntheticKernelTable([{ pid: process.pid, ppid: process.ppid, stat: SZOMB_STAT }]);
+		expect(parseKernelProcessTable(zombieSelf, 1, resident)).toBeUndefined();
+
+		// No self row at all: the buffer is not a table describing this process.
+		const foreignOnly = syntheticKernelTable([{ pid: 999, ppid: 1, stat: LIVE_STAT }]);
+		expect(parseKernelProcessTable(foreignOnly, 1, resident)).toBeUndefined();
+	});
 });
 
 const metricsModule = fileURLToPath(new URL("../../../src/modes/rpc/host-process-metrics.ts", import.meta.url));
+const tableModule = fileURLToPath(new URL("../../../src/modes/rpc/host-process-table.ts", import.meta.url));
 const syscallsModule = fileURLToPath(new URL("../../../src/modes/rpc/child-reaper-syscalls.ts", import.meta.url));
 const reaperModule = fileURLToPath(new URL("../../../src/modes/rpc/child-reaper.ts", import.meta.url));
 
@@ -155,6 +237,7 @@ const fixtureResultSchema = z.object({
 	reads: z.number(),
 	zombiesBeforeReap: z.number(),
 	zombiesAfterReap: z.number(),
+	overflowRecovered: z.boolean(),
 });
 
 function runStatusMetricsFixture() {
@@ -183,6 +266,7 @@ function fixtureSource(): string {
 import { parentPort, isMainThread, Worker } from "node:worker_threads";
 import { spawn } from "node:child_process";
 import { readHostProcessMetrics } from ${JSON.stringify(metricsModule)};
+import { loadProcessTableReader } from ${JSON.stringify(tableModule)};
 import { loadChildReaperSyscalls } from ${JSON.stringify(syscallsModule)};
 import { createChildReaper, resolveChildReaperConfig } from ${JSON.stringify(reaperModule)};
 
@@ -228,7 +312,16 @@ while (zombiesAfterReap > 0 && Date.now() < deadline) {
 	zombiesAfterReap = (await readHostProcessMetrics(process.pid)).zombies;
 }
 
-console.log(JSON.stringify({ reads, zombiesBeforeReap, zombiesAfterReap }));
+// Force the sysctl growth path: a 512-byte start buffer cannot hold the table, so the
+// first call overflows and the reader must grow geometrically and still answer - with the
+// fail-closed self row intact.
+const tiny = await loadProcessTableReader(process.platform, { initialTableBytes: 512 });
+const tinyRows = tiny?.();
+const tinySelf = tinyRows?.find((row) => row.pid === process.pid);
+const overflowRecovered =
+	tinyRows !== undefined && (tinyRows?.length ?? 0) > 0 && tinySelf?.ppid === process.ppid && tinySelf.state !== "Z";
+
+console.log(JSON.stringify({ reads, zombiesBeforeReap, zombiesAfterReap, overflowRecovered }));
 process.exit(0);
 `;
 }

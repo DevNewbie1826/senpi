@@ -30,6 +30,15 @@ export interface ProcessTableRow {
 /** Reads the whole process table without spawning anything, or `undefined` when it cannot. */
 export type ProcessTableReader = () => readonly ProcessTableRow[] | undefined;
 
+export interface ProcessTableReaderOptions {
+	/**
+	 * Size of the first `sysctl` buffer. The reader grows geometrically from here on a
+	 * short read; tests use a tiny value to force the growth path. Production keeps the
+	 * default, sized for the busiest observed table.
+	 */
+	readonly initialTableBytes?: number;
+}
+
 type SupportedPlatform = "darwin" | "linux";
 
 function supportedPlatform(platform: string): SupportedPlatform | undefined {
@@ -44,11 +53,12 @@ function supportedPlatform(platform: string): SupportedPlatform | undefined {
  */
 export async function loadProcessTableReader(
 	platform: NodeJS.Platform = process.platform,
+	options: ProcessTableReaderOptions = {},
 ): Promise<ProcessTableReader | undefined> {
 	const supported = supportedPlatform(platform);
 	if (supported === undefined) return undefined;
 	if (typeof (globalThis as { Bun?: unknown }).Bun === "undefined") return undefined;
-	const read = supported === "darwin" ? await darwinReader() : linuxReader;
+	const read = supported === "darwin" ? await darwinReader(options) : linuxReader;
 	return read;
 }
 
@@ -65,7 +75,40 @@ const TASKINFO_RESIDENT_OFFSET = 8;
 const TABLE_START_BYTES = 1 << 20;
 const TABLE_MAX_BYTES = 32 << 20;
 
-async function darwinReader(): Promise<ProcessTableReader | undefined> {
+/**
+ * Parses `rowCount` `kinfo_proc` rows out of a `sysctl(KERN_PROC_ALL)` buffer.
+ *
+ * Fails closed: the parsed table must describe THIS process - its row exists, its ppid
+ * equals the kernel's own view (`process.ppid`), and it is not a zombie - or the caller
+ * gets `undefined`. The offsets above are pinned by measurement on darwin arm64; if a
+ * future SDK or arch moves the layout, that drift surfaces here as a failed self-check and
+ * the status reports `null`, never a plausible wrong table.
+ */
+export function parseKernelProcessTable(
+	table: Uint8Array,
+	rowCount: number,
+	residentKb: (pid: number) => number,
+): readonly ProcessTableRow[] | undefined {
+	if (rowCount <= 0 || table.byteLength < rowCount * KINFO_PROC_STRIDE) return undefined;
+	const view = new DataView(table.buffer, table.byteOffset, table.byteLength);
+	const rows: ProcessTableRow[] = [];
+	let selfSeen = false;
+	for (let index = 0; index < rowCount; index++) {
+		const base = index * KINFO_PROC_STRIDE;
+		const pid = view.getUint32(base + KINFO_PID_OFFSET, true);
+		if (!Number.isInteger(pid) || pid <= 0) continue;
+		const ppid = view.getUint32(base + KINFO_PPID_OFFSET, true);
+		const zombie = table[base + KINFO_STAT_OFFSET] === SZOMB;
+		if (pid === process.pid) {
+			if (ppid !== process.ppid || zombie) return undefined;
+			selfSeen = true;
+		}
+		rows.push({ pid, ppid, state: zombie ? "Z" : "U", rssKb: residentKb(pid) });
+	}
+	return selfSeen ? rows : undefined;
+}
+
+async function darwinReader(options: ProcessTableReaderOptions): Promise<ProcessTableReader | undefined> {
 	const { dlopen, FFIType, ptr } = await import("bun:ffi");
 	const library = dlopen("libSystem.B.dylib", {
 		sysctl: {
@@ -81,43 +124,35 @@ async function darwinReader(): Promise<ProcessTableReader | undefined> {
 	});
 	const mib = new Int32Array([1, 14, 0]); // CTL_KERN, KERN_PROC, KERN_PROC_ALL
 	const none = new Uint8Array(1);
-	let table = new Uint8Array(TABLE_START_BYTES);
+	const requested = options.initialTableBytes;
+	let table = new Uint8Array(
+		Number.isFinite(requested) && requested !== undefined && requested > 0
+			? Math.min(Math.floor(requested), TABLE_MAX_BYTES)
+			: TABLE_START_BYTES,
+	);
 	const length = new Uint32Array(1);
 	const taskInfo = new Uint8Array(256);
 	const taskView = new DataView(taskInfo.buffer);
+	const residentKb = (pid: number): number => {
+		taskInfo.fill(0);
+		const filled = library.symbols.proc_pidinfo(pid, PROC_PIDTASKINFO, 0, ptr(taskInfo), taskInfo.byteLength);
+		return filled > 0 ? Math.round(Number(taskView.getBigUint64(TASKINFO_RESIDENT_OFFSET, true)) / 1024) : 0;
+	};
 	return () => {
-		for (let attempt = 0; attempt < 4; attempt++) {
+		for (;;) {
 			length[0] = table.byteLength;
 			const result = library.symbols.sysctl(ptr(mib), mib.length, ptr(table), ptr(length), ptr(none), 0);
-			// ENOMEM reports the needed size through `length`; grow and retry.
-			if (result !== 0 && length[0] > table.byteLength) {
-				if (length[0] > TABLE_MAX_BYTES) return undefined;
-				table = new Uint8Array(length[0]);
+			if (result !== 0) {
+				// XNU is not documented to raise `oldlenp` on a too-small KERN_PROC read, so the
+				// growth never depends on it: double (or jump to a larger reported size, if the
+				// kernel did write one), bounded by the cap, and retry.
+				if (table.byteLength >= TABLE_MAX_BYTES) return undefined;
+				const reported = length[0] > table.byteLength ? length[0] : 0;
+				table = new Uint8Array(Math.min(TABLE_MAX_BYTES, Math.max(table.byteLength * 2, reported)));
 				continue;
 			}
-			if (result !== 0) return undefined;
-			const view = new DataView(table.buffer, table.byteOffset, table.byteLength);
-			const count = Math.floor(length[0] / KINFO_PROC_STRIDE);
-			if (count <= 0) return undefined;
-			const rows: ProcessTableRow[] = [];
-			for (let index = 0; index < count; index++) {
-				const base = index * KINFO_PROC_STRIDE;
-				const pid = view.getUint32(base + KINFO_PID_OFFSET, true);
-				if (!Number.isInteger(pid) || pid <= 0) continue;
-				const state = table[base + KINFO_STAT_OFFSET] === SZOMB ? "Z" : "U";
-				taskInfo.fill(0);
-				const filled = library.symbols.proc_pidinfo(pid, PROC_PIDTASKINFO, 0, ptr(taskInfo), taskInfo.byteLength);
-				const residentBytes = filled > 0 ? Number(taskView.getBigUint64(TASKINFO_RESIDENT_OFFSET, true)) : 0;
-				rows.push({
-					pid,
-					ppid: view.getUint32(base + KINFO_PPID_OFFSET, true),
-					state,
-					rssKb: Math.round(residentBytes / 1024),
-				});
-			}
-			return rows;
+			return parseKernelProcessTable(table, Math.floor(length[0] / KINFO_PROC_STRIDE), residentKb);
 		}
-		return undefined;
 	};
 }
 
@@ -125,7 +160,8 @@ async function darwinReader(): Promise<ProcessTableReader | undefined> {
 function linuxReader(): readonly ProcessTableRow[] | undefined {
 	const rows: ProcessTableRow[] = [];
 	// The stat file reports rss in pages; node exposes no page size, and every platform this
-	// ships on today uses 4 KiB pages. The value feeds an advisory MB figure, not accounting.
+	// ships on today uses 4 KiB pages - arm64 linux kernels with 16 KiB or 64 KiB pages
+	// under-report rss by 4x-16x. The figure feeds an advisory MB status, not accounting.
 	const pageKb = 4;
 	for (const entry of readdirSync("/proc")) {
 		const pid = Number(entry);
