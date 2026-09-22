@@ -23,6 +23,24 @@ The id named an SDK integration detail rather than the thing a user signs in wit
 - `packages/coding-agent/src/core/provider-display-names.ts`, against any other provider addition.
 - `packages/coding-agent/src/core/credential-accounts.ts` provider comparisons, against pooled-account changes.
 
+## 2026-09-22 - auth.json provider-key migration (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/auth-provider-key-migration.ts` (new): `migrateLegacyProviderKeys` rewrites an auth.json credential stored under a legacy provider id to its canonical id, driven by `LEGACY_PROVIDER_IDS` from `@earendil-works/pi-ai`. Completion is derived from the data (a no-op once the legacy key is absent), not a migrations-state marker, so a load that skips the migration because the store is locked retries next time and an older binary re-introducing a legacy key still gets migrated.
+- `packages/coding-agent/src/core/auth-storage.ts`: the migration runs on the existing `parseStorageContent` write-back-once seam under the store lock, and the credential write became temp-file + rename at `0o600` with a timestamped backup taken from the original bytes.
+
+### Why
+
+Two subscription provider ids are being renamed (senpi#1989). Existing users have the old ids written into auth.json, so a load after the upgrade must rewrite the credential under the canonical key exactly once while keeping the user logged in. The managed sentinel is DERIVED from the provider id (`${providerId}-managed`), so `packages/ai/src/auth/pool/slots.ts` was widened to accept the legacy-derived material too - otherwise a pooled user's slots, which keep their sentinel values verbatim, become unauthenticatable and invisible.
+
+### Why an extension could not handle it
+
+auth.json is read and repaired inside the package before any extension loads; the pool sentinel check and the credential store are core, so an extension cannot migrate a key the store has already read under the old spelling.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/auth-storage.ts`, against any other change to the credential load/parse seam.
 ## 2026-09-22 - chatgpt-subscription provider id in core resolution and display (senpi#1989)
 
 ### What changed

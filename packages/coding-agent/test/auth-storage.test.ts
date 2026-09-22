@@ -580,6 +580,9 @@ describe("poisoned managed-sentinel pool slot migration", () => {
 	});
 
 	test("a poisoned pool is healed on read and the repair is written back once", async () => {
+		// The credential sits under the canonical post-rename key while its flat
+		// sentinel values keep the literal `claude-sdk-oauth-managed` material the
+		// provider wrote — the exact shape the auth.json key migration produces.
 		writeFileSync(poisonedPath, JSON.stringify({ "anthropic-subscription": poisonedPool() }, null, 2));
 		const storage = AuthStorage.create(poisonedPath);
 
