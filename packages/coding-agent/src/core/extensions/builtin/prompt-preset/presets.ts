@@ -22,6 +22,7 @@ import { buildGpt5Prompt } from "./gpt-5.ts";
 import { buildGpt6AstraPrompt } from "./gpt-6-astra.ts";
 import { buildGrok45Prompt } from "./grok-4.5.ts";
 import { buildGrok46Prompt } from "./grok-4.6.ts";
+import { buildGrok47Prompt } from "./grok-4.7.ts";
 import { buildKimiK26Prompt } from "./kimi-k2-6.ts";
 import { buildKimiK27Prompt } from "./kimi-k2-7.ts";
 import { buildKimiK28Prompt } from "./kimi-k2-8.ts";
@@ -227,6 +228,16 @@ function isGrok46Model(model: ModelWithPromptPresetMetadata): boolean {
 	return hasGrok46Signal(model.id) || (model.name !== undefined && hasGrok46Signal(model.name));
 }
 
+function hasGrok47Signal(value: string): boolean {
+	// Same id shapes as hasGrok46Signal with a 4.7 minor version, including venice's dashed
+	// grok-4-7. Keep 4.6 / 4.5 / 4.3 / 4.20 / 3 out.
+	return /(?:^|[/@:._-])grok(?:[._-]|p)?4(?:[._-]|p)?7(?:$|[/@._:-])/.test(normalizeModelId(value));
+}
+
+function isGrok47Model(model: ModelWithPromptPresetMetadata): boolean {
+	return hasGrok47Signal(model.id) || (model.name !== undefined && hasGrok47Signal(model.name));
+}
+
 // Claude Mythos shares each Fable release's prompting guide ("Prompting Claude
 // Fable 5.1" covers Fable 5.1 and Mythos 5.1; "Prompting Claude Fable 5"
 // covers Fable 5 and Mythos 5), so Mythos ids route to the matching Fable preset.
@@ -331,6 +342,9 @@ export function resolvePresetName(
 	if (isDeepseekV4ProModel(model)) {
 		return "deepseek-v4-pro";
 	}
+	if (isGrok47Model(model)) {
+		return "grok-4.7";
+	}
 	if (isGrok46Model(model)) {
 		return "grok-4.6";
 	}
@@ -368,6 +382,8 @@ function buildPreset(name: ResolvedPresetName, options: BuildDynamicSystemPrompt
 			return { name, prompt: buildDeepseekV41FlashPrompt(options) };
 		case "deepseek-v4-pro":
 			return { name, prompt: buildDeepseekV4ProPrompt(options) };
+		case "grok-4.7":
+			return { name, prompt: buildGrok47Prompt(options) };
 		case "grok-4.6":
 			return { name, prompt: buildGrok46Prompt(options) };
 		case "grok-4.5":

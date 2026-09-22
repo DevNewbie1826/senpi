@@ -101,14 +101,30 @@ export class ProgressiveTranscriptContainer extends Container {
 
 	override clear(): void {
 		this.cancelHydration();
-		this.hydratedFrom = PENDING_FIRST_PAINT;
+		this.rearmHydration();
 		super.clear();
 	}
 
 	override detachAll(): void {
 		this.cancelHydration();
-		this.hydratedFrom = PENDING_FIRST_PAINT;
+		this.rearmHydration();
 		super.detachAll();
+	}
+
+	/**
+	 * Reuse re-arms hydration. `clear()` and `detachAll()` declare that this
+	 * container is being repopulated with new content, so the watermark AND the
+	 * teardown halt both have to return to their pre-first-paint state. Resetting
+	 * only the watermark left a disposed-then-reused container silently inert: it
+	 * painted its bounded tail forever and never warmed the deferred head, because
+	 * `scheduleHydration()` and `warmNextChunk()` both early-return on the halt.
+	 *
+	 * Deliberately not folded into `cancelHydration()`: `dispose()` calls that
+	 * immediately after setting the halt, so re-arming there would undo teardown.
+	 */
+	private rearmHydration(): void {
+		this.hydratedFrom = PENDING_FIRST_PAINT;
+		this.hydrationHalted = false;
 	}
 
 	override dispose(): void {

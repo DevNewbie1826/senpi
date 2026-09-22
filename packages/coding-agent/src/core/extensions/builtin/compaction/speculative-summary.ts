@@ -40,7 +40,7 @@ function summaryMaxTokens(model: Model<any>, contextWindow: number): number {
  * summarization request that inherits the provider's default reasoning mode
  * burns its latency (and output budget) on invisible thinking before emitting
  * the summary. Disable or minimize reasoning per wire family; adapters ignore
- * options their provider does not support. Mirrors how OpenAI Codex keeps its
+ * options their provider does not support. Mirrors how ChatGPT Subscription keeps its
  * compaction turn cheap.
  */
 function summarizationReasoningOptions(model: Model<any>): Record<string, unknown> {
@@ -87,7 +87,7 @@ export function isAssistantMessage(message: Message): message is AssistantMessag
 }
 
 /**
- * Providers registered through `pi.registerProvider()` (claude-sdk-oauth, Kiro, any
+ * Providers registered through `pi.registerProvider()` (anthropic-subscription, Kiro, any
  * extension provider) exist only in Senpi's ModelRuntime, never in compat's builtin
  * api-registry, which rejects their api id outright. Dispatch through the runtime
  * whenever it is reachable and keep compat for contexts constructed without a registry.

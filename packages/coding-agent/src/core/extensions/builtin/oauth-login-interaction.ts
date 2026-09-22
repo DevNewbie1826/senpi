@@ -22,7 +22,7 @@ import type { ExtensionCommandContext } from "../types.ts";
 export const LOGIN_CANCELLED_MESSAGE = "Login cancelled";
 
 export interface ExtensionLoginInteractionOptions {
-	/** Provider name rendered in notices, e.g. "OpenAI Codex OAuth". */
+	/** Provider name rendered in notices, e.g. "ChatGPT Subscription OAuth". */
 	readonly providerLabel: string;
 	/** Provider id; a later login for the same id cancels this one. */
 	readonly providerId?: string | undefined;

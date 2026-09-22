@@ -1,3 +1,58 @@
+## 2026-09-22 - generator rows for the chatgpt-subscription rename (senpi#1989)
+
+### What changed
+
+- `packages/ai/scripts/generate-models.ts`: the six hardcoded `openai-codex` rows now emit the `chatgpt-subscription` provider id. They were edited in place rather than regenerated.
+
+### Why
+
+A full `generate-models` run fetches live data for Venice, Together, Vercel AI Gateway, Vertex, NVIDIA and Bedrock, so regenerating to move one provider id would pull unrelated network drift into this diff and make it unreviewable. The six rows for this provider are hardcoded literals in the generator, so editing them in place is both sufficient and auditable.
+
+### Why an extension could not handle it
+
+The generator produces the committed catalog shards that ship inside this package; nothing loaded at runtime can change what it wrote.
+
+### Expected merge conflict zones
+
+- `packages/ai/scripts/generate-models.ts`, against any other change to the hardcoded provider tables.
+
+## 2026-09-22 - Grok 4.7 + MiMo V2.6 Pro catalog additions (senpi#1990)
+
+### What changed
+
+- `packages/ai/scripts/generate-models.ts`: the xAI branch uses `getModelsDevCost(m.cost)` instead of a
+  flattened cost block, so models.dev context tiers survive into `xai.json` — Grok 4.7's
+  $4/$12 above-200k tier plus the tiers models.dev already publishes for 4.5/4.6. Ported
+  from upstream pi-mono 1a584a7a56 (`feat(ai,coding-agent): add Grok 4.7 support`).
+- `src/providers/data/` regenerated (one `bun run generate-models --strict` run):
+  `xai.json` + `github-copilot.json` gain `grok-4.7`; `xiaomi.json` + the three
+  `xiaomi-token-plan-*.json` + `opencode-go.json` + `openrouter.json` + `vercel-ai-gateway.json`
+  gain the mimo-v2.6 family; `venice.json` gains its dashed `grok-4-7`; `opencode.json` replaces
+  the selectable free model `mimo-v2.5-free` with `mimo-v2.6-flash-free` (opencode retired the
+  v2.5 free tier); `openrouter.json` additionally drops six retired `:batch` ids
+  (`minimax/minimax-m3:batch`, `moonshotai/kimi-k3:batch`, `openai/gpt-oss-120b:batch`,
+  `qwen/qwen3.5-9b:batch`, `qwen/qwen3.8-2.4t-a95b:batch`, `thinkingmachines/inkling:batch`)
+  and the directly-selectable model `kwaipilot/kat-coder-pro-v2` (also delisted), and gains
+  `nex-agi/nex-n2.5-pro` (live catalog drift the generator reports honestly).
+  `opencode.json` deliberately does NOT gain grok-4.7 — opencode does not serve it.
+- `test/xai-responses.test.ts`, `test/model-catalog-types.test.ts`, `test/stream.test.ts`:
+  Grok 4.7 effort/capabilities/tiered-pricing coverage, xai+xiaomi catalog type and
+  shard-scoped presence assertions (aggregator surface, grok-4.6 / mimo-v2.5-pro controls),
+  and the live-gated xAI E2E moves to grok-4.7.
+
+### Why
+
+- omo#8644: the direct xAI shard lacked `grok-4.7`, so `xai/grok-4.7` was unselectable;
+  `mimo-v2.6-pro` was in no shard at all.
+
+### Why this lives in the fork
+
+- Shard layout + manifest are fork-owned; upstream uses `.models.ts`.
+
+### Expected merge conflict zones
+
+- LOW: `data/*.json` + `.manifest.json` on any concurrent regeneration.
+
 ## 2026-09-21 - Migrate the test runner to Vitest 5 (senpi#1895)
 
 ### What changed

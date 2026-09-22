@@ -11,7 +11,7 @@ import {
 	removeAccount,
 } from "./accounts.ts";
 
-export const CLAUDE_SDK_OAUTH_PROVIDER_ID = "claude-sdk-oauth";
+export const CLAUDE_SDK_OAUTH_PROVIDER_ID = "anthropic-subscription";
 
 export type ProviderAccountSummary = {
 	readonly name: string;

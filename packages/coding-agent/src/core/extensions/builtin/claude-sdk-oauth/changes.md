@@ -1,3 +1,124 @@
+## 2026-09-22 - read the renamed provider settings block (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/settings.ts`: `loadClaudeSdkOauthProviderSettings` now reads the canonical `anthropicSubscriptionProvider` block, falling back to the legacy `claudeSdkOauthProvider` key; the `SettingsWithClaudeSdkOauthProvider` type carries both.
+
+### Why
+
+The settings-key migration (senpi#1989) renames `claudeSdkOauthProvider` -> `anthropicSubscriptionProvider` on first parse, so a reader that only looked at the legacy key resolved `undefined` for every migrated user (systemPromptMode/File, resumeMode, tokenInjection, ambient enabled). Reading the canonical key first restores the block; the legacy fallback keeps settings that predate the migration working for at least two releases.
+
+### Why an extension could not handle it
+
+This IS the provider extension's own settings reader; the migration happens in core SettingsManager and the extension must read the post-migration key.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/settings.ts` `loadClaudeSdkOauthProviderSettings` and the `SettingsWithClaudeSdkOauthProvider` type.
+
+## 2026-09-22 - move the per-account directory to the canonical name (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/config-dir-credentials.ts`: new `resolveAccountsDirectory` performs a one-shot, idempotent move of `<agentDir>/claude-sdk-oauth-accounts` -> `<agentDir>/anthropic-subscription-accounts` the first time the lane resolves an account dir; `writeConfigDirCredential` routes through it. Slot names and file contents are preserved byte-for-byte.
+
+### Why
+
+The per-account directory was named for the old provider id. After the rename an existing multi-account user's stored Claude config dirs would be stranded under the legacy name. The move is idempotent (no legacy tree -> canonical name used directly), never merges two trees (if the canonical dir already exists the legacy tree is set aside with a timestamp suffix), and survives a cross-device or Windows sharing-violation `rename` failure by falling back to copy-then-remove with the source left authoritative on a mid-copy failure. A failed move is non-fatal and retried on the next resolve.
+
+### Why an extension could not handle it
+
+The account directory is owned and written by this provider extension; the move must happen where the path is built, before the Claude CLI reads the credential from it.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/config-dir-credentials.ts` `resolveAccountsDirectory` and the accounts-dir name constants.
+
+## 2026-09-22 - claude-sdk-oauth provider id renamed to anthropic-subscription across the extension (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/account-management.ts`: `CLAUDE_SDK_OAUTH_PROVIDER_ID` value is `"anthropic-subscription"` (symbol name unchanged).
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/session-commit-boundary.ts`: `isResidentAssistant` compares `message.api === CLAUDE_SDK_OAUTH_API_ID` and `message.provider === CLAUDE_SDK_OAUTH_PROVIDER_ID`. The old code compared BOTH fields to the provider-id constant, which only worked while api id === provider id; after the value rename it would always be false and the #7925 resident commit boundary would silently die.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/tool-watch.ts`: runtime `PROVIDER_ID` comparison moves to the new id; `TOOL_WATCH_CUSTOM_TYPE` (`claude-sdk-oauth-tool-watch`) is a persisted session custom-entry type and stays.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/guidance.ts`: rendered guidance (`/login anthropic-subscription`) and the override-prompt error use the new id/label.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/oauth-login.ts`: login label is `"Anthropic Subscription (Claude Pro/Max)"`; auth-check source follows.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/account-command.ts`: label constant and every notify/description string read "Anthropic Subscription".
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/affinity.ts`, `bounded-queue.ts`, `failover.ts`, `session-stream.ts`, `session-registry.ts`, `session-registry-pump.ts`, `session-reattach.ts`, `session-turn-claim.ts`: user-visible error/notify strings use the new label. `DEFAULT_AFFINITY_KEY` (`claude-sdk-oauth-default`) is FROZEN — it is the HRW hash-domain constant; renaming it silently remaps every unpinned session to a different account.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/session-observability.ts`: the close-cause regex accepts BOTH phrasings (`Claude SDK OAuth query|Anthropic Subscription query`) so classification survives the renamed pump messages.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/auth-lane.ts`: the no-managed-accounts error names the new lane and `/login anthropic-subscription`; `CLAUDE_CODE_OAUTH_TOKEN` unchanged.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/errors.ts`: doc comment names the new label.
+- Frozen and untouched in this directory: `api-id.ts` wire id, `accounts.ts` `claude-sdk-oauth-managed` literals, `session-binding.ts` `claude-sdk-oauth-binding`, `session-binding-store.ts` `.claude-sdk-oauth-binding.json`, `config-dir-credentials.ts` `claude-sdk-oauth-accounts` directory, every `claude_sdk_oauth_*` diagnostic token, module paths and symbols.
+
+### Why
+
+Same rename series as the api-id split entry directly below: the provider id moves, the wire api id and all persisted identities do not. The builtin extension id in `builtin/index.ts` also stays `"claude-sdk-oauth"` because user settings persist it in `enabledBuiltinExtensions`/`disabledBuiltinExtensions`.
+
+### Why an extension could not handle it
+
+This IS the extension; the provider id is its own registration constant and the strings are its own rendered output.
+
+### Expected merge conflict zones
+
+- `account-management.ts` (the constant), against any other id-following change.
+- `session-commit-boundary.ts` `isResidentAssistant`, against #7925-lineage changes.
+- `session-registry-pump.ts` error strings, against observability classification changes (`session-observability.ts` must accept both phrasings).
+
+## 2026-09-22 - Split the wire api id from the provider id (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/api-id.ts`: new `CLAUDE_SDK_OAUTH_API_ID`, frozen at `"claude-sdk-oauth"`. That string is the wire identity sent to the provider and persisted in user data; it must not follow a provider-id rename.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/index.ts`: `registerProvider` still takes the provider id from `CLAUDE_SDK_OAUTH_PROVIDER_ID`. `api` and `baseUrl` now come from `CLAUDE_SDK_OAUTH_API_ID`.
+- Guarded by `packages/coding-agent/test/suite/anthropic-subscription-api-id.test.ts`. A failure there means a rename went too far; restore the wire id, do not update the expected value.
+
+### Why
+
+- The extension previously registered provider id, `api`, and `baseUrl` from one constant. Renaming the provider to `anthropic-subscription` would have silently moved the wire api id too. `packages/ai/src/utils/prompt-cache-ttl.ts:358` and the compaction lane policy switch on that exact string.
+
+### Expected merge conflict zones
+
+- LOW: the `registerProvider` call in `index.ts` (`api` / `baseUrl`).
+- LOW: the new `api-id.ts` module.
+
+## 2026-09-22 - An append-only tail keeps the restart binding (senpi#1964)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/session-binding.ts`: `bindingFromStoredBranch` now admits an append-only tail after the committed assistant through a new `isAppendOnlyTailEntry` predicate - the existing ledger-only set, plus `custom_message` entries and `message` entries whose role is `user` or `toolResult`. A later assistant message, and every check around this one, still fail closed.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/session-reattach.ts`: `verifyRestoredTranscript` now also requires that NO top-level `user` frame follows the anchored assistant in the SDK transcript. Admitting the append-only tail alone would have been unsafe: a process that dies between pushing a turn and committing its assistant leaves that user frame in Claude Code's transcript while the ledger still anchors the previous assistant, so a plain resume from the anchor would send it a SECOND time. The in-memory retry checkpoint that forks past such an orphan (`unansweredTurnDigest`, senpi#723) is never persisted, so the restart path has no equivalent and fails closed instead. Only the orphan COUNT is logged (`claude_sdk_oauth_restored_transcript_orphan_tail`), never content; `session-observability.ts` gained `logContinuityEvent` so this module writes through the same boundary tests already override. Forking at the anchor instead of cold-seeding is the deferred half and belongs to senpi#1973.
+- `packages/coding-agent/test/claude-sdk-oauth-binding-anchor.test.ts`: two assertions were REALIGNED, not deleted. "rejects a later user message after the committed assistant" and "rejects a model-visible custom message after the committed assistant" now expect a binding, with the reason recorded inline; new cases cover a later tool result, the terminal startup notice that triggered the report, and a later assistant message that must still reject.
+
+### Why
+
+- Opening a second terminal on a live session appends a `custom_message` of type `senpi-terminal:notification`. The old predicate rejected the branch, `session-registry-wiring` deleted the sidecar, and the next turn cold-seeded and re-sent the whole conversation as `flatten / registry_miss`. On one machine that reason was the most frequent continuity failure - 20 of 54 observations, median re-sent payload 371,057 bytes, maximum 1,770,192 bytes.
+- The rejection was redundant rather than protective. A `custom_message` is never transmitted on this lane (`isTransmittedMessage` in `session-sync.ts` admits only `user` and `toolResult`), so it cannot have reached the SDK transcript and cannot make a resume diverge. A later `user` / `toolResult` IS transmitted, but `decideNativeContinuity` already compares `sentPrefixHash` through `sentCount` before resuming and re-sends the remainder as the delta.
+- The two realigned assertions had pinned the defective contract, which is why it survived review. Reverting the predicate turns exactly the four admit cases red and leaves all thirteen fail-closed cases green.
+- oh-my-openagent#8424 finding 2 reached the same diagnosis independently.
+
+### Expected merge conflict zones
+
+- LOW: the predicate block near `isLedgerOnlyEntry` and the single guard line in `bindingFromStoredBranch`.
+- LOW: the anchor-index block in `verifyRestoredTranscript` and the new `logContinuityEvent` export in `session-observability.ts`.
+- MEDIUM: `test/suite/regressions/7925-claude-sdk-oauth-restart-binding-ledger-entries.test.ts`, whose model-visible table was split into an append-only table and a retiring table.
+- MEDIUM: `claude-sdk-oauth-binding-anchor.test.ts`, whose two flipped assertions will conflict with any upstream edit to the same cases.
+
+## 2026-09-22 - A rejected fork point is dropped, not republished (senpi#1958)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/session-turn-attempt.ts`: recognizes Claude Code's `No message found with message.uuid of: <id>` alongside the existing missing-session wording, and removes exactly that id from `assistantUuidByIndex` before the retry checkpoint is published. Earlier mapped boundaries survive in the published checkpoint. This entry does NOT make the next admission fork at one of them: with `lastAssistantUuid` gone, `retryCheckpointDecision` and the legacy `decideFromBinding` branch in `session-continuity.ts` still answer `flatten` (`timeout_retry` / `registry_miss`) instead of consulting the surviving entries, so the turn after a rejected fork point re-sends once. Consuming those entries is senpi#1973; this entry only guarantees the dead id is never requested again.
+
+### Why
+
+- The lane already forgot a binding whose SDK *session* id Claude Code reported missing, but a missing *message* id took the ordinary failure path: `rememberRetryCheckpoint` republished the same binding, whose `lastAssistantUuid` is the id the SDK had just rejected. The next admission asked for it again, failed the same way, and fell through to `resume_initialization_failed` - a full-history re-send per turn, repeating for as long as the dead id stayed published.
+- senpi#1958 measured the loop in the field: five consecutive turns re-sent 221,279, 223,068, 224,916, 227,103 and 229,153 bytes with no compaction, model switch or options change. oh-my-openagent#8424 reached the same conclusion independently in its finding 5.
+- Only the rejected id is dropped. Clearing the whole map would turn every later divergence into a flatten, which is the cost this lane exists to avoid.
+
+### Expected merge conflict zones
+
+- LOW: the constant block at the top of `session-turn-attempt.ts` and the `else` arm of the generator's `catch`.
+
 # claude-sdk-oauth
 
 ## 2026-09-17 - Re-login refreshes the slot in place; all-blocked guidance names auth failures (omo#7084, omo#8383)

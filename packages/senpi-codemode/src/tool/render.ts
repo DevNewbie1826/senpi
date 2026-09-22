@@ -10,6 +10,7 @@ import {
 	truncateToVisualLines,
 } from "@code-yeongyu/senpi";
 import { formatTruncationWarning, stripOutputNotice, type TruncationMeta } from "../output/output-meta.ts";
+import { clampEvalSummary } from "./eval-request.ts";
 import {
 	JSON_TREE_MAX_DEPTH_COLLAPSED,
 	JSON_TREE_MAX_DEPTH_EXPANDED,
@@ -883,6 +884,13 @@ function resultMetadata(
 	return [{ kind: "text", text: style(theme, "muted", metadata.join(" | ")) }];
 }
 
+// The call renderer reads the assistant message's raw arguments, which now keep the provider's
+// original summary (senpi#1472 detached preparation from the message). The advertised display
+// limit is enforced here instead, idempotently: an already-clamped value is returned unchanged.
+function displaySummary(summary: string | undefined): string | undefined {
+	return clampEvalSummary(summary);
+}
+
 export function renderEvalCall(
 	args: EvalToolRequest,
 	theme: Theme | undefined,
@@ -905,7 +913,9 @@ export function renderEvalCall(
 		const timeout = args.timeout === undefined ? "" : ` timeout ${args.timeout}s`;
 		component.setBlocks([
 			{ kind: "text", text: style(theme, "toolTitle", `eval ${args.language}${reset}${timeout}`) },
-			...(args.summary === undefined ? [] : [{ kind: "text" as const, text: style(theme, "muted", args.summary) }]),
+			...(displaySummary(args.summary) === undefined
+				? []
+				: [{ kind: "text" as const, text: style(theme, "muted", displaySummary(args.summary) ?? "") }]),
 			{
 				kind: "text",
 				text: style(theme, "mdCodeBlock", args.code.trim().length > 0 ? args.code : "..."),
@@ -930,7 +940,7 @@ export function renderEvalCall(
 				};
 				const cell: EvalCellResult = {
 					index: 0,
-					...(args.summary === undefined ? {} : { summary: args.summary }),
+					...(displaySummary(args.summary) === undefined ? {} : { summary: displaySummary(args.summary) ?? "" }),
 					code: args.code,
 					language: args.language,
 					output: "",

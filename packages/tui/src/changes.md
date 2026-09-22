@@ -1,5 +1,26 @@
 # TUI delta rendering fork changes
 
+## 2026-09-22 - Render-error diagnostics follow the host log directory (senpi#2000)
+
+### What changed
+
+- `packages/tui/src/tui.ts`: new module-scoped `defaultDiagnosticLogDirectory()` and `renderErrorLogDirectory`. `TuiBase`'s constructor publishes its resolved `logDirectory` into that module scope, and `logRenderErrorOnce()` writes to it instead of re-deriving `os.homedir()/.senpi/agent`. The default when no host directory is supplied is unchanged.
+- `packages/tui/test/render-contract.test.ts`: a throwing child rendered by a TUI constructed with an explicit log directory writes `senpi-debug.log` into that directory and not into a `HOME`-derived path.
+
+### Why
+
+- `logRenderErrorOnce()` is reached from `Container.render()`, which has no TUI instance, so the path was hardcoded from `os.homedir()`. Hosts already pass a resolved agent directory (`logDirectory`), and `pi-debug.log` already honours it; only the render-error diagnostic did not.
+- Under a non-default brand the resolved agent directory is not `~/.senpi/agent`, so the only record of a component that throws every frame landed in a directory the operator never reads.
+- Suites that quarantine the agent directory but not `HOME` append to the developer's real `~/.senpi/agent/senpi-debug.log`; a single run of the coding-agent progressive-transcript suite was measured growing that file from 19,650 to 19,744 bytes. That leak is what led here, but it is **not** fixed by this change: that suite renders a container directly and never constructs a `TuiBase`, so no host directory is published and the fallback still resolves from `HOME`. Re-measured with this change applied, the same run still grew the file (19,744 -> 19,838). Closing it belongs to the coding-agent test setup, which must quarantine `HOME` the way it already quarantines the agent directory.
+
+### Why an extension could not handle it
+
+- Render containment and its diagnostic live inside `packages/tui`'s render path; an extension cannot reach `Container.render()`'s catch branch or the module-scoped logger.
+
+### Expected merge conflict zones
+
+- `packages/tui/src/tui.ts`: the module-scoped diagnostic state block near `DIAGNOSTIC_LOG_MODE`, the `logRenderErrorOnce()` body, and the `TuiBase` constructor's `logDirectory` assignment.
+
 ## 2026-09-20 - Keyboard focus requires the ability to receive keys (senpi#1882)
 
 ### What changed

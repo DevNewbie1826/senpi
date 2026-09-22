@@ -29,7 +29,7 @@ const EXPECTED_COST = {
 	tiers: [{ inputTokensAbove: 272000, input: 20, output: 75, cacheRead: 2, cacheWrite: 25 }],
 };
 
-for (const provider of ["openai", "openai-codex"] as const) {
+for (const provider of ["openai", "chatgpt-subscription"] as const) {
 	describe(`${provider}/gpt-6-astra`, () => {
 		it("has the published catalog metadata and long-context pricing", () => {
 			const model = getModel(provider, "gpt-6-astra");

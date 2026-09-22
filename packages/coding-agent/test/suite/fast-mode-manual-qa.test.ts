@@ -31,7 +31,7 @@ function out(s: string): void {
 	lines.push(s);
 }
 
-const CODEX_PROVIDER = "openai-codex";
+const CODEX_PROVIDER = "chatgpt-subscription";
 const CODEX_API = "openai-codex-responses";
 const BASE_MODEL_ID = "gpt-5.6-sol";
 const BASE_KEY = `${CODEX_PROVIDER}/${BASE_MODEL_ID}`;

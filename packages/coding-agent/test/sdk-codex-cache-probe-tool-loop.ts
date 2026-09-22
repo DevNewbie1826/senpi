@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Manual SDK probe for OpenAI Codex prompt caching through the tool loop.
+ * Manual SDK probe for ChatGPT Subscription prompt caching through the tool loop.
  *
  * Runs append-only multi-turn prompting through createAgentSession(), forcing one
  * deterministic custom tool call per top-level user turn. Logs per-subrequest
@@ -134,7 +134,7 @@ Options:
 
 Notes:
   - Uses createAgentSession() from the coding-agent SDK
-  - Provider/model fixed to openai-codex/gpt-5.5
+  - Provider/model fixed to chatgpt-subscription/gpt-5.5
   - Thinking level fixed to low
   - Activates exactly one deterministic custom tool
   - Prompts are intentionally > 1024 tokens and explicitly describe the test
@@ -279,9 +279,9 @@ async function main(): Promise<void> {
 	const authStorage = AuthStorage.create();
 	const modelRegistry = await createModelRegistry(authStorage);
 
-	const model = getModel("openai-codex", "gpt-5.5");
+	const model = getModel("chatgpt-subscription", "gpt-5.5");
 	if (!model) {
-		throw new Error("Model openai-codex/gpt-5.5 not found");
+		throw new Error("Model chatgpt-subscription/gpt-5.5 not found");
 	}
 	const baseModel = { ...model, maxTokens: args.maxTokens };
 	const streamSimpleOpenAICodexResponsesForRegistry = (
@@ -290,7 +290,7 @@ async function main(): Promise<void> {
 		options?: SimpleStreamOptions,
 	): AssistantMessageEventStream =>
 		streamSimpleOpenAICodexResponses(registryModel as Model<"openai-codex-responses">, context, options);
-	modelRegistry.registerProvider("openai-codex", {
+	modelRegistry.registerProvider("chatgpt-subscription", {
 		api: "openai-codex-responses",
 		baseUrl: baseModel.baseUrl,
 		apiKey: "!echo source-provider-override-uses-auth-storage",
@@ -328,7 +328,7 @@ async function main(): Promise<void> {
 	const turnElapsedMs: number[] = [];
 	let previousCacheRead: number | null = null;
 
-	console.log(`provider openai-codex, model gpt-5.5`);
+	console.log(`provider chatgpt-subscription, model gpt-5.5`);
 	console.log(`session ${session.sessionFile}`);
 	console.log(`turns ${args.turns}, transport ${args.transport}, reasoning low, maxTokens ${args.maxTokens}`);
 	console.log("");

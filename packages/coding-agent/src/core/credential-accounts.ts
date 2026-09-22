@@ -103,7 +103,7 @@ export async function summarizeCredentialAccounts(
 	if (credential) {
 		const state = await repository.listSlots(provider, "stored");
 		const storedAccounts =
-			provider === "claude-sdk-oauth"
+			provider === "anthropic-subscription"
 				? Array.isArray(credential.accounts)
 					? listSlots(credential)
 					: []
@@ -126,7 +126,7 @@ export async function summarizeCredentialAccounts(
 				pinned: pinned === slot.name,
 			});
 		}
-		if (provider !== "claude-sdk-oauth") return summaries;
+		if (provider !== "anthropic-subscription") return summaries;
 	}
 
 	const state = await repository.listSlots(provider, "env");
@@ -187,7 +187,7 @@ export async function pinCredentialAccount(
 	}
 	await storage.modify(provider, async (current) => {
 		if (current === undefined) {
-			if (provider !== "claude-sdk-oauth" || name === null) {
+			if (provider !== "anthropic-subscription" || name === null) {
 				throw new Error(`No stored credential for provider: ${provider}`);
 			}
 			return pinSlot({ type: "oauth", ...SENTINEL_OAUTH_FIELDS, accounts: [] }, name);

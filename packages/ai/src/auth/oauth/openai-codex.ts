@@ -1,5 +1,5 @@
 /**
- * OpenAI Codex (ChatGPT OAuth) flow
+ * ChatGPT Subscription OAuth flow
  *
  * NOTE: This module uses Node.js crypto and http for the OAuth callback.
  * It is only intended for CLI use, not browser environments.
@@ -59,7 +59,7 @@ type DeviceTokenSuccess = {
 
 function createState(): string {
 	if (!_randomBytes) {
-		throw new Error("OpenAI Codex OAuth is only available in Node.js environments");
+		throw new Error("ChatGPT Subscription OAuth is only available in Node.js environments");
 	}
 	return _randomBytes(16).toString("hex");
 }
@@ -108,7 +108,9 @@ async function fetchWithLoginCancellation(input: string, init: RequestInit): Pro
 async function readTokenResponse(response: Response, operation: TokenOperation): Promise<OAuthToken> {
 	if (!response.ok) {
 		const text = await response.text().catch(() => "");
-		throw new Error(`OpenAI Codex token ${operation} failed (${response.status}): ${text || response.statusText}`);
+		throw new Error(
+			`ChatGPT Subscription token ${operation} failed (${response.status}): ${text || response.statusText}`,
+		);
 	}
 
 	const rawJson = await response.json();
@@ -118,7 +120,7 @@ async function readTokenResponse(response: Response, operation: TokenOperation):
 		expires_in?: number;
 	} | null;
 	if (!json?.access_token || !json.refresh_token || typeof json.expires_in !== "number") {
-		throw new Error(`OpenAI Codex token ${operation} response missing fields: ${JSON.stringify(json)}`);
+		throw new Error(`ChatGPT Subscription token ${operation} response missing fields: ${JSON.stringify(json)}`);
 	}
 
 	return {
@@ -164,7 +166,9 @@ async function refreshAccessToken(refreshToken: string, signal: AbortSignal): Pr
 			signal,
 		});
 	} catch (error) {
-		throw new Error(`OpenAI Codex token refresh error: ${error instanceof Error ? error.message : String(error)}`);
+		throw new Error(
+			`ChatGPT Subscription token refresh error: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
 
 	return readTokenResponse(response, "refresh");
@@ -181,12 +185,12 @@ async function startOpenAICodexDeviceAuth(signal: AbortSignal): Promise<DeviceAu
 	if (!response.ok) {
 		if (response.status === 404) {
 			throw new Error(
-				"OpenAI Codex device code login is not enabled for this server. Use browser login or verify the server URL.",
+				"ChatGPT Subscription device code login is not enabled for this server. Use browser login or verify the server URL.",
 			);
 		}
 		const responseBody = await response.text().catch(() => "");
 		throw new Error(
-			`OpenAI Codex device code request failed with status ${response.status}${responseBody ? `: ${responseBody}` : ""}`,
+			`ChatGPT Subscription device code request failed with status ${response.status}${responseBody ? `: ${responseBody}` : ""}`,
 		);
 	}
 
@@ -204,7 +208,7 @@ async function startOpenAICodexDeviceAuth(signal: AbortSignal): Promise<DeviceAu
 		!Number.isFinite(intervalSeconds) ||
 		intervalSeconds < 0
 	) {
-		throw new Error(`Invalid OpenAI Codex device code response: ${JSON.stringify(json)}`);
+		throw new Error(`Invalid ChatGPT Subscription device code response: ${JSON.stringify(json)}`);
 	}
 
 	return {
@@ -236,7 +240,7 @@ async function pollOpenAICodexDeviceAuth(device: DeviceAuthInfo, signal: AbortSi
 				if (!json?.authorization_code || !json.code_verifier) {
 					return {
 						status: "failed",
-						message: `Invalid OpenAI Codex device auth token response: ${JSON.stringify(json)}`,
+						message: `Invalid ChatGPT Subscription device auth token response: ${JSON.stringify(json)}`,
 					};
 				}
 				return {
@@ -266,7 +270,7 @@ async function pollOpenAICodexDeviceAuth(device: DeviceAuthInfo, signal: AbortSi
 
 			return {
 				status: "failed",
-				message: `OpenAI Codex device auth failed with status ${response.status}${responseBody ? `: ${responseBody}` : ""}`,
+				message: `ChatGPT Subscription device auth failed with status ${response.status}${responseBody ? `: ${responseBody}` : ""}`,
 			};
 		},
 	});
@@ -301,7 +305,7 @@ type OAuthServerInfo = {
 
 function startLocalOAuthServer(state: string): Promise<OAuthServerInfo> {
 	if (!_http) {
-		throw new Error("OpenAI Codex OAuth is only available in Node.js environments");
+		throw new Error("ChatGPT Subscription OAuth is only available in Node.js environments");
 	}
 
 	let settleWait: ((value: { code: string } | null) => void) | undefined;
@@ -485,20 +489,20 @@ async function loginOpenAICodex(interaction: ProviderAuthInteraction): Promise<O
 }
 
 /**
- * Refresh OpenAI Codex OAuth token
+ * Refresh ChatGPT Subscription OAuth token
  */
 async function refreshOpenAICodexToken(refreshToken: string, signal: AbortSignal): Promise<OAuthCredential> {
 	return credentialsFromToken(await refreshAccessToken(refreshToken, signal));
 }
 
 export const openaiCodexOAuth: OAuthAuth = {
-	name: "OpenAI (ChatGPT Plus/Pro)",
+	name: "ChatGPT Subscription (Plus/Pro)",
 	isSubscription: true,
 
 	async login(interaction) {
 		const method = await interaction.prompt({
 			type: "select",
-			message: "Select OpenAI Codex login method:",
+			message: "Select ChatGPT Subscription login method:",
 			options: [
 				{ id: OPENAI_CODEX_BROWSER_LOGIN_METHOD, label: "Browser login (default)" },
 				{ id: OPENAI_CODEX_DEVICE_CODE_LOGIN_METHOD, label: "Device code login (headless)" },
@@ -509,7 +513,7 @@ export const openaiCodexOAuth: OAuthAuth = {
 			return loginOpenAICodexDeviceCode(interaction);
 		}
 		if (method !== OPENAI_CODEX_BROWSER_LOGIN_METHOD) {
-			throw new Error(`Unknown OpenAI Codex login method: ${method}`);
+			throw new Error(`Unknown ChatGPT Subscription login method: ${method}`);
 		}
 
 		return loginOpenAICodex(interaction);

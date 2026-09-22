@@ -48,7 +48,7 @@ export function assistant(text = "turn one"): AssistantMessage {
 		role: "assistant",
 		content: [{ type: "text", text }],
 		api: "claude-sdk-oauth",
-		provider: "claude-sdk-oauth",
+		provider: "anthropic-subscription",
 		model: "claude-test",
 		usage: {
 			input: 0,

@@ -1252,7 +1252,7 @@ export class AgentSession {
 	 * Resolve the model used for compaction summarization. When the user sets a
 	 * `compaction.model` override ("provider/model"), that model is used for the
 	 * summarization call instead of the session model — this is what lets an
-	 * SDK-owned lane (claude-sdk-oauth) compact on a cheaper/different model.
+	 * SDK-owned lane (anthropic-subscription) compact on a cheaper/different model.
 	 * Any resolution failure (unset, malformed, unknown model) falls back to the
 	 * session model so compaction never silently breaks.
 	 */
@@ -5192,7 +5192,7 @@ export class AgentSession {
 		const previousReasoningBaseline = this.agent.state.reasoningBaseline;
 		const previousAbortServerSideFallback = this.agent.abortServerSideFallback;
 		this.agent.state.model = model;
-		if (!(model.id === "gpt-6-astra" && (model.provider === "openai" || model.provider === "openai-codex"))) {
+		if (!(model.id === "gpt-6-astra" && (model.provider === "openai" || model.provider === "chatgpt-subscription"))) {
 			this.agent.state.reasoningBaseline = undefined;
 		}
 		const scopedMatch = this._scopedModels.find((sm) => modelsAreEqual(sm.model, model));
@@ -5510,7 +5510,7 @@ export class AgentSession {
 			if (
 				isChanging &&
 				model?.id === "gpt-6-astra" &&
-				(model.provider === "openai" || model.provider === "openai-codex")
+				(model.provider === "openai" || model.provider === "chatgpt-subscription")
 			) {
 				this.agent.state.reasoningBaseline ??= previousLevel;
 				this.sessionManager.appendConfigurationUpdate(effectiveLevel);
@@ -6301,7 +6301,7 @@ export class AgentSession {
 			if (
 				latestConfigurationEffort !== undefined &&
 				modelAfterCompaction?.id === "gpt-6-astra" &&
-				(modelAfterCompaction.provider === "openai" || modelAfterCompaction.provider === "openai-codex")
+				(modelAfterCompaction.provider === "openai" || modelAfterCompaction.provider === "chatgpt-subscription")
 			) {
 				this.sessionManager.appendConfigurationUpdate(latestConfigurationEffort);
 			}

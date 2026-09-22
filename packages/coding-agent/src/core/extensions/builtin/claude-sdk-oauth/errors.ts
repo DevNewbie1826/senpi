@@ -99,7 +99,7 @@ export function sdkAssistantFailure(message: Extract<SDKMessage, { type: "assist
 	return new Error(text ? (message.error === "unknown" ? text : `${text} (${message.error})`) : message.error);
 }
 
-/** Classifies Claude SDK OAuth error codes and HTTP-shaped fallback text in one place. */
+/** Classifies Anthropic Subscription error codes and HTTP-shaped fallback text in one place. */
 export function classifySdkError(error: unknown): SdkErrorClassification {
 	const text = errorText(error).toLowerCase();
 	if (

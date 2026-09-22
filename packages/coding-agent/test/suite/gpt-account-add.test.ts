@@ -15,7 +15,7 @@ import {
 
 const CODEX_LOGIN_METHOD_PROMPT = {
 	type: "select",
-	message: "Select OpenAI Codex login method:",
+	message: "Select ChatGPT Subscription login method:",
 	options: [
 		{ id: "browser", label: "Browser login (default)" },
 		{ id: "device_code", label: "Device code login (headless)" },
@@ -58,7 +58,7 @@ describe("/gpt-account add", () => {
 			async (_provider, _method, interaction) => {
 				const method = await interaction.prompt(CODEX_LOGIN_METHOD_PROMPT);
 				if (method !== "browser" && method !== "device_code") {
-					throw new Error(`Unknown OpenAI Codex login method: ${method}`);
+					throw new Error(`Unknown ChatGPT Subscription login method: ${method}`);
 				}
 				methods.push(method);
 			},
@@ -70,7 +70,7 @@ describe("/gpt-account add", () => {
 		expect(dialogs).toEqual([
 			{
 				kind: "select",
-				title: "Select OpenAI Codex login method:",
+				title: "Select ChatGPT Subscription login method:",
 				options: ["Browser login (default)", "Device code login (headless)"],
 				// The dialog is bound to the login's own controller, never to the turn's signal (#1542).
 				signal: expect.any(AbortSignal),
@@ -78,7 +78,7 @@ describe("/gpt-account add", () => {
 		]);
 		expect(dialogs[0]?.signal?.aborted).toBe(false);
 		expect(methods).toEqual(["device_code"]);
-		expect(notices.at(-1)).toMatchObject({ message: "OpenAI Codex OAuth account added.", type: "info" });
+		expect(notices.at(-1)).toMatchObject({ message: "ChatGPT Subscription OAuth account added.", type: "info" });
 	});
 
 	it("stays silent when the user dismisses the login-method selector", async () => {
@@ -161,7 +161,7 @@ describe("/gpt-account add", () => {
 			{ kind: "input", title: "Paste the authorization code:", placeholder: "http://localhost:1455/auth/callback" },
 		]);
 		expect(outcomes).toEqual(["rejected:Login cancelled"]);
-		expect(notices.at(-1)).toMatchObject({ message: "OpenAI Codex OAuth account added.", type: "info" });
+		expect(notices.at(-1)).toMatchObject({ message: "ChatGPT Subscription OAuth account added.", type: "info" });
 	});
 
 	it("opens the authorize URL in the browser for the TUI and prints it as a fallback", async () => {
@@ -195,7 +195,7 @@ describe("/gpt-account add", () => {
 		expect(notices[0]?.message).toContain(AUTHORIZE_URL);
 	});
 
-	it("runs an openai-codex oauth login and announces the new account", async () => {
+	it("runs an chatgpt-subscription oauth login and announces the new account", async () => {
 		const { changed, unsubscribe } = collectAccountsChanged();
 		const { ctx, notices, logins } = createLoginContext(async () => {});
 
@@ -205,9 +205,9 @@ describe("/gpt-account add", () => {
 			unsubscribe();
 		}
 
-		expect(logins).toEqual(["openai-codex:oauth"]);
-		expect(notices.at(-1)).toMatchObject({ message: "OpenAI Codex OAuth account added.", type: "info" });
-		expect(changed).toEqual(["openai-codex"]);
+		expect(logins).toEqual(["chatgpt-subscription:oauth"]);
+		expect(notices.at(-1)).toMatchObject({ message: "ChatGPT Subscription OAuth account added.", type: "info" });
+		expect(changed).toEqual(["chatgpt-subscription"]);
 	});
 
 	it("stays silent when the user cancels the login prompt", async () => {
@@ -256,7 +256,7 @@ describe("/gpt-account add", () => {
 		expect(loginSignal?.aborted).toBe(false);
 		releaseLogin?.();
 		await handled;
-		expect(notices.at(-1)).toMatchObject({ message: "OpenAI Codex OAuth account added.", type: "info" });
+		expect(notices.at(-1)).toMatchObject({ message: "ChatGPT Subscription OAuth account added.", type: "info" });
 	});
 
 	// #1542: dismissing the login's own dialog is what cancels the login.
@@ -307,7 +307,10 @@ describe("/gpt-account add", () => {
 		expect(signals[0]?.reason).toMatchObject({ message: "Login cancelled" });
 		expect(signals[1]?.aborted).toBe(false);
 		expect(first.notices).toEqual([]);
-		expect(second.notices.at(-1)).toMatchObject({ message: "OpenAI Codex OAuth account added.", type: "info" });
+		expect(second.notices.at(-1)).toMatchObject({
+			message: "ChatGPT Subscription OAuth account added.",
+			type: "info",
+		});
 	});
 
 	it("surfaces a real login failure as an error notice", async () => {

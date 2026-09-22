@@ -580,10 +580,13 @@ describe("poisoned managed-sentinel pool slot migration", () => {
 	});
 
 	test("a poisoned pool is healed on read and the repair is written back once", async () => {
-		writeFileSync(poisonedPath, JSON.stringify({ "claude-sdk-oauth": poisonedPool() }, null, 2));
+		// The credential sits under the canonical post-rename key while its flat
+		// sentinel values keep the literal `claude-sdk-oauth-managed` material the
+		// provider wrote — the exact shape the auth.json key migration produces.
+		writeFileSync(poisonedPath, JSON.stringify({ "anthropic-subscription": poisonedPool() }, null, 2));
 		const storage = AuthStorage.create(poisonedPath);
 
-		const credential = (await storage.read("claude-sdk-oauth")) as unknown as {
+		const credential = (await storage.read("anthropic-subscription")) as unknown as {
 			accounts: Array<{ name: string; access: string; refresh: string }>;
 			pinned?: string;
 		};
@@ -596,8 +599,8 @@ describe("poisoned managed-sentinel pool slot migration", () => {
 			string,
 			{ accounts: Array<{ name: string }>; pinned?: string }
 		>;
-		expect(onDisk["claude-sdk-oauth"].accounts.map((slot) => slot.name)).toEqual(["default"]);
-		expect(onDisk["claude-sdk-oauth"].pinned).toBeUndefined();
+		expect(onDisk["anthropic-subscription"].accounts.map((slot) => slot.name)).toEqual(["default"]);
+		expect(onDisk["anthropic-subscription"].pinned).toBeUndefined();
 	});
 
 	test("a clean pool is never rewritten", async () => {
@@ -611,10 +614,10 @@ describe("poisoned managed-sentinel pool slot migration", () => {
 				{ name: "work", access: "work-access", refresh: "work-refresh", expires: 1, source: "login" },
 			],
 		};
-		const before = JSON.stringify({ "claude-sdk-oauth": clean }, null, 2);
+		const before = JSON.stringify({ "anthropic-subscription": clean }, null, 2);
 		writeFileSync(poisonedPath, before);
 		const storage = AuthStorage.create(poisonedPath);
-		await storage.read("claude-sdk-oauth");
+		await storage.read("anthropic-subscription");
 		expect(readFileSync(poisonedPath, "utf8")).toBe(before);
 	});
 });

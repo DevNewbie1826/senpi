@@ -16,7 +16,7 @@ import { selectAccount } from "../../src/core/extensions/builtin/claude-sdk-oaut
 import type { ClaudeSdkOauthProviderSettings } from "../../src/core/extensions/builtin/claude-sdk-oauth/settings.ts";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../../src/core/extensions/types.ts";
 
-const PROVIDER_ID = "claude-sdk-oauth";
+const PROVIDER_ID = "anthropic-subscription";
 
 type Command = Pick<RegisteredCommand, "handler">;
 type SessionHandler = (event: unknown, ctx: ExtensionCommandContext) => Promise<void> | void;
@@ -122,7 +122,7 @@ describe("/claude-account", () => {
 		expect(selectAccount(stored.accounts ?? [], { sessionId: "session-01", pinnedAccount: stored.pinned }).name).toBe(
 			"bravo",
 		);
-		expect(notices.at(-1)).toEqual({ message: "Pinned Claude SDK OAuth account: bravo.", type: "info" });
+		expect(notices.at(-1)).toEqual({ message: "Pinned Anthropic Subscription account: bravo.", type: "info" });
 	});
 
 	it("makes the session-scoped CLI flag override the configured settings pin", async () => {
@@ -144,7 +144,7 @@ describe("/claude-account", () => {
 		);
 		expect(harness.flags.get("claude-account")).toEqual({
 			type: "string",
-			description: "Pin Claude SDK OAuth account for this session.",
+			description: "Pin Anthropic Subscription account for this session.",
 		});
 		await harness.handlers.get("session_shutdown")?.({}, ctx);
 	});
@@ -159,7 +159,7 @@ describe("/claude-account", () => {
 
 		expect(JSON.stringify(storage.get(PROVIDER_ID))).toBe(before);
 		expect(notices.at(-1)).toEqual({
-			message: "Claude SDK OAuth account 'missing' does not exist.",
+			message: "Anthropic Subscription account 'missing' does not exist.",
 			type: "error",
 		});
 	});

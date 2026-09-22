@@ -142,7 +142,7 @@ function hasPriorityPin(ctx: FastModeContext, model: Model<Api>): boolean {
 export async function applyFastMode(ctx: FastModeContext, enabled: boolean): Promise<FastModeResult> {
 	const model = ctx.model;
 	if (model?.api !== OPENAI_CODEX_RESPONSES_API) {
-		const message = "Fast mode is only available for OpenAI Codex models.";
+		const message = "Fast mode is only available for ChatGPT Subscription models.";
 		ctx.notify(message, "warning");
 		return { enabled: false, applied: false, recordedTier: "auto", message };
 	}
@@ -204,7 +204,7 @@ export default function serviceTierExtension(pi: ExtensionAPI): void {
 	 * Session-level fast mode for Codex models that have no `-fast` catalog sibling.
 	 *
 	 * The catalog generator emits `-fast` priority variants only for the direct
-	 * `openai` provider, so `openai-codex` models never have a switch target. The
+	 * `openai` provider, so `chatgpt-subscription` models never have a switch target. The
 	 * ChatGPT backend still offers the tier to subscriptions:
 	 * `chatgpt.com/backend-api/codex/models` advertises a `priority` service tier
 	 * labelled "Fast" ("1.5x speed, increased usage")
@@ -309,7 +309,7 @@ export default function serviceTierExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("fast", {
-		description: "Turn OpenAI Codex fast mode on or off for the current model",
+		description: "Turn ChatGPT Subscription fast mode on or off for the current model",
 		argumentHint: "[on|off]",
 		getArgumentCompletions: (prefix) => toCompletions(FAST_ARGUMENTS, prefix),
 		handler: async (args, ctx) => {

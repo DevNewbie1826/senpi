@@ -1,3 +1,28 @@
+## 2026-09-22 - Tool-argument preparation runs on a detached copy (senpi#1472)
+
+### What changed
+
+- `packages/agent/src/tool-arguments.ts`: new home for `prepareToolArguments` and `prepareAgentToolCallArguments`. The shim now receives `structuredClone(args)`, so what it returns is always a separate object from the one the assistant message holds.
+- `packages/agent/src/index.ts`: exports `prepareToolArguments` so a package outside the agent loop reaches the same detach seam instead of calling a tool's shim directly.
+- `packages/agent/src/agent-loop.ts`: delegates `prepareAgentToolCallArguments` to that module and re-exports it, so the public surface is unchanged. The old identity guard (`prepared === toolCall.arguments` short-circuits to the original call) is gone: it only ever held for a shim that returned its input, which is exactly the shim that had already rewritten it.
+- `packages/senpi-codemode/src/tool/render.ts`: the eval call renderer clamps the summary it displays through `clampEvalSummary`. Before this change the in-place mutation clamped the message itself, so every render surface inherited the limit for free; with preparation detached, the persisted assistant keeps the provider's full summary and a rebuilt transcript would have shown it untruncated. The clamp is idempotent, so a live turn (whose `tool_execution_start` already carries the prepared arguments) renders identically.
+
+### Why
+
+- `prepareArguments` is documented as a normalizer, but several shims normalize by mutating the object they were handed and returning that same reference: `packages/senpi-codemode/src/tool/eval-tool.ts` assigns and deletes `record.summary`, and `packages/agent/src/harness/tools/edit.ts` assigns `args.edits`. That object is the one stored in the assistant message, so preparation silently rewrote the answer the provider had produced.
+- On the `claude-sdk-oauth` lane the consequence is expensive rather than cosmetic. `AssistantCommitBoundary` fingerprints the streamed assistant at `message_update` and the committed assistant at `message_end`; a mutated tool argument makes those digests differ, the turn commits as `assistant_rewritten`, the binding is invalidated, and the next turn re-sends the whole conversation. senpi#1472 measured a single such re-send at 1,209,471 bytes with 562,740 cache-write tokens, and one reporting session hit it eleven times.
+- The same mutation also breaks restarts: the persisted sidecar stores `assistantContentHash` of the committed assistant, and a later run compares it against the transcript copy that preparation had already edited.
+- Fixing it at the caller covers every shim, present and future, instead of the one tool that happened to be reported. `validateToolArguments` (`packages/ai/src/utils/validation.ts`) already clones for the same reason, so the cost profile is established.
+
+### Why an extension could not handle it
+
+- `prepareArguments` is invoked by the agent loop between the provider stream and tool execution. No extension hook sits at that seam, and an extension cannot change how the loop hands arguments to a tool it does not own.
+
+### Expected merge conflict zones
+
+- LOW: the import block of `packages/agent/src/agent-loop.ts` and the single re-export line where `prepareAgentToolCallArguments` used to be defined.
+- LOW: `packages/agent/src/tool-arguments.ts` is new; upstream has no file at that path.
+
 ## 2026-09-16 - Grammar-backed fold boundaries for structural reads (senpi#1685)
 
 ### What changed

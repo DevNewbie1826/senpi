@@ -1,5 +1,6 @@
 export const BUILT_IN_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 	anthropic: "Anthropic",
+	"anthropic-subscription": "Anthropic Subscription",
 	"amazon-bedrock": "Amazon Bedrock",
 	"ant-ling": "Ant Ling",
 	"azure-openai-responses": "Azure OpenAI Responses",
@@ -23,7 +24,7 @@ export const BUILT_IN_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 	opencode: "OpenCode Zen",
 	"opencode-go": "OpenCode Go",
 	openai: "OpenAI",
-	"openai-codex": "OpenAI Codex",
+	"chatgpt-subscription": "ChatGPT Subscription",
 	opengateway: "OpenGateway",
 	ollama: "Ollama Cloud",
 	openrouter: "OpenRouter",

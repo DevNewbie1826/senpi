@@ -118,7 +118,7 @@ export class SessionRegistryResourceLimitError extends Error {
 
 	constructor() {
 		super(
-			`Claude SDK OAuth session registry is at its ${SESSION_REGISTRY_MAX_ENTRIES}-entry limit with no idle session to evict`,
+			`Anthropic Subscription session registry is at its ${SESSION_REGISTRY_MAX_ENTRIES}-entry limit with no idle session to evict`,
 		);
 		this.name = "SessionRegistryResourceLimitError";
 	}

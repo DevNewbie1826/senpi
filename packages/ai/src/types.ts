@@ -57,7 +57,10 @@ export type KnownProvider =
 	| "openai"
 	| "azure-openai-responses"
 	| "bai"
+	// "openai-codex" is a legacy id for "chatgpt-subscription" (see legacy-provider-ids.ts);
+	// the union keeps it so persisted refs still typecheck.
 	| "openai-codex"
+	| "chatgpt-subscription"
 	| "ollama"
 	| "cursor"
 	| "radius"

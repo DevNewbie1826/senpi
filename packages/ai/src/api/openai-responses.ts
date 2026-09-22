@@ -32,7 +32,7 @@ import { buildBaseOptions, clampMaxForOpenAI, OPENAI_RESPONSES_RESERVED_BODY_KEY
 import { startWebSocketLiveness } from "./websocket-liveness.ts";
 import { createWebSocketTransportFailure } from "./websocket-transport-failure.ts";
 
-const OPENAI_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
+const OPENAI_TOOL_CALL_PROVIDERS = new Set(["openai", "chatgpt-subscription", "opencode"]);
 const OPENAI_BETA_RESPONSES_WEBSOCKETS = "responses_websockets=2026-02-06";
 const OPENAI_WEB_SEARCH_SOURCES_INCLUDE = "web_search_call.action.sources";
 const SESSION_WEBSOCKET_CACHE_TTL_MS = 5 * 60 * 1000;

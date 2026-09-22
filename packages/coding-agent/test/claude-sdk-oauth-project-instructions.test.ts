@@ -48,7 +48,7 @@ function model(id = "claude-sonnet-4-6"): Model<Api> {
 		id,
 		name: id,
 		api: "claude-sdk-oauth",
-		provider: "claude-sdk-oauth",
+		provider: "anthropic-subscription",
 		baseUrl: "claude-sdk-oauth",
 		reasoning: true,
 		input: ["text"],

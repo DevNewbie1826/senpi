@@ -18,7 +18,7 @@ function assistant(text = "committed assistant"): AssistantMessage {
 		role: "assistant",
 		content: [{ type: "text", text }],
 		api: "claude-sdk-oauth",
-		provider: "claude-sdk-oauth",
+		provider: "anthropic-subscription",
 		model: "claude-test",
 		usage: {
 			input: 0,
@@ -111,11 +111,40 @@ describe("claude-sdk-oauth stored binding anchor", () => {
 		expect(bindingFromStoredBranch(branch, stored())).toMatchObject({ sdkSessionId: "sdk-1", sentCount: 2 });
 	});
 
-	it("rejects a later user message after the committed assistant", () => {
+	// https://github.com/code-yeongyu/senpi/issues/1964
+	// Realigned from "rejects a later user message": an unsent user message extends the branch
+	// instead of rewriting its anchor, and decideNativeContinuity already proves the resume safe by
+	// comparing sentPrefixHash before it reattaches. Rejecting here duplicated that check and paid a
+	// full re-send for it.
+	it("admits a later user message after the committed assistant", () => {
 		const branch = [
 			marker(),
 			assistantEntry(),
 			{ type: "message" as const, id: "later-user", message: { role: "user" as const, content: "resume" } },
+		];
+
+		expect(bindingFromStoredBranch(branch, stored())).toMatchObject({ sdkSessionId: "sdk-1", sentCount: 2 });
+	});
+
+	it("admits a later tool result after the committed assistant", () => {
+		const branch = [
+			marker(),
+			assistantEntry(),
+			{
+				type: "message" as const,
+				id: "later-result",
+				message: { role: "toolResult" as const, toolCallId: "call-1", toolName: "read", content: "ok" },
+			},
+		];
+
+		expect(bindingFromStoredBranch(branch, stored())).toMatchObject({ sdkSessionId: "sdk-1", sentCount: 2 });
+	});
+
+	it("rejects a later assistant message after the committed assistant", () => {
+		const branch = [
+			marker(),
+			assistantEntry(),
+			{ type: "message" as const, id: "later-assistant", message: assistant("second answer") },
 		];
 
 		expect(bindingFromStoredBranch(branch, stored())).toBeUndefined();
@@ -181,7 +210,12 @@ describe("claude-sdk-oauth stored binding anchor", () => {
 		expect(bindingFromStoredBranch(branch, stored())).toMatchObject({ sdkSessionId: "sdk-1" });
 	});
 
-	it("rejects a model-visible custom message after the committed assistant", () => {
+	// https://github.com/code-yeongyu/senpi/issues/1964
+	// Realigned from "rejects a model-visible custom message": this lane transmits only user and
+	// toolResult messages (isTransmittedMessage in session-sync.ts), so a custom message never
+	// reached the SDK transcript and cannot make a resume diverge. The terminal startup notice is
+	// exactly this shape, and rejecting it re-sent whole conversations as registry_miss.
+	it("admits a model-visible custom message after the committed assistant", () => {
 		const branch = [
 			marker(),
 			assistantEntry(),
@@ -194,7 +228,23 @@ describe("claude-sdk-oauth stored binding anchor", () => {
 			},
 		];
 
-		expect(bindingFromStoredBranch(branch, stored())).toBeUndefined();
+		expect(bindingFromStoredBranch(branch, stored())).toMatchObject({ sdkSessionId: "sdk-1", sentCount: 2 });
+	});
+
+	it("admits the terminal startup notice that triggered the report", () => {
+		const branch = [
+			marker(),
+			assistantEntry(),
+			{
+				type: "custom_message" as const,
+				id: "startup-notice",
+				customType: "senpi-terminal:notification",
+				content: "Terminal monitors for this session are attached in another live process.",
+				display: false,
+			},
+		];
+
+		expect(bindingFromStoredBranch(branch, stored())).toMatchObject({ sdkSessionId: "sdk-1", sentCount: 2 });
 	});
 
 	it("rejects a sidecar when a newer invalidation exists", () => {

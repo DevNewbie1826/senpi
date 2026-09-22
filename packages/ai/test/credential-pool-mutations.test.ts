@@ -302,7 +302,7 @@ describe("ordinary auth resolution after removing a promoted account", () => {
 });
 
 describe("provider-managed sentinel slot repair", () => {
-	const sentinel = managedSentinelMaterial("claude-sdk-oauth");
+	const sentinel = managedSentinelMaterial("anthropic-subscription");
 
 	function poisoned(): PooledCredential {
 		return {
@@ -319,11 +319,11 @@ describe("provider-managed sentinel slot repair", () => {
 	}
 
 	test("recognizes a slot carrying the provider's managed sentinel in both fields", () => {
-		expect(isManagedSentinelSlot("claude-sdk-oauth", { name: "login-2", access: sentinel, refresh: sentinel })).toBe(
-			true,
-		);
 		expect(
-			isManagedSentinelSlot("claude-sdk-oauth", { name: "default", access: "real-access", refresh: sentinel }),
+			isManagedSentinelSlot("anthropic-subscription", { name: "login-2", access: sentinel, refresh: sentinel }),
+		).toBe(true);
+		expect(
+			isManagedSentinelSlot("anthropic-subscription", { name: "default", access: "real-access", refresh: sentinel }),
 		).toBe(false);
 		expect(isManagedSentinelSlot("other-provider", { name: "default", access: sentinel, refresh: sentinel })).toBe(
 			false,
@@ -332,18 +332,18 @@ describe("provider-managed sentinel slot repair", () => {
 
 	test("repair drops a poisoned slot and clears a pin that pointed at one", () => {
 		const poisonedPinnedAtJunk: PooledCredential = { ...poisoned(), pinned: "login-2" };
-		const repaired = repairManagedSentinelSlots("claude-sdk-oauth", poisonedPinnedAtJunk);
+		const repaired = repairManagedSentinelSlots("anthropic-subscription", poisonedPinnedAtJunk);
 		expect(repaired).toBeDefined();
 		expect(listSlots(repaired).map((slot) => slot.name)).toEqual(["default"]);
 		expect(repaired?.pinned).toBeUndefined();
-		expect(repairManagedSentinelSlots("claude-sdk-oauth", poisoned())?.pinned).toBe("default");
+		expect(repairManagedSentinelSlots("anthropic-subscription", poisoned())?.pinned).toBe("default");
 	});
 
 	test("a clean pool or flat credential is a no-op so no storage is rewritten", () => {
 		const clean = removeSlot(poisoned(), "login-2") as PooledCredential;
-		expect(repairManagedSentinelSlots("claude-sdk-oauth", clean)).toBeUndefined();
+		expect(repairManagedSentinelSlots("anthropic-subscription", clean)).toBeUndefined();
 		expect(
-			repairManagedSentinelSlots("claude-sdk-oauth", { type: "oauth", access: "a", refresh: "r", expires: 1 }),
+			repairManagedSentinelSlots("anthropic-subscription", { type: "oauth", access: "a", refresh: "r", expires: 1 }),
 		).toBe(undefined);
 	});
 });

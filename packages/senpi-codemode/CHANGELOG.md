@@ -10,6 +10,18 @@
 
 ### Fixed
 
+### Removed
+
+## [2026.9.22-2] - 2026-09-22
+
+### Breaking Changes
+
+### Added
+
+### Changed
+
+### Fixed
+
 - `wake_source_state` (live detached eval cells) is now published on the rpc channel as well as the in-process event bus, so out-of-process consumers see live cells the way the TUI footer does (#1943).
 
 ### Removed

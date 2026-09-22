@@ -153,4 +153,5 @@ export * from "./harness/utils/truncate.ts";
 export * from "./proxy.ts";
 export * from "./search/index.ts";
 export { setDefaultStreamFn } from "./stream-fn.ts";
+export { prepareToolArguments } from "./tool-arguments.ts";
 export * from "./types.ts";

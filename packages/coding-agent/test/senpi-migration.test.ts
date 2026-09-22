@@ -72,7 +72,7 @@ describe("senpi migration", () => {
 		fs.mkdirSync(newAgentDir, { recursive: true });
 		fs.mkdirSync(nestedOldAgentDir, { recursive: true });
 		fs.writeFileSync(path.join(newAgentDir, "settings.json"), '{"source":"current"}\n', "utf-8");
-		fs.writeFileSync(path.join(newAgentDir, "auth.json"), '{"openai-codex":{"type":"oauth"}}\n', "utf-8");
+		fs.writeFileSync(path.join(newAgentDir, "auth.json"), '{"chatgpt-subscription":{"type":"oauth"}}\n', "utf-8");
 		fs.writeFileSync(path.join(nestedOldAgentDir, "settings.json"), '{"source":"legacy"}\n', "utf-8");
 		fs.writeFileSync(
 			path.join(nestedOldAgentDir, "auth.json"),
@@ -104,7 +104,9 @@ describe("senpi migration", () => {
 		}
 
 		expect(fs.readFileSync(path.join(newAgentDir, "settings.json"), "utf-8")).toBe('{"source":"current"}\n');
-		expect(fs.readFileSync(path.join(newAgentDir, "auth.json"), "utf-8")).toBe('{"openai-codex":{"type":"oauth"}}\n');
+		expect(fs.readFileSync(path.join(newAgentDir, "auth.json"), "utf-8")).toBe(
+			'{"chatgpt-subscription":{"type":"oauth"}}\n',
+		);
 		expect(fs.readFileSync(path.join(newAgentDir, "models.json"), "utf-8")).toBe('{"providers":{}}\n');
 		expect(fs.existsSync(path.join(nestedOldAgentDir, "models.json"))).toBe(false);
 		expect(fs.existsSync(path.join(nestedOldAgentDir, "settings.json"))).toBe(true);

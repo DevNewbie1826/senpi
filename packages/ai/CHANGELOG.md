@@ -8,9 +8,31 @@
 
 ### Changed
 
+- Pooled-credential slot repair keeps recognizing the managed sentinel after the `claude-sdk-oauth` -> `anthropic-subscription` provider rename: matchers accept both `anthropic-subscription-managed` and the legacy `claude-sdk-oauth-managed` material that existing stored credentials carry verbatim. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
+
 ### Fixed
 
 ### Removed
+
+## [2026.9.22-2] - 2026-09-22
+
+### Breaking Changes
+
+### Added
+
+- Grok 4.7 joins the xAI catalog with its documented long-context tiered pricing (\$2/\$6 per 1M tokens below 200k prompt tokens, \$4/\$12 at or above, cached input \$0.50/\$1.00), and MiMo-V2.6-Pro joins the Xiaomi catalog (\$0.435/\$0.87). Both are reachable on their direct provider shards as well as the aggregator mirrors that already serve them (GitHub Copilot, OpenRouter, Venice, Vercel AI Gateway, opencode-go, Xiaomi token plans). Grok 4.5/4.6 also pick up the context-tier pricing models.dev already publishes for them, now that the xAI generator path keeps tiered costs instead of flattening them. ([#1990](https://github.com/code-yeongyu/senpi/issues/1990))
+
+### Changed
+
+- The OpenAI subscription provider is now `chatgpt-subscription`, shown as **ChatGPT Subscription**, instead of `openai-codex` / "OpenAI Codex" — the id named a CLI, not the thing you are signing in with. Its wire dialect id `openai-codex-responses` is unchanged, so no request shape moves. ([#1989](https://github.com/code-yeongyu/senpi/issues/1989))
+
+### Fixed
+
+- OpenAI hard-quota exhaustion (`usage_limit_reached`, `usage_not_included`) is terminal on the first failure instead of retrying a dead account five more times, and a failure carrying either provider code is terminal even when the message text is opaque. Approaching-the-limit warnings stay retryable. ([#1969](https://github.com/code-yeongyu/senpi/issues/1969))
+
+### Removed
+
+- OpenRouter catalog regeneration drops six retired `:batch` variants (`minimax/minimax-m3:batch`, `moonshotai/kimi-k3:batch`, `openai/gpt-oss-120b:batch`, `qwen/qwen3.5-9b:batch`, `qwen/qwen3.8-2.4t-a95b:batch`, `thinkingmachines/inkling:batch`) and the delisted, directly-selectable model `openrouter/kwaipilot/kat-coder-pro-v2` — configurations naming those ids must move to their non-batch counterparts or another provider. opencode's free tier moves from `mimo-v2.5-free` to `mimo-v2.6-flash-free`. ([#1990](https://github.com/code-yeongyu/senpi/issues/1990))
 
 ## [2026.9.22] - 2026-09-21
 

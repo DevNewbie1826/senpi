@@ -25,7 +25,7 @@ const model: Model<Api> = {
 	id: "claude-test",
 	name: "Claude test",
 	api: "claude-sdk-oauth",
-	provider: "claude-sdk-oauth",
+	provider: "anthropic-subscription",
 	baseUrl: "claude-sdk-oauth",
 	reasoning: true,
 	input: ["text"],
@@ -151,7 +151,7 @@ describe("claude-sdk-oauth request environment", () => {
 
 			expect(captured[0]?.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("request-token");
 			expect(captured[0]?.env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
-			expect(existsSync(join(agentDir, "claude-sdk-oauth-accounts"))).toBe(false);
+			expect(existsSync(join(agentDir, "anthropic-subscription-accounts"))).toBe(false);
 		} finally {
 			rmSync(agentDir, { recursive: true, force: true });
 		}

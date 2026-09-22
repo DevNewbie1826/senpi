@@ -10,7 +10,7 @@ export const BAI_LIVE_TEST_FLAG = "PI_ENABLE_BAI_LIVE";
 const OAUTH_LIVE_TEST_FLAGS = {
 	anthropic: "PI_ENABLE_ANTHROPIC_OAUTH_LIVE",
 	"github-copilot": "PI_ENABLE_GITHUB_COPILOT_LIVE",
-	"openai-codex": "PI_ENABLE_OPENAI_CODEX_LIVE",
+	"chatgpt-subscription": "PI_ENABLE_OPENAI_CODEX_LIVE",
 } as const;
 
 export function isLiveApiTestEnabled(providerFlag: string): boolean {

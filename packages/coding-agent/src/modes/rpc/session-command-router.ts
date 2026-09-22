@@ -3,6 +3,7 @@ import { buildRpcSessionState } from "./connection-handler.ts";
 import {
 	AUTO_TITLE_PER_SESSION_CAPABILITY,
 	AUTO_TITLE_SESSIONS_CAPABILITY,
+	DURABLE_SESSION_ID_CAPABILITY,
 	MEDIA_PLACEHOLDERS_CAPABILITY,
 	RETAIN_ON_DISCONNECT_CAPABILITY,
 	SESSION_CONTEXT_CAPABILITY,
@@ -276,6 +277,9 @@ export class SessionCommandRouter {
 				SESSION_CONTEXT_CAPABILITY,
 				SESSION_KIND_CAPABILITY,
 				AUTO_TITLE_PER_SESSION_CAPABILITY,
+				// Only a multi-session host can refuse a duplicate durable id, because only it
+				// sees every live session's identity.
+				DURABLE_SESSION_ID_CAPABILITY,
 				...(this.connectionOptions?.capabilities ?? []),
 			]);
 			return {
@@ -524,6 +528,7 @@ export class SessionCommandRouter {
 					initialThinkingLevel: command.thinkingLevel ?? this.defaults.initialThinkingLevel,
 					sessionKind: command.kind,
 					sessionContext: command.context,
+					...(command.durableSessionId !== undefined ? { durableSessionId: command.durableSessionId } : {}),
 					...(typeof command.auto_title === "boolean" ? { autoTitle: command.auto_title } : {}),
 				},
 				// Host lifecycle policy, deliberately outside the immutable launch profile.

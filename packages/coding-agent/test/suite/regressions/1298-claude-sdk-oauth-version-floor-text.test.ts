@@ -36,7 +36,7 @@ describe("regression #1298: Claude SDK version-floor errors", () => {
 					id: "claude-test",
 					name: "Claude",
 					api: "claude-sdk-oauth",
-					provider: "claude-sdk-oauth",
+					provider: "anthropic-subscription",
 					baseUrl: "",
 					reasoning: true,
 					input: ["text"],

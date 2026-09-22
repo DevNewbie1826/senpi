@@ -243,7 +243,7 @@ describe("createAgentSession stream options", () => {
 		);
 	});
 
-	it("forwards httpIdleTimeoutMs as timeoutMs for OpenAI Codex", async () => {
+	it("forwards httpIdleTimeoutMs as timeoutMs for ChatGPT Subscription", async () => {
 		const options = await captureStreamOptions("openai-codex-responses", { httpIdleTimeoutMs: 1234 });
 
 		expect(options?.timeoutMs).toBe(1234);
@@ -255,7 +255,7 @@ describe("createAgentSession stream options", () => {
 		expect(options?.timeoutMs).toBe(1234);
 	});
 
-	it("lets request timeoutMs override httpIdleTimeoutMs for OpenAI Codex", async () => {
+	it("lets request timeoutMs override httpIdleTimeoutMs for ChatGPT Subscription", async () => {
 		const options = await captureStreamOptions(
 			"openai-codex-responses",
 			{ httpIdleTimeoutMs: 1234 },

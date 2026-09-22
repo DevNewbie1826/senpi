@@ -11,7 +11,7 @@ function assistantMessage(content: AssistantMessage["content"], timestamp: numbe
 		role: "assistant",
 		content,
 		api: "claude-sdk-oauth",
-		provider: "claude-sdk-oauth",
+		provider: "anthropic-subscription",
 		model: "claude-test",
 		usage: {
 			input: 0,

@@ -6,7 +6,7 @@ export type OpenAiRemoteCompactionModel = Model<"openai-responses"> | Model<"ope
 
 export type OpenAiRemoteCompactionIdentity =
 	| { provider: string; api: "openai-responses" }
-	| { provider: "openai-codex"; api: "openai-codex-responses" };
+	| { provider: "chatgpt-subscription"; api: "openai-codex-responses" };
 
 /** Non-secret remote state ownership persisted with a native checkpoint. */
 export type OpenAiRemoteCompactionOrigin = {
@@ -53,7 +53,7 @@ export function parseOpenAiRemoteCompactionIdentity(
 	if (typeof provider === "string" && provider.length > 0 && api === "openai-responses") {
 		return { provider, api };
 	}
-	if (provider === "openai-codex" && api === "openai-codex-responses") {
+	if (provider === "chatgpt-subscription" && api === "openai-codex-responses") {
 		return { provider, api };
 	}
 	return undefined;
@@ -78,7 +78,7 @@ export function matchesOpenAiRemoteCompactionIdentity(
 
 export function openAiRemoteCompactionIdentity(model: OpenAiRemoteCompactionModel): OpenAiRemoteCompactionIdentity {
 	return model.api === "openai-codex-responses"
-		? { provider: "openai-codex", api: "openai-codex-responses" }
+		? { provider: "chatgpt-subscription", api: "openai-codex-responses" }
 		: { provider: model.provider, api: "openai-responses" };
 }
 

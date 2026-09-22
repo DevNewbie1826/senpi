@@ -41,7 +41,7 @@ const model: Model<Api> = {
 	id: "claude-test",
 	name: "Claude test",
 	api: "claude-sdk-oauth",
-	provider: "claude-sdk-oauth",
+	provider: "anthropic-subscription",
 	baseUrl: "claude-sdk-oauth",
 	reasoning: true,
 	input: ["text"],
@@ -51,13 +51,13 @@ const model: Model<Api> = {
 };
 
 const context: Context = { messages: [] };
-const providerId = "claude-sdk-oauth";
+const providerId = "anthropic-subscription";
 const originalAgentDir = process.env.SENPI_CODING_AGENT_DIR;
 const temporaryDirectories: string[] = [];
 const residentSessionIds = new Set<string>();
 
 function temporaryDirectory(): string {
-	const directory = mkdtempSync(join(tmpdir(), "senpi-claude-sdk-oauth-auth-lane-"));
+	const directory = mkdtempSync(join(tmpdir(), "senpi-anthropic-subscription-auth-lane-"));
 	temporaryDirectories.push(directory);
 	return directory;
 }
@@ -333,7 +333,7 @@ describe("Claude SDK OAuth auth lanes", () => {
 
 		await streamClaudeSdkOauth(model, context).result();
 
-		const configDir = join(agentDir, "claude-sdk-oauth-accounts", "work");
+		const configDir = join(agentDir, "anthropic-subscription-accounts", "work");
 		expect(captured[0]?.env?.CLAUDE_CONFIG_DIR).toBe(configDir);
 		expect(captured[0]?.env).not.toHaveProperty("CLAUDE_CODE_OAUTH_TOKEN");
 		expect(statSync(configDir).mode & 0o777).toBe(0o700);

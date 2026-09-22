@@ -1,4 +1,4 @@
-// Reusable local-endpoint probe for the installed Claude SDK OAuth.
+// Reusable local-endpoint probe for the installed Anthropic Subscription.
 // Serves an ephemeral Anthropic-shaped SSE endpoint on 127.0.0.1 and runs one
 // SDK turn with hermetic env (temp HOME/CLAUDE_CONFIG_DIR, no inherited
 // proxy/cloud/provider-routing variables), recording every observable fact the

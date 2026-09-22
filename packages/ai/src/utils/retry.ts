@@ -9,6 +9,23 @@ function escapeRegExp(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * OpenAI hard account-quota exhaustion (senpi#1969). The wire evidence is a 429
+ * whose body is `{"type":"usage_limit_reached","message":"The usage limit has
+ * been reached"}`; `usage_not_included` is the sibling entitlement code. The
+ * account cannot serve more requests until its quota resets or its plan changes,
+ * so every consumer treats the family as terminal. Declared once here and
+ * consumed by both the non-retryable pattern below and the structured terminal
+ * provider codes in `retry-profile/classifiers.ts`, so the two lists cannot
+ * drift.
+ */
+export const USAGE_LIMIT_EXHAUSTION = {
+	/** Structured error codes, as extracted into `providerCodes` failure facts. */
+	codes: ["usage_limit_reached", "usage_not_included"],
+	/** Message markers: the codes appear verbatim in bodies, plus the sentence. */
+	markers: ["usage_limit_reached", "usage_not_included", "usage limit has been reached"],
+} as const;
+
 const NON_RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// OpenCode Go/free-tier limits returned as 429 JSON error types by OpenCode's
 	// Zen API. These are subscription/account limits, not transient throttles.
@@ -33,6 +50,12 @@ const NON_RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// spend limit, so same-model retries can never recover it.
 	"credits_required",
 	"credits are required",
+
+	// OpenAI hard account-quota exhaustion (senpi#1969): the 429 body carries
+	// `usage_limit_reached` / "The usage limit has been reached", and the account
+	// stays dead until its quota resets — every same-account retry is guaranteed
+	// to fail, so the failure is terminal, not rate-limited.
+	...USAGE_LIMIT_EXHAUSTION.markers,
 
 	// Request-shape rejections: the provider refused the payload we built, not the
 	// work it describes. Gateways wrap these in whatever status they like — the

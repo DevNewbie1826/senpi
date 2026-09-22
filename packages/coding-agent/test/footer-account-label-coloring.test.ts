@@ -37,7 +37,7 @@ describe("FooterComponent account display names", () => {
 		const session = createFooterSession({
 			sessionName: "",
 			modelId: "gpt-5-codex",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			reasoning: true,
 			thinkingLevel: "high",
 			credential: pooledCredential("Work: dev (b)"),
@@ -53,7 +53,7 @@ describe("FooterComponent account display names", () => {
 		// The exact colouring: muted "(provider@label) " run, accented model id,
 		// dim ":high". A regex over the rendered string would paint the whole
 		// segment with the model accent instead.
-		const providerRun = theme.fg("muted", "(openai-codex@Work: dev (b) (second)) ");
+		const providerRun = theme.fg("muted", "(chatgpt-subscription@Work: dev (b) (second)) ");
 		const modelRun = theme.fg("accent", "gpt-5-codex");
 		const thinkingRun = theme.fg("dim", ":high");
 		expect(lines[0]).toContain(`${providerRun}${modelRun}${thinkingRun}`);
@@ -64,16 +64,16 @@ describe("FooterComponent account display names", () => {
 		const session = createFooterSession({
 			sessionName: "",
 			modelId: "gpt-5-codex",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			reasoning: true,
 			thinkingLevel: "high",
 			credential: pooledCredential(),
 		});
 		const footer = new FooterComponent(session, createFooterData(2));
 		const lines = footer.render(width);
-		expect(stripAnsi(lines[0] ?? "")).toContain("(openai-codex@second)");
+		expect(stripAnsi(lines[0] ?? "")).toContain("(chatgpt-subscription@second)");
 		expect(lines[0]).toContain(
-			`${theme.fg("muted", "(openai-codex@second) ")}${theme.fg("accent", "gpt-5-codex")}${theme.fg("dim", ":high")}`,
+			`${theme.fg("muted", "(chatgpt-subscription@second) ")}${theme.fg("accent", "gpt-5-codex")}${theme.fg("dim", ":high")}`,
 		);
 	});
 
@@ -82,7 +82,7 @@ describe("FooterComponent account display names", () => {
 		const session = createFooterSession({
 			sessionName: "",
 			modelId: "gpt-5-codex",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			reasoning: true,
 			thinkingLevel: "high",
 			// 32 terminal columns of CJK: legal to store, too wide for the footer.
@@ -94,7 +94,7 @@ describe("FooterComponent account display names", () => {
 		// The 24-column account-label bound keeps the provider segment viable;
 		// without it the full right side would not fit and the plan would fall
 		// back to right.minimal, hiding the account indicator entirely.
-		expect(plain).toContain("(openai-codex@");
+		expect(plain).toContain("(chatgpt-subscription@");
 		expect(plain).toContain("…");
 		expect(plain).toContain("gpt-5-codex:high");
 		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);

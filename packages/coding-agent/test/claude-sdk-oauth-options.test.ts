@@ -22,7 +22,7 @@ function expectNoDynamicBoundarySentinel(systemPrompt: unknown): void {
 }
 
 function temporaryDirectory(): string {
-	const directory = mkdtempSync(join(tmpdir(), "senpi-claude-sdk-oauth-options-"));
+	const directory = mkdtempSync(join(tmpdir(), "senpi-anthropic-subscription-options-"));
 	temporaryDirectories.push(directory);
 	return directory;
 }
@@ -32,7 +32,7 @@ function model(id = "claude-sonnet-4-6"): Model<Api> {
 		id,
 		name: id,
 		api: "claude-sdk-oauth",
-		provider: "claude-sdk-oauth",
+		provider: "anthropic-subscription",
 		baseUrl: "claude-sdk-oauth",
 		reasoning: true,
 		input: ["text"],

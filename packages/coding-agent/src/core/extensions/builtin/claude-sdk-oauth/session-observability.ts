@@ -124,6 +124,11 @@ export function resetContinuityObservabilityBoundary(): void {
 	activeBoundary = defaultBoundary;
 }
 
+/** Writes one structured session.log line through the active boundary (never conversation content). */
+export function logContinuityEvent(event: string, data: Record<string, unknown>): void {
+	activeBoundary.log(event, data);
+}
+
 /** Maps a fixed vocabulary member through, and anything else to a bucketed cause. */
 export function sanitizeReason(value: unknown): ContinuityReason {
 	const text = typeof value === "string" ? value : value instanceof Error ? value.message : "";
@@ -144,7 +149,8 @@ export function sanitizeCloseCause(value: unknown): ContinuityReason {
 	if (/user_message_uuid did not match|result arrived before replay claim|pre-replay buffer overflow/i.test(text)) {
 		return "turn_attribution_failed";
 	}
-	if (/query ended before|Claude SDK OAuth query|Claude Code/i.test(text)) return "query_failed";
+	if (/query ended before|Claude SDK OAuth query|Anthropic Subscription query|Claude Code/i.test(text))
+		return "query_failed";
 	return "other";
 }
 

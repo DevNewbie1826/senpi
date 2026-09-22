@@ -35,7 +35,7 @@ describe("OpenAI mid-session configuration updates", () => {
 	it("replaces an adjacent update rather than adding another", () => {
 		const model = {
 			id: "gpt-6-astra",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			api: "openai-codex-responses",
 			reasoning: true,
 			input: ["text"],

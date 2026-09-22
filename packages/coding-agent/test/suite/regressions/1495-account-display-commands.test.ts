@@ -34,9 +34,9 @@ function command(name: string): Command {
 
 // senpi#1495: all account commands address IDs; only labels change.
 describe.each([
-	["gpt-account", "openai-codex", ""],
-	["claude-account", "claude-sdk-oauth", ""],
-	["account", "openai-codex", "openai-codex "],
+	["gpt-account", "chatgpt-subscription", ""],
+	["claude-account", "anthropic-subscription", ""],
+	["account", "chatgpt-subscription", "chatgpt-subscription "],
 ])("/%s display names", (name, provider, prefix) => {
 	it("renames multi-word labels, lists safely, pins by ID, and clears metadata", async () => {
 		const storage = AuthStorage.inMemory({
@@ -87,7 +87,7 @@ describe.each([
 // The offer is gated on the receipt's `origin`: only a machine-generated id
 // (the OpenAI lane) gets the display-name dialog. The Claude lane names
 // accounts through its own prompt and must never produce a second name dialog.
-describe("openai-codex optional post-login naming", () => {
+describe("chatgpt-subscription optional post-login naming", () => {
 	it.each(["Work account", "", undefined])(
 		"names a machine-generated slot after persistence; cancellation keeps login usable (%s)",
 		async (answer) => {
@@ -95,7 +95,7 @@ describe("openai-codex optional post-login naming", () => {
 			const models = createModels({ credentials: storage });
 			models.setProvider(
 				createProvider({
-					id: "openai-codex",
+					id: "chatgpt-subscription",
 					name: "Fake",
 					baseUrl: "https://example.invalid",
 					auth: { oauth: flow },
@@ -107,7 +107,7 @@ describe("openai-codex optional post-login naming", () => {
 			const { ctx, notices, dialogs } = createAccountCommandContext(storage, "/tmp", {
 				dialogs: {
 					input: async () => {
-						persistedAtPrompt = storage.has("openai-codex");
+						persistedAtPrompt = storage.has("chatgpt-subscription");
 						return answer;
 					},
 				},
@@ -116,8 +116,10 @@ describe("openai-codex optional post-login naming", () => {
 			await command("gpt-account").handler("add", ctx);
 			expect(persistedAtPrompt).toBe(true);
 			expect(dialogs).toHaveLength(1);
-			expect(listSlots(storage.get("openai-codex"))).toMatchObject([{ name: "default", access: fresh.access }]);
-			expect(listSlots(storage.get("openai-codex"))[0].displayName).toBe(answer || undefined);
+			expect(listSlots(storage.get("chatgpt-subscription"))).toMatchObject([
+				{ name: "default", access: fresh.access },
+			]);
+			expect(listSlots(storage.get("chatgpt-subscription"))[0].displayName).toBe(answer || undefined);
 			expect(notices.filter((notice) => notice.type === "error")).toEqual([]);
 		},
 	);
@@ -134,7 +136,7 @@ describe("claude-sdk-oauth post-login naming", () => {
 		models.setProvider(
 			composedProvider(async () => false, {
 				oauth: createOAuthConfig({
-					readCurrent: async () => storage.get("claude-sdk-oauth") as ClaudeSdkOauthCredential | undefined,
+					readCurrent: async () => storage.get("anthropic-subscription") as ClaudeSdkOauthCredential | undefined,
 					loginFlow: flow,
 				}),
 			}),
@@ -146,11 +148,11 @@ describe("claude-sdk-oauth post-login naming", () => {
 		const handler = command("claude-account").handler;
 		await handler("add", ctx); // empty pool: the adapter picks "default", zero prompts
 		expect(dialogs).toHaveLength(0);
-		expect(listSlots(storage.get("claude-sdk-oauth")).map((slot) => slot.name)).toEqual(["default"]);
+		expect(listSlots(storage.get("anthropic-subscription")).map((slot) => slot.name)).toEqual(["default"]);
 		await handler("add", ctx); // existing account: the lane prompts for the id, once
 		expect(dialogs).toHaveLength(1);
-		expect(listSlots(storage.get("claude-sdk-oauth")).map((slot) => slot.name)).toEqual(["default", "Work"]);
-		for (const slot of listSlots(storage.get("claude-sdk-oauth"))) {
+		expect(listSlots(storage.get("anthropic-subscription")).map((slot) => slot.name)).toEqual(["default", "Work"]);
+		for (const slot of listSlots(storage.get("anthropic-subscription"))) {
 			expect(slot).not.toHaveProperty("displayName");
 		}
 	});

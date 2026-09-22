@@ -3,11 +3,11 @@ import { complete, getModel } from "../src/compat.ts";
 import type { Context } from "../src/types.ts";
 import { resolveApiKey } from "./oauth.ts";
 
-const codexToken = await resolveApiKey("openai-codex");
+const codexToken = await resolveApiKey("chatgpt-subscription");
 
 describe("openai-codex cache affinity e2e", () => {
 	it.skipIf(!codexToken)("handles SSE requests with aligned cache-affinity identifiers", async () => {
-		const model = getModel("openai-codex", "gpt-5.5");
+		const model = getModel("chatgpt-subscription", "gpt-5.5");
 		const sessionId = "0195d6e4-4cf9-7f44-a2d8-f8f7f49ee9d3";
 		const context: Context = {
 			systemPrompt: "You are a helpful assistant. Reply exactly as requested.",

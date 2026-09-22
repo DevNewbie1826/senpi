@@ -88,20 +88,6 @@
 			"note": "2-byte auth.json seed"
 		},
 		{
-			"file": "src/core/auth-storage.ts",
-			"api": "writeFileSync",
-			"symbol": "withLock",
-			"count": 1,
-			"note": "auth.json read+write under the sync file lock (KB-scale)"
-		},
-		{
-			"file": "src/core/auth-storage.ts",
-			"api": "writeFileSync",
-			"symbol": "withLockAsync",
-			"count": 1,
-			"note": "auth.json read+write inside the async lock (KB-scale)"
-		},
-		{
 			"file": "src/core/credential-pool/state-store.ts",
 			"api": "readFileSync",
 			"symbol": "withDocument",
@@ -289,6 +275,20 @@
 			"symbol": "getFileContentRevision",
 			"count": 1,
 			"note": "whole file hashed for a content revision (file-scale)"
+		},
+		{
+			"file": "src/core/auth-storage.ts",
+			"api": "writeFileSync",
+			"symbol": "writeAuthFile",
+			"count": 1,
+			"note": "auth.json atomic persist (temp+rename, 0600); the credential write formerly in withLock/withLockAsync, now factored into one helper (KB-scale)"
+		},
+		{
+			"file": "src/core/auth-storage.ts",
+			"api": "writeFileSync",
+			"symbol": "backupAuthFile",
+			"count": 1,
+			"note": "one-shot timestamped auth.json backup taken before the senpi#1989 provider-key migration rewrites it; runs once per install (KB-scale)"
 		}
 	]
 }

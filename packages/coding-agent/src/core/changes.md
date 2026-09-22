@@ -1,4 +1,123 @@
+## 2026-09-22 - settings.json provider-key migration (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/settings-manager.ts`: `migrateSettings` now rewrites every provider-keyed settings field from the legacy subscription ids to the canonical ones on first parse - the settings block key (`claudeSdkOauthProvider` -> `anthropicSubscriptionProvider`, `openaiCodexProvider` -> `chatgptSubscriptionProvider`), `defaultProvider`, the provider prefix of `defaultModel`, every `favoriteModels` entry, the `${provider}/${id}` keys of `modelThinkingLevels`/`modelServiceTiers`/`modelLastOnThinkingLevels`, and every `retry.fallbackChains` key plus the providers named inside each rung. Driven by the shared `normalizeProviderId`/`normalizeModelRef` helpers so no second map drifts.
+
+### Why
+
+Existing users have the old subscription ids written into settings.json (defaultProvider, defaultModel, favourites, the per-model thinking/tier maps, fallback chains). After the provider rename an un-migrated settings file would silently lose those preferences - the planner would not find the renamed provider and would fall closed. The migration is idempotent (`normalize` is a no-op on canonical ids) and never hard-errors: an unrecognised shape is left untouched. The legacy settings-block key is still READ for at least two releases.
+
+### Why an extension could not handle it
+
+Settings are parsed and migrated inside SettingsManager before any extension loads; the provider-lane extensions read their block through `getGlobalSettings()`/`getProjectSettings()`, so the rename must happen at the migration seam, not in an extension.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/settings-manager.ts` `migrateSettings`, against any other settings migration added to the same hook.
+
+## 2026-09-22 - claude-sdk-oauth provider id renamed to anthropic-subscription in core resolution, accounts and fallback precedence (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/retry-fallback/expansion.ts`: `PROVIDER_PRECEDENCE` is `["anthropic-subscription", "anthropic", "kimi-coding"]` — the subscription lane holds the SAME rung (first) `claude-sdk-oauth` held. A pure string swap would have dropped it from the ordered table, and absent providers sort alphabetically last, demoting the subscription lane behind the metered `anthropic` API-key lane (reproduced as omo #8051/#8059). Order is preserved, not just membership.
+- `packages/coding-agent/src/core/retry-fallback/settings.ts`: comment names the lane by its new display name.
+- `packages/coding-agent/src/core/credential-accounts.ts`: the three provider-key comparisons (`===`/`!==`) use `"anthropic-subscription"`.
+- `packages/coding-agent/src/core/credential-pool/env-slots.ts`: the provider comparison moves to the new id; the returned `CLAUDE_CODE_OAUTH_TOKEN` env name is unchanged.
+- `packages/coding-agent/src/core/provider-display-names.ts`: `"anthropic-subscription": "Anthropic Subscription"` added beside `anthropic`.
+- `packages/coding-agent/src/core/agent-session.ts`: comment names the SDK-owned lane by its new id.
+
+### Why
+
+The id named an SDK integration detail rather than the thing a user signs in with. The wire api id `claude-sdk-oauth` and every persisted token (managed sentinel, compact entry type, compact-boundary diagnostic + schema, binding sidecar, `CLAUDE_CODE_OAUTH_TOKEN*` env vars, `claude_sdk_oauth_*` diagnostics) are deliberately NOT renamed — renaming any of them orphans data on existing installs. The precedence table is the one place a naive rename would have shipped a silent ordering regression, so it is pinned by `packages/coding-agent/test/suite/anthropic-subscription-rename.test.ts`.
+
+### Why an extension could not handle it
+
+`PROVIDER_PRECEDENCE` is a module-private table inside `core/retry-fallback/expansion.ts`, and the credential-account/env-slot comparisons run inside core credential plumbing before extension hooks see the provider key. The display-name map is core-owned (`BUILT_IN_PROVIDER_DISPLAY_NAMES`).
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/retry-fallback/expansion.ts` `PROVIDER_PRECEDENCE`, against any tie-break change.
+- `packages/coding-agent/src/core/provider-display-names.ts`, against any other provider addition.
+- `packages/coding-agent/src/core/credential-accounts.ts` provider comparisons, against pooled-account changes.
+
+## 2026-09-22 - auth.json provider-key migration (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/auth-provider-key-migration.ts` (new): `migrateLegacyProviderKeys` rewrites an auth.json credential stored under a legacy provider id to its canonical id, driven by `LEGACY_PROVIDER_IDS` from `@earendil-works/pi-ai`. Completion is derived from the data (a no-op once the legacy key is absent), not a migrations-state marker, so a load that skips the migration because the store is locked retries next time and an older binary re-introducing a legacy key still gets migrated.
+- `packages/coding-agent/src/core/auth-storage.ts`: the migration runs on the existing `parseStorageContent` write-back-once seam under the store lock, and the credential write became temp-file + rename at `0o600` with a timestamped backup taken from the original bytes.
+
+### Why
+
+Two subscription provider ids are being renamed (senpi#1989). Existing users have the old ids written into auth.json, so a load after the upgrade must rewrite the credential under the canonical key exactly once while keeping the user logged in. The managed sentinel is DERIVED from the provider id (`${providerId}-managed`), so `packages/ai/src/auth/pool/slots.ts` was widened to accept the legacy-derived material too - otherwise a pooled user's slots, which keep their sentinel values verbatim, become unauthenticatable and invisible.
+
+### Why an extension could not handle it
+
+auth.json is read and repaired inside the package before any extension loads; the pool sentinel check and the credential store are core, so an extension cannot migrate a key the store has already read under the old spelling.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/auth-storage.ts`, against any other change to the credential load/parse seam.
+## 2026-09-22 - chatgpt-subscription provider id in core resolution and display (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/model-resolver.ts`: provider-id comparisons and default-model selection use the new id.
+- `packages/coding-agent/src/core/provider-display-names.ts`: the built-in display map is keyed by the new id and renders "ChatGPT Subscription".
+- `packages/coding-agent/src/core/agent-session.ts`: session-level provider checks use the new id.
+
+### Why
+
+The OpenAI subscription provider id was renamed from `openai-codex` to `chatgpt-subscription` (senpi#1989): the old id named a CLI rather than the thing a user signs in with. These modules resolve or display that provider id at runtime, so they move with it. The wire api id `openai-codex-responses` is deliberately NOT renamed - it names the dialect, not the provider - and neither are file names or module paths.
+
+### Why an extension could not handle it
+
+The provider id is resolved inside the package before any extension loads, and these call sites compare or render it while building requests and UI. An extension cannot rewrite an id the package has already used.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/provider-display-names.ts`, against any other provider label change.
+
 # changes
+
+## 2026-09-22 - xAI provider default moves to grok-4.7 (senpi#1990)
+
+### What changed
+
+- `packages/coding-agent/src/core/model-resolver.ts`: `defaultModelPerProvider.xai` moves from `grok-4.5` to `grok-4.7`, porting upstream pi-mono 1a584a7a56 (`feat(ai,coding-agent): add Grok 4.7 support`) onto the fork's resolver, which still defaulted two versions behind. `test/model-resolver.test.ts` realigns with it: the xai-default assertion and the initial-selection fixture's synthetic xai model (`custom` + `defaultModelId`), because the provider-default branch resolves `defaultModelPerProvider.xai` against the runtime catalog and a `grok-4.5` fixture fell through to `first-available`.
+
+### Why
+
+- The catalog gained `xai/grok-4.7` (packages/ai shard regeneration in the same PR); the provider default tracks the current model.
+
+### Why an extension could not handle it
+
+- The provider default is core model-resolution state read during initial selection, before extension hooks can influence it.
+
+### Expected merge conflict zones
+
+- The `defaultModelPerProvider` xai entry on upstream syncs that also move the default.
+
+## 2026-09-22 - SessionManager.open can create under a caller-chosen id (senpi#1951)
+
+### What changed
+
+- `packages/coding-agent/src/core/session-manager.ts`: `static open(path, sessionDir?, cwdOverride?, options?)` now accepts `NewSessionOptions`, and the private constructor forwards them into `_setSessionFile`, which applies them at BOTH `_resetToNewSession` call sites: the branch where the path does not exist yet and the branch where the file exists but is empty. Opening an existing, non-empty session file reaches neither branch, so the header's id stays authoritative exactly as before. `SessionManager.create` already took the same options; this closes the asymmetry between the two constructors.
+
+### Why
+
+- The RPC host gained `open_session.durableSessionId`, which lets a caller that already owns a stable record id for the conversation create the session under that id instead of maintaining a second identity and a mapping. That value has to reach `_resetToNewSession`, and for the callers that matter it could not: a client naming its own session file always lands in `open`, not `create`, and with a not-yet-existing path `_setSessionFile` fell through to `_resetToNewSession()` with no options and minted a fresh uuidv7. The supplied id would have been silently dropped on precisely the path every real embedder uses.
+
+### Why an extension could not handle it
+
+- Session identity is assigned inside `SessionManager` before any extension is loaded for that session, and the id is written into the JSONL header the first flush persists. No extension hook runs early enough to influence it.
+
+### Expected merge conflict zones
+
+- `static open`'s parameter list and its `new SessionManager(...)` call, which previously passed `undefined` in the options slot.
+- The private constructor's `_setSessionFile(sessionFile, preloadedFileEntries)` call.
+- The `_setSessionFile` signature and its two `_resetToNewSession` call sites; upstream changes to the empty-file recovery branch land in the same lines.
 
 ## 2026-09-21 - A WebSocket drop inside a credential pool no longer kills the turn (senpi#1628)
 

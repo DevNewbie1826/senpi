@@ -24,7 +24,7 @@ function fixture(provider: string) {
 	dirs.push(dir);
 	const path = join(dir, "auth.json");
 	const base =
-		provider === "claude-sdk-oauth"
+		provider === "anthropic-subscription"
 			? emptyCredential()
 			: { type: "oauth" as const, access: "fake-a", refresh: "fake-r", expires: 4102444800000 };
 	const credential = {
@@ -48,7 +48,7 @@ function fixture(provider: string) {
 }
 
 // senpi#1495: display names are metadata, never account identity.
-describe.each(["openai-codex", "claude-sdk-oauth"])("%s display names", (provider) => {
+describe.each(["chatgpt-subscription", "anthropic-subscription"])("%s display names", (provider) => {
 	it("round trips trimmed metadata, preserves every other field, and clears without removing the slot", async () => {
 		const { storage, path, credential } = fixture(provider);
 		await renameCredentialAccount(storage, provider, "default", "  Personal account  ");
@@ -135,21 +135,21 @@ describe.each(["openai-codex", "claude-sdk-oauth"])("%s display names", (provide
 			{ name: "default", displayName: "Personal", source: "login", blocked: false, pinned: true },
 			{ name: "second", source: "import", blocked: true, pinned: false },
 		]);
-		if (provider === "claude-sdk-oauth") expect(getProviderAccounts(storage, provider, {})).toEqual(summaries);
+		if (provider === "anthropic-subscription") expect(getProviderAccounts(storage, provider, {})).toEqual(summaries);
 		expect(JSON.stringify(summaries)).not.toMatch(/fake-|access|refresh|expires|headers/);
 	});
 });
 
 it("promotes a legacy saved flat slot only on rename and never materializes environment credentials", async () => {
 	const storage = AuthStorage.inMemory({
-		"openai-codex": { type: "oauth", access: "fake-a", refresh: "fake-r", expires: 4102444800000 },
+		"chatgpt-subscription": { type: "oauth", access: "fake-a", refresh: "fake-r", expires: 4102444800000 },
 	});
-	expect(accountLabel(listSlots(storage.get("openai-codex"))[0])).toBe("default");
-	expect(storage.get("openai-codex")).not.toHaveProperty("accounts");
-	await renameCredentialAccount(storage, "openai-codex", "default", "Legacy");
-	expect(listSlots(storage.get("openai-codex"))[0].displayName).toBe("Legacy");
+	expect(accountLabel(listSlots(storage.get("chatgpt-subscription"))[0])).toBe("default");
+	expect(storage.get("chatgpt-subscription")).not.toHaveProperty("accounts");
+	await renameCredentialAccount(storage, "chatgpt-subscription", "default", "Legacy");
+	expect(listSlots(storage.get("chatgpt-subscription"))[0].displayName).toBe("Legacy");
 	const empty = AuthStorage.inMemory();
-	await expect(renameCredentialAccount(empty, "claude-sdk-oauth", "env", "Environment")).rejects.toThrow(
+	await expect(renameCredentialAccount(empty, "anthropic-subscription", "env", "Environment")).rejects.toThrow(
 		/not found|No stored credential/,
 	);
 	expect(empty.getAll()).toEqual({});
@@ -160,7 +160,7 @@ it("promotes a legacy saved flat slot only on rename and never materializes envi
 // defines the identical `-managed` sentinel envelope; a rename against that
 // shape must not fabricate a `default` login slot carrying the sentinel strings.
 it("refuses to promote a provider-managed sentinel flat credential for any provider lane", async () => {
-	for (const provider of ["claude-sdk-oauth", "cursor-cli-oauth"]) {
+	for (const provider of ["anthropic-subscription", "cursor-cli-oauth"]) {
 		const storage = AuthStorage.inMemory({
 			[provider]: {
 				type: "oauth",
@@ -180,16 +180,16 @@ it("refuses to promote a provider-managed sentinel flat credential for any provi
 });
 
 it("omits unsafe hand-written metadata from labels and summaries", async () => {
-	const { storage } = fixture("openai-codex");
-	storage.setSlot("openai-codex", { name: "default", displayName: "unsafe\u001b[31m" });
-	const summaries = await getCredentialAccounts(storage, "openai-codex", {});
+	const { storage } = fixture("chatgpt-subscription");
+	storage.setSlot("chatgpt-subscription", { name: "default", displayName: "unsafe\u001b[31m" });
+	const summaries = await getCredentialAccounts(storage, "chatgpt-subscription", {});
 	expect(summaries[0]).not.toHaveProperty("displayName");
-	expect(accountLabel(listSlots(storage.get("openai-codex"))[0])).toBe("default");
+	expect(accountLabel(listSlots(storage.get("chatgpt-subscription"))[0])).toBe("default");
 });
 
 it("allows the same display name in different providers", async () => {
 	const storage = AuthStorage.inMemory();
-	for (const provider of ["openai-codex", "claude-sdk-oauth"]) {
+	for (const provider of ["chatgpt-subscription", "anthropic-subscription"]) {
 		storage.set(provider, {
 			type: "oauth",
 			access: "fake-a",

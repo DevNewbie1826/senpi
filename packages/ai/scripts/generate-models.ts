@@ -984,7 +984,7 @@ function applyStrictToolCompatMetadata(model: Model<Api>): void {
 // for pre-GPT-5 models (gpt-4.x, gpt-4o, o-series).
 const OPENAI_GRAMMAR_TOOL_PROVIDERS = new Set([
 	"openai",
-	"openai-codex",
+	"chatgpt-subscription",
 	"azure-openai-responses",
 	"github-copilot",
 	"opencode",
@@ -1005,7 +1005,7 @@ function applyOpenAIGrammarToolCompatMetadata(model: Model<Api>): void {
 
 function applyOpenAIToolSearchMetadata(model: Model<Api>): void {
 	const isOpenAIResponses = model.provider === "openai" && model.api === "openai-responses";
-	const isOpenAICodex = model.provider === "openai-codex" && model.api === "openai-codex-responses";
+	const isOpenAICodex = model.provider === "chatgpt-subscription" && model.api === "openai-codex-responses";
 	if (!(isOpenAIResponses || isOpenAICodex) || !OPENAI_TOOL_SEARCH_MODEL_IDS.has(model.id)) return;
 	const supportsAdditionalTools =
 		(isOpenAIResponses && OPENAI_ADDITIONAL_TOOLS_MODEL_IDS.has(model.id)) ||
@@ -1172,7 +1172,7 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	if (model.provider === "groq" && model.id === "qwen/qwen3.6-27b") {
 		mergeThinkingLevelMap(model, { minimal: null, low: null, medium: null, high: "default" });
 	}
-	if (model.provider === "openai-codex" && supportsOpenAiXhigh(model.id)) {
+	if (model.provider === "chatgpt-subscription" && supportsOpenAiXhigh(model.id)) {
 		mergeThinkingLevelMap(model, { minimal: "low" });
 	}
 	if (
@@ -2060,12 +2060,7 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 					reasoning: m.reasoning === true,
 					...(thinkingLevelMap ? { thinkingLevelMap } : {}),
 					input: m.modalities?.input?.includes("image") ? ["text", "image"] : ["text"],
-					cost: {
-						input: m.cost?.input || 0,
-						output: m.cost?.output || 0,
-						cacheRead: m.cost?.cache_read || 0,
-						cacheWrite: m.cost?.cache_write || 0,
-					},
+					cost: getModelsDevCost(m.cost),
 					contextWindow: m.limit?.context || 4096,
 					maxTokens: m.limit?.output || 4096,
 				});
@@ -3282,7 +3277,7 @@ async function generateModels() {
 			id: "gpt-5.3-codex-spark",
 			name: "GPT-5.3 Codex Spark",
 			api: "openai-codex-responses",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			baseUrl: CODEX_BASE_URL,
 			reasoning: true,
 			input: ["text"],
@@ -3294,7 +3289,7 @@ async function generateModels() {
 			id: "gpt-5.5",
 			name: "GPT-5.5",
 			api: "openai-codex-responses",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			baseUrl: CODEX_BASE_URL,
 			reasoning: true,
 			input: ["text", "image"],
@@ -3306,7 +3301,7 @@ async function generateModels() {
 			id: "gpt-6-astra",
 			name: "GPT-6 Astra",
 			api: "openai-codex-responses",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			baseUrl: CODEX_BASE_URL,
 			reasoning: true,
 			input: ["text", "image"],
@@ -3319,7 +3314,7 @@ async function generateModels() {
 			id: "gpt-5.6-luna",
 			name: "GPT-5.6 Luna",
 			api: "openai-codex-responses",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			baseUrl: CODEX_BASE_URL,
 			reasoning: true,
 			input: ["text", "image"],
@@ -3331,7 +3326,7 @@ async function generateModels() {
 			id: "gpt-5.6-sol",
 			name: "GPT-5.6 Sol",
 			api: "openai-codex-responses",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			baseUrl: CODEX_BASE_URL,
 			reasoning: true,
 			input: ["text", "image"],
@@ -3343,7 +3338,7 @@ async function generateModels() {
 			id: "gpt-5.6-terra",
 			name: "GPT-5.6 Terra",
 			api: "openai-codex-responses",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			baseUrl: CODEX_BASE_URL,
 			reasoning: true,
 			input: ["text", "image"],
@@ -3501,7 +3496,7 @@ async function generateModels() {
 	}
 	const codexFastVariants: Model<Api>[] = [];
 	for (const model of allModels) {
-		if (model.provider !== "openai-codex" || !OPENAI_CODEX_PRIORITY_TIER_MODEL_IDS.has(model.id)) continue;
+		if (model.provider !== "chatgpt-subscription" || !OPENAI_CODEX_PRIORITY_TIER_MODEL_IDS.has(model.id)) continue;
 		codexFastVariants.push({
 			...model,
 			id: `${model.id}-fast`,

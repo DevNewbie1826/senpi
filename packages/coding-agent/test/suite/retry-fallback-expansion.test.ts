@@ -55,9 +55,9 @@ describe("bare fallback expansion provider policy", () => {
 });
 
 const sdkAndAnthropic = [
-	model("claude-sdk-oauth", FABLE),
-	model("claude-sdk-oauth", OPUS5),
-	model("claude-sdk-oauth", OPUS48),
+	model("anthropic-subscription", FABLE),
+	model("anthropic-subscription", OPUS5),
+	model("anthropic-subscription", OPUS48),
 	model("anthropic", FABLE),
 	model("anthropic", OPUS5),
 	model("anthropic", OPUS48),
@@ -85,18 +85,18 @@ describe("bare model-id family expansion", () => {
 	it("expands a bare key into one canonical key per serving provider", () => {
 		const chains = canonicalizeFallbackChains(EXPLICIT_FALLBACK_CHAINS, lookup(sdkAndAnthropic));
 
-		expect(Object.keys(chains).sort()).toEqual([`anthropic/${FABLE}`, `claude-sdk-oauth/${FABLE}`]);
+		expect(Object.keys(chains).sort()).toEqual([`anthropic-subscription/${FABLE}`, `anthropic/${FABLE}`]);
 	});
 
 	it("ranks OAuth-credential providers ahead of API-key providers for bare candidates", () => {
 		const chains = canonicalizeFallbackChains(EXPLICIT_FALLBACK_CHAINS, lookup(sdkAndAnthropic, ["anthropic"]));
 
 		// anthropic holds the OAuth credential here, so it outranks the sdk provider
-		// even though the tie-break table would otherwise prefer claude-sdk-oauth.
-		expect(chains[`claude-sdk-oauth/${FABLE}`]?.slice(0, 3)).toEqual([
+		// even though the tie-break table would otherwise prefer anthropic-subscription.
+		expect(chains[`anthropic-subscription/${FABLE}`]?.slice(0, 3)).toEqual([
 			"kimi-coding/k3:max",
 			`anthropic/${OPUS5}:xhigh`,
-			`claude-sdk-oauth/${OPUS5}:xhigh`,
+			`anthropic-subscription/${OPUS5}:xhigh`,
 		]);
 	});
 
@@ -105,9 +105,9 @@ describe("bare model-id family expansion", () => {
 
 		expect(chains[`anthropic/${FABLE}`]).toEqual([
 			"kimi-coding/k3:max",
-			`claude-sdk-oauth/${OPUS5}:xhigh`,
+			`anthropic-subscription/${OPUS5}:xhigh`,
 			`anthropic/${OPUS5}:xhigh`,
-			`claude-sdk-oauth/${OPUS48}:xhigh`,
+			`anthropic-subscription/${OPUS48}:xhigh`,
 			`anthropic/${OPUS48}:xhigh`,
 		]);
 	});
@@ -191,7 +191,7 @@ describe("bare-key opt-out tombstones", () => {
 		const resolved = resolveRetryFallbackSettings({ fallbackChains: { [`anthropic/${FABLE}`]: [] } });
 		const chains = canonicalizeFallbackChains(resolved.chains, lookup(sdkAndAnthropic));
 
-		expect(Object.keys(chains).sort()).toEqual([`claude-sdk-oauth/${FABLE}`]);
+		expect(Object.keys(chains).sort()).toEqual([`anthropic-subscription/${FABLE}`]);
 	});
 
 	it("lets an explicit canonical chain override the expanded default for that provider only", () => {
@@ -202,10 +202,10 @@ describe("bare-key opt-out tombstones", () => {
 
 		expect(chains[`anthropic/${FABLE}`]).toEqual([`anthropic/${OPUS48}:max`]);
 		// The other provider variant keeps the shipped ladder, expanded OAuth-tier first.
-		expect(chains[`claude-sdk-oauth/${FABLE}`]).toEqual([
-			`claude-sdk-oauth/${OPUS5}:max`,
+		expect(chains[`anthropic-subscription/${FABLE}`]).toEqual([
+			`anthropic-subscription/${OPUS5}:max`,
 			`anthropic/${OPUS5}:max`,
-			`claude-sdk-oauth/${OPUS48}:max`,
+			`anthropic-subscription/${OPUS48}:max`,
 			`anthropic/${OPUS48}:max`,
 		]);
 	});
@@ -213,8 +213,8 @@ describe("bare-key opt-out tombstones", () => {
 
 describe("expansion stays scoped to models the user can actually use", () => {
 	const catalog = [
-		model("claude-sdk-oauth", FABLE),
-		model("claude-sdk-oauth", OPUS5),
+		model("anthropic-subscription", FABLE),
+		model("anthropic-subscription", OPUS5),
 		model("anthropic", FABLE),
 		model("anthropic", OPUS5),
 		model("github-copilot", FABLE),

@@ -53,13 +53,13 @@ export type OAuthConfigShape = {
 	getApiKey(credentials: OAuthCredentials): string;
 };
 
-export const CLAUDE_SDK_OAUTH_NAME = "Claude SDK OAuth (Claude Pro/Max)";
+export const CLAUDE_SDK_OAUTH_NAME = "Anthropic Subscription (Claude Pro/Max)";
 const ENV_TOKEN_NAMES = [
 	"CLAUDE_CODE_OAUTH_TOKEN",
 	...Array.from({ length: 15 }, (_, index) => `CLAUDE_CODE_OAUTH_TOKEN_${index + 2}`),
 ] as const;
 const ENV_TOKEN_NAME_SET = new Set<string>(ENV_TOKEN_NAMES);
-const AUTH_CHECK = { source: "Claude SDK OAuth", type: "oauth" } as const;
+const AUTH_CHECK = { source: "Anthropic Subscription", type: "oauth" } as const;
 
 function requestClaudeEnvironment(value: unknown): Record<string, string> {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return {};

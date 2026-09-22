@@ -21,7 +21,7 @@ const CODEX_MODEL = {
 	id: "gpt-5.4-codex",
 	name: "GPT-5.4 Codex",
 	api: "openai-codex-responses",
-	provider: "openai-codex",
+	provider: "chatgpt-subscription",
 	baseUrl: "https://chatgpt.com/backend-api",
 	reasoning: true,
 	input: ["text", "image"],
@@ -60,7 +60,7 @@ function codexBranch(): SessionEntry[] {
 			id: "model",
 			parentId: null,
 			timestamp: new Date(1_775_000_000_000).toISOString(),
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			modelId: CODEX_MODEL.id,
 		},
 		messageEntry("u1", "model", {
@@ -71,7 +71,7 @@ function codexBranch(): SessionEntry[] {
 		messageEntry("a1", "u1", {
 			role: "assistant",
 			api: "openai-codex-responses",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			model: CODEX_MODEL.id,
 			content: [{ type: "text", text: "I found the failure." }],
 			usage: {
@@ -163,14 +163,14 @@ function finalCodexReplayPayload(branchEntries: SessionEntry[]) {
 		input: convertResponsesMessages(
 			CODEX_MODEL,
 			{ messages: convertToLlm(markedContext) },
-			new Set(["openai-codex"]),
+			new Set(["chatgpt-subscription"]),
 			{ includeSystemPrompt: false, preserveTextSignatures: true },
 		),
 		stream: true,
 	};
 }
 
-describe("issue #296 OpenAI Codex remote compaction", () => {
+describe("issue #296 ChatGPT Subscription remote compaction", () => {
 	it("compacts through the Codex endpoint and replays retained history on the next request", async () => {
 		const branch = codexBranch();
 		const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
@@ -226,7 +226,7 @@ describe("issue #296 OpenAI Codex remote compaction", () => {
 		expect(calls[0]?.headers.get("user-agent")).toBe(`senpi (${platform()} ${release()}; ${arch()})`);
 		expect(result.details).toMatchObject({
 			schema: OPENAI_REMOTE_COMPACTION_SCHEMA,
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			api: "openai-codex-responses",
 			transport: "compact-endpoint",
 		});
@@ -258,7 +258,7 @@ describe("issue #296 OpenAI Codex remote compaction", () => {
 				input: convertResponsesMessages(
 					CODEX_MODEL,
 					{ messages: convertToLlm(markedContext) },
-					new Set(["openai-codex"]),
+					new Set(["chatgpt-subscription"]),
 					{ includeSystemPrompt: false, preserveTextSignatures: true },
 				),
 				stream: true,
@@ -382,7 +382,7 @@ describe("issue #296 OpenAI Codex remote compaction", () => {
 		const branch = codexBranch();
 		const headerHookHarness = await createHarness({
 			api: "openai-codex-responses",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			models: [{ id: CODEX_MODEL.id, contextWindow: CODEX_MODEL.contextWindow, maxTokens: CODEX_MODEL.maxTokens }],
 			extensionFactories: [
 				(pi) => {

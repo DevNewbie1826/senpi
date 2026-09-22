@@ -109,7 +109,7 @@ export function buildDynamicSystemPrompt(options: BuildDynamicSystemPromptOption
 		}),
 	);
 
-	// The claude-sdk-oauth lane appends these dynamic lines after the stable sections so the composed
+	// The anthropic-subscription lane appends these dynamic lines after the stable sections so the composed
 	// prompt is a single string. An earlier draft split at this point for prompt-cache scoping, but a
 	// wire-level probe proved the installed CLI joins array elements into one system block, so the
 	// split was removed (the sentinel leaked to the model as literal text).

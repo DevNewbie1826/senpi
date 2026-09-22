@@ -1,6 +1,7 @@
 import type { ClaudeSdkOauthAuthLane } from "./options.ts";
 import type { Options, SessionMessage } from "./sdk-boundary.ts";
 import { getSdkBoundary, loadClaudeAgentSdk } from "./sdk-boundary.ts";
+import { logContinuityEvent } from "./session-observability.ts";
 import { type ClaudeSdkOauthSessionEntry, closeSession, getOrCreateSession } from "./session-registry.ts";
 import { recordSyncedStream } from "./session-sync.ts";
 
@@ -134,12 +135,27 @@ export async function verifyRestoredTranscript(
 		return false;
 	}
 	if (binding.lastAssistantUuid === null) return true;
-	return messages.some(
+	const anchorIndex = messages.findIndex(
 		(message) =>
 			message.type === "assistant" &&
 			message.uuid === binding.lastAssistantUuid &&
 			message.parent_tool_use_id === null,
 	);
+	if (anchorIndex < 0) return false;
+	// A top-level user frame after the anchored assistant is a turn the SDK transcript already
+	// holds but the ledger never committed: the process died between pushing the message and
+	// the assistant's commit. A plain resume from the anchor would append that user message a
+	// second time (the in-memory retry checkpoint that forks past such an orphan is never
+	// persisted), so the restored binding fails closed until a fork at the anchor exists
+	// (senpi#1973). Only the count is logged, never the content.
+	const orphanUserMessages = messages
+		.slice(anchorIndex + 1)
+		.filter((message) => message.type === "user" && message.parent_tool_use_id === null).length;
+	if (orphanUserMessages > 0) {
+		logContinuityEvent("claude_sdk_oauth_restored_transcript_orphan_tail", { orphanUserMessages });
+		return false;
+	}
+	return true;
 }
 
 async function awaitInitialization(entry: ClaudeSdkOauthSessionEntry, signal?: AbortSignal): Promise<void> {
@@ -155,7 +171,7 @@ async function awaitInitialization(entry: ClaudeSdkOauthSessionEntry, signal?: A
 	});
 	const onAbort = (): void => {
 		closeSession(entry.senpiSessionId, "resume_initialization_aborted");
-		rejectAborted(new Error("Claude SDK OAuth reattach aborted"));
+		rejectAborted(new Error("Anthropic Subscription reattach aborted"));
 	};
 	if (signal.aborted) {
 		onAbort();

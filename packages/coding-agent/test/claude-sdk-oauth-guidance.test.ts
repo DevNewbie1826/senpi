@@ -11,7 +11,7 @@ import {
 describe("claude-sdk-oauth auth guidance", () => {
 	it("no-account guidance lists login, env tokens and ambient cli hints", () => {
 		const text = noAccountGuidance(false);
-		expect(text).toContain("/login claude-sdk-oauth");
+		expect(text).toContain("/login anthropic-subscription");
 		expect(text).toContain("CLAUDE_CODE_OAUTH_TOKEN");
 		expect(text).toContain("claude CLI");
 	});
@@ -34,7 +34,7 @@ describe("claude-sdk-oauth auth guidance", () => {
 	it("maps org_not_allowed, billing and auth_error to actionable messages", () => {
 		expect(sdkErrorGuidance("org_not_allowed")).toContain("organization");
 		expect(sdkErrorGuidance("billing")).toContain("billing");
-		expect(sdkErrorGuidance("auth_error")).toContain("/login claude-sdk-oauth");
+		expect(sdkErrorGuidance("auth_error")).toContain("/login anthropic-subscription");
 		expect(sdkErrorGuidance("rate_limit")).toBeUndefined();
 	});
 

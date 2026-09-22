@@ -1,3 +1,113 @@
+## 2026-09-22 - chatgpt-subscription provider id on the RPC surface (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts` and `packages/coding-agent/src/modes/rpc/rpc-types.ts`: provider ids carried over RPC use the new spelling.
+
+### Why
+
+The OpenAI subscription provider id was renamed from `openai-codex` to `chatgpt-subscription` (senpi#1989): the old id named a CLI rather than the thing a user signs in with. These modules resolve or display that provider id at runtime, so they move with it. The wire api id `openai-codex-responses` is deliberately NOT renamed - it names the dialect, not the provider - and neither are file names or module paths.
+
+### Why an extension could not handle it
+
+The provider id is resolved inside the package before any extension loads, and these call sites compare or render it while building requests and UI. An extension cannot rewrite an id the package has already used.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`, against any other provider-typed RPC payload change.
+
+## 2026-09-22 - The observer reconnect chain survives failed retries, and unknown activity is bounded (#1979)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/observer-link.ts` (new): the supervisor's observer connection, its reconnect chain, and the rule for how long an unhealthy observer may count as busy. `createObserverLink()` retries on every failure until it reconnects or the supervisor settles, and records when it went unhealthy. `activeTurnsForIdleDecision()` returns the observed count while healthy, `1` while unhealthy inside `unknownGraceMs`, and `0` once that grace has elapsed; an infinite grace never elapses.
+- `packages/coding-agent/src/modes/rpc/host-lifecycle.ts`: `runHostSupervisor` builds the link with a socket adapter, and `currentActivity()` feeds the decider through `activeTurnsForIdleDecision` with `decider.idleExitMs` as the grace, so a `persistent` host (infinite window) keeps its infinite pin. The inline `connectObserver()` and its two state variables are gone. Net +7 pure LOC on a file already past the ceiling: the extracted unit is 64 LOC, but the socket adapter that stays behind is about as long as the code it replaced.
+- `test/suite/idle-exit-window-contract.test.ts` (characterization, green before the change), `test/suite/regressions/issue-1979-observer-reconnect-chain.test.ts`, `test/suite/regressions/issue-1979-unknown-activity-bound.test.ts`.
+
+### Why
+
+- The retry callback reused the `lost` handler of the connection that had already gone. That handler starts with `if (observer !== next) return`, and by the time a retry fails the supervisor owns no socket, so the guard was always true and nothing re-armed. One failed reconnect ended the chain for the life of the process. Since `currentActivity()` reported `activeTurns: 1` for an unhealthy observer, the idle window could never elapse - a second path to a host that outlives every client, next to the socket-gone case #1961 fixed.
+- The fail-open itself is right: a momentary observer blip must not kill a turn. What was missing was a bound. One idle window is the natural one: after that, unknown has held the host open exactly as long as idleness would have been allowed to, and there is no longer anything it is protecting.
+
+### Why an extension could not handle it
+
+- The supervisor is a separate process that hosts no session; nothing an extension can reach observes its link or its idle decision.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/host-lifecycle.ts`: the supervisor state declarations near `clientSockets`, `currentActivity()`, the `observerSocket?.destroy()` line in `performShutdown`, the `observerLink` construction beside `publicSocketOwned`, and the removed `connectObserver()` body.
+
+## 2026-09-22 - A worker that fails during open reports the failure, not `session_closing` (#1953)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/worker-session-registry.ts`: `openSession` remembers the reason its worker reported through the `failure` callback. The post-`commit()` guard that sees an entry which left `opening` now throws `open_failed: <reason>` when a worker failure caused it, and keeps `session_closing` only for the case it documents - an entry somebody else is closing. The registry also takes an optional `createWorker` factory, defaulting to the real `SessionWorkerClient`, so the failure path can be driven without a worker thread.
+- `packages/coding-agent/test/suite/regressions/issue-1953-worker-failure-open-error.test.ts`: regression for the code the client receives.
+
+### Why
+
+- The worker's `failure` callback flips the entry to `quarantined` asynchronously, so a worker that dies mid-open leaves the guard looking at a state that is no longer `opening`. It answered `session_closing`, which tells the client the opposite of what happened: nothing was closing, the worker died. The real reason only reached stderr, which is how a red run shows `senpi rpc session rpc-1 quarantined: worker-failed` on one side and `session_closing` on the wire on the other.
+- `open_failed: <detail>` already exists as a stable wire code and `RpcSessionRegistryError` already formats its reason, so this needs no new code on the protocol surface.
+
+### Why an extension could not handle it
+
+- This is the transport-side registry's own open path; extensions run inside a session that this code has not finished creating.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/worker-session-registry.ts`: the `openSession` worker construction block and the guard after `worker.commit()`.
+
+## 2026-09-22 - Drain a generation whose public entry is GONE, not only one that was replaced (#1961)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/socket-ownership.ts`: `classifyEndpointOwnership()` answers `held` / `replaced` / `absent` / `unknown` from ONE stat, so the two loss questions can never disagree with each other across separate calls. `socketEntryReplaced()` keeps its exact contract and is now that classifier's `replaced` case.
+- `packages/coding-agent/src/modes/rpc/host-supersession.ts`: the watch reports WHICH loss it saw (`"replaced" | "absent"`). An absent entry counts only after `ABSENT_CONFIRMATIONS` (3) consecutive polls and a stat that cannot answer resets the count instead of adding to it, so a momentary race is never read as a loss. The transition also latches now: clearing the interval cannot unsend the classifications already in flight, so several pending observations of one loss still deliver a single drain request - the once-only contract the module docstring already promised.
+- `packages/coding-agent/src/modes/rpc/host-lifecycle.ts`: the supervisor's drain log names the loss it acted on.
+- `packages/coding-agent/test/suite/regressions/issue-1961-public-endpoint-absent.test.ts`: fake-timer regression for the absent case.
+
+### Why
+
+- `socket-ownership.ts` deliberately answered `false` for an absent entry: "a name that is merely missing is somebody's `rm`, not a newer host". That is right for the supersession question and wrong for reachability. An unlinked unix socket name can never accept another connection, so the generation holding it is unreachable by construction - and because `coldStart=persistent` never idle-exits while an unhealthy observer reports activity as unknown (non-idle), the two conditions that prove such a generation useless were also the ones keeping it alive. Measured: a supervisor plus host pair alive 23h45m after its socket directory had been deleted. Reproduced on a pristine build in 60 seconds (`exited_after_seconds: "never"`, both pids alive) and closed by this change in 6 seconds (both pids gone, `processes_left: 0`).
+- Draining rather than killing is what makes absence safe to act on: `session-command-router` refuses to park sessions that still have attachments and exits only at an empty registry, so live work finishes and only an unreachable, empty generation goes away.
+
+### Why an extension could not handle it
+
+- This is the supervisor's own lifecycle policy, decided before and outside any session. Extensions run inside sessions the host serves and can neither observe the endpoint's ownership nor decide whether the generation may keep running.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/socket-ownership.ts`: the block around `socketEntryReplaced()`.
+- `packages/coding-agent/src/modes/rpc/host-supersession.ts`: the whole `watchForSupersession()` body and the module docstring.
+- `packages/coding-agent/src/modes/rpc/host-lifecycle.ts`: the `watchForSupersession(...)` call site inside the startup try block.
+
+## 2026-09-22 - Caller-chosen durable session id on open_session (#1951)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/rpc-types.ts`: `open_session` accepts an optional `durableSessionId`. Two new stable error codes, `invalid_session_id` and `session_id_in_use`, join the `RpcErrorCode` union.
+- `packages/coding-agent/src/modes/rpc/custom-capability.ts`: new host capability `durable_session_id`, advertised from `get_protocol_info` by the multi-session router only.
+- `packages/coding-agent/src/modes/rpc/session-registry.ts`: `RpcSessionLaunchProfile.durableSessionId` flows into `SessionManager`. `validateProfile` rejects a malformed id with `invalid_session_id` (reusing `assertValidSessionId`), and `openSession` refuses an id a LIVE session already holds with `session_id_in_use`. That collision scan and the entry's own `durableSessionId` are both taken SYNCHRONOUSLY, before the first await, so two concurrent opens naming one id cannot both pass. Re-opening the SAME path is exempt: that is an attach, and the id is the file's own.
+- `packages/coding-agent/src/modes/rpc/rpc-mode.ts`: the D1 normative table lists `durableSessionId` among `open_session`'s params, the stable error-code list gains `invalid_session_id` and `session_id_in_use`, and the D6 identity notes explain why the field is not named `sessionId` and why it applies to create only.
+- `packages/coding-agent/src/core/session-manager.ts`: `SessionManager.open` takes `NewSessionOptions`, and the private constructor forwards them into `_setSessionFile`, which applies them at both `_resetToNewSession` call sites - the missing-file branch and the empty-file branch. An existing, non-empty session file never reaches either, which is what makes a supplied id unable to overwrite a header id.
+
+### Why
+
+- A caller with its own stable record id for a conversation (a desktop thread, a job row, a tracker item) had no way to make the session carry that id, because the wire offered only `sessionPath`. Every such embedder kept a SECOND identity plus a translation layer, and every feature crossing the boundary - goal files, subagent and team attribution, resume cursors, adoption provenance - carried the mapping. When the mapping was lost the user-visible result was a dead-ended turn, not a recoverable error.
+- Id injection already existed one layer down (`NewSessionOptions.id`, honored by `_resetToNewSession` behind `assertValidSessionId`) and `SessionManager.create` already took it. Only the wire and `SessionManager.open` were missing, and `open` is the branch that matters: a client that names its own session file always lands there.
+- The duplicate guard is not optional. Two live sessions sharing one durable id would collide every per-session artifact a client keys by that id, so the host refuses rather than letting a caller create the collision.
+
+### Why an extension could not handle it
+
+- The field is part of the `open_session` wire contract, its validation runs inside the session registry before any runtime exists, and the collision guard needs the registry's view of every live session. No extension surface reaches any of those.
+
+### Expected merge conflict zones
+
+- `rpc-types.ts`: the `open_session` union member and the `RpcErrorCode` union both grow by additive lines; upstream edits to either list land in the same place.
+- `session-command-router.ts`: the `get_protocol_info` capability set and the `openSession` profile literal each gain one entry.
+- `session-registry.ts`: the prologue of `openSession` gains the synchronous collision guard directly above the path-reservation block, and `RpcSessionRegistryError`'s code union grows.
+- `session-manager.ts`: `static open`'s signature and the `_setSessionFile` call in the private constructor; any upstream change to either signature conflicts textually.
+
 ## 2026-09-21 - Start a generation beside a stranded foreign one (#1936)
 
 ### What changed

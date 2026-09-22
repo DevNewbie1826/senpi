@@ -33,6 +33,9 @@ export type ResolvedSystemPromptMode = {
 };
 
 type SettingsWithClaudeSdkOauthProvider = Settings & {
+	// The canonical key after the provider rename (senpi#1989); the legacy key is
+	// still read for two releases for settings that predate the migration.
+	anthropicSubscriptionProvider?: unknown;
 	claudeSdkOauthProvider?: unknown;
 };
 
@@ -158,8 +161,8 @@ export function loadClaudeSdkOauthProviderSettings(
 	const project = settingsManager.getProjectSettings() as SettingsWithClaudeSdkOauthProvider;
 	const environmentSettings = parseEnvironmentSettings(environment);
 	const settings = {
-		...parseProviderSettings(global.claudeSdkOauthProvider),
-		...parseProviderSettings(project.claudeSdkOauthProvider),
+		...parseProviderSettings(global.anthropicSubscriptionProvider ?? global.claudeSdkOauthProvider),
+		...parseProviderSettings(project.anthropicSubscriptionProvider ?? project.claudeSdkOauthProvider),
 		...environmentSettings,
 	};
 	if (environmentSettings.systemPromptMode !== undefined) systemPromptModeSources.set(settings, "env");

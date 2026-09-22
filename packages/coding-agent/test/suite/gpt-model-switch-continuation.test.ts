@@ -36,7 +36,7 @@ function codexModel(id: string): Model<"openai-codex-responses"> {
 		id,
 		name: id,
 		api: "openai-codex-responses",
-		provider: "openai-codex",
+		provider: "chatgpt-subscription",
 		baseUrl: "https://chatgpt.com/backend-api",
 		reasoning: true,
 		input: ["text"],

@@ -78,7 +78,7 @@ type RpcSessionCommand =
 	| { id?: string; type: "cycle_thinking_level" }
 	| { id?: string; type: "get_available_thinking_levels" }
 
-	// Fast mode (OpenAI Codex priority service tier)
+	// Fast mode (ChatGPT Subscription priority service tier)
 	| { id?: string; type: "set_fast_mode"; enabled: boolean }
 	| { id?: string; type: "get_fast_mode" }
 
@@ -225,6 +225,14 @@ export const RPC_ERROR_INVALID_SESSION_CONTEXT = "invalid_session_context";
 export const RPC_ERROR_INVALID_SESSION_KIND = "invalid_session_kind";
 /** A launch-profile field on `open_session` (currently `auto_title`) was the wrong type. */
 export const RPC_ERROR_INVALID_LAUNCH_PROFILE = "invalid_launch_profile";
+/** `open_session.durableSessionId` was not a legal session id (see `assertValidSessionId`). */
+export const RPC_ERROR_INVALID_SESSION_ID = "invalid_session_id";
+/**
+ * `open_session.durableSessionId` is already held by a LIVE session. Two live sessions may
+ * never share one durable id: every per-session artifact a client keys by that id (goal files,
+ * subagent and team attribution) would collide. Close the holder, or open with a different id.
+ */
+export const RPC_ERROR_SESSION_ID_IN_USE = "session_id_in_use";
 /**
  * The host is above its RSS refuse watermark and declined to create a NEW worker session;
  * `errorData { rssMb, retry_after_ms }` says when to ask again. Existing sessions, attaches
@@ -255,6 +263,8 @@ export type RpcErrorCode =
 	| typeof RPC_ERROR_INVALID_SESSION_CONTEXT
 	| typeof RPC_ERROR_INVALID_SESSION_KIND
 	| typeof RPC_ERROR_INVALID_LAUNCH_PROFILE
+	| typeof RPC_ERROR_INVALID_SESSION_ID
+	| typeof RPC_ERROR_SESSION_ID_IN_USE
 	| typeof RPC_ERROR_HOST_MEMORY_PRESSURE
 	| typeof RPC_ERROR_STREAMING
 	| typeof RPC_ERROR_ENTRY_NOT_FOUND
@@ -306,6 +316,20 @@ export type RpcCommand =
 			 * `invalid_launch_profile`.
 			 */
 			auto_title?: boolean;
+			/**
+			 * The durable session id to CREATE this session with, so a caller that already has a
+			 * stable record id for the conversation keeps ONE identity instead of maintaining a
+			 * mapping. Requires the host capability `durable_session_id`.
+			 *
+			 * Deliberately NOT named `sessionId`: the routing envelope above carries that name on
+			 * every established command, and this value is not a routing handle.
+			 *
+			 * Applied ONLY when this open creates the session. When `sessionPath` names an existing
+			 * session file, that file's header id stays authoritative and this field is ignored -
+			 * a resume never rewrites identity. Refused with `invalid_session_id` when malformed and
+			 * with `session_id_in_use` when a live session already holds it.
+			 */
+			durableSessionId?: string;
 	  }
 	| { id?: string; type: "close_session"; sessionId: string }
 	| {

@@ -22,8 +22,8 @@ export class AllAccountsBlockedError extends Error {
 	constructor(soonestUnblockAt: number | undefined, blockReason?: "auth_error") {
 		super(
 			soonestUnblockAt === undefined
-				? "All Claude SDK OAuth accounts are blocked until re-login."
-				: `All Claude SDK OAuth accounts are blocked until ${new Date(soonestUnblockAt).toISOString()}.`,
+				? "All Anthropic Subscription accounts are blocked until re-login."
+				: `All Anthropic Subscription accounts are blocked until ${new Date(soonestUnblockAt).toISOString()}.`,
 		);
 		this.name = "AllAccountsBlockedError";
 		this.soonestUnblockAt = soonestUnblockAt;

@@ -1,5 +1,43 @@
 # Local fork changes
 
+## 2026-09-22 - Grok 4.7 preset + xAI default (#1990)
+
+### What changed
+
+- `packages/coding-agent/src/core/model-resolver.ts`: `defaultModelPerProvider.xai` moves `grok-4.5` -> `grok-4.7` (port of upstream 1a584a7a56); nearest-tracker detail in `src/core/changes.md`.
+- `packages/coding-agent/test/model-resolver.test.ts`: the xai-default assertion and the initial-selection fixture (`custom` xai model + `defaultModelId`) realign to `grok-4.7` — the provider-default branch resolves `defaultModelPerProvider.xai`, so a `grok-4.5` fixture fell through to first-available.
+
+### Why
+
+- The catalog gained `xai/grok-4.7`; the default tracks the current model.
+
+### Why an extension could not handle it
+
+- The provider default is core model-resolution state, not extension-visible.
+
+### Expected merge conflict zones
+
+- LOW: `model-resolver.ts` provider-default map on upstream syncs.
+
+
+## 2026-09-22 - modelOverrides tests fail loudly when a fixture model is missing (senpi#1993)
+
+### What changed
+
+- `packages/coding-agent/test/model-registry.test.ts`: the three `modelOverrides` cases that used `anthropic/claude-opus-4` now inject `fixture/override-target` and `fixture/sibling-model` (same approach as `41c7e6cd58`) and call `requireModel` before any override assertion, so a missing id names that id instead of `expected undefined to be ...`.
+
+### Why
+
+- Catalog regeneration `9f11abadfb` dropped `claude-opus-4`. Optional chaining on the lookup then yielded `undefined`, so the assertions reported a missing override rather than a missing fixture. That silent miss went red on `main` and blocked unrelated PRs (#1991, #1992).
+
+### Why an extension could not handle it
+
+- These are package tests of `ModelRegistry` composition. No extension hook observes or repairs the fixture catalog.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/test/model-registry.test.ts`: the `modelOverrides (per-model customization)` describe, especially `supportsFinishReason`, `multiple model overrides on same provider`, and `model override combined with baseUrl override`.
+
 ## 2026-09-21 - Take es-module-lexer 3 (senpi#1895)
 
 ### What changed

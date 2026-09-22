@@ -25,6 +25,26 @@
 - LOW: the eight preset call sites, each a one-line argument change.
 - LOW: `grok-4.5.ts` role sentence.
 
+## Grok 4.7 preset reusing Grok 4.6 verbatim (2026-09-22, senpi#1990)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/prompt-preset/grok-4.7.ts`: standalone preset holding a VERBATIM copy of the Grok 4.6 prompt text — every section and string byte-identical, no import from grok-4.6.ts. Grok 4.7 has no prompt tuning yet, so any wording difference from the 4.6 prompt is a defect; the copy (not a delegation) is deliberate so this file is already the editable starting point when 4.7 gets its own tuning, and `test/suite/prompt-presets-grok-4-7.test.ts`'s byte-equality assertion is the load-bearing guard against the two copies drifting until then.
+- `packages/coding-agent/src/core/extensions/builtin/prompt-preset/presets.ts`: `hasGrok47Signal` / `isGrok47Model` in the existing regex family (same shapes as 4.6, minor version 7 — also covers Venice's dashed `grok-4-7`), a `grok-4.7` branch in `resolvePresetName` ahead of the 4.6 branch, and a `buildPreset` case.
+- `packages/coding-agent/src/core/extensions/builtin/prompt-preset/settings.ts`: `grok-4.7` joins `PromptPresetName` and `VALID_PRESETS`.
+- `packages/coding-agent/test/suite/prompt-presets-grok-4-7.test.ts`: id-shape routing (incl. aggregator + dashed ids), byte-identical 4.6/4.7 builds, 4.6-stays-4.6 negatives, settings force, and catalog-wide coverage.
+
+### Why
+
+- `grok-4.7` ids matched neither the 4.5 nor the 4.6 matcher, so the model silently fell through to the untuned dynamic prompt.
+
+### Why an extension could not handle it
+
+- Preset registration is this builtin's own dispatch table.
+
+### Expected merge conflict zones
+
+- LOW: `presets.ts` branch order and `settings.ts` preset list on upstream syncs.
 ## 2026-09-21 - Route file edits through active tools (#1891)
 
 ### What changed
@@ -623,7 +643,6 @@ Presets are core-owned prompt builders; the proportionality rule belongs in the 
 ### Expected merge conflict zones on next upstream sync
 
 - LOW: `gpt-5.6.ts` is fork-only; conflicts only if upstream adds its own GPT-5.6 preset.
-
 
 ## Claude Opus 5 dieted full-core rewrite (2026-07-24)
 
