@@ -166,6 +166,10 @@ export function createBunExtensionImporter(
 				return factory.apply(this, args);
 			};
 		},
+		// The generation's staleness check reads these: every source file it transpiled.
+		compiledFiles(): readonly string[] {
+			return [...sources.keys()];
+		},
 		dispose() {
 			active = false;
 			registration.dispose();

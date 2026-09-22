@@ -1,5 +1,32 @@
 # Core Extensions Changes
 
+## 2026-09-22 - One extension module generation per source version, not per session (senpi#1948)
+
+### What changed
+
+- New `extension-module-cache.ts` owns the process-wide extension module generation: the live importer, the factories compiled under it, and a fingerprint (`mtimeNs:size`) of every source file that generation compiled. `cachedExtensionFactory()` serves a compiled factory while every recorded file is unchanged, `extensionModuleImporter()` hands out the one live importer, and `rememberExtensionFactory()` records a freshly compiled factory. A changed or deleted source drops the whole generation, so the next load compiles a new one.
+- `loader.ts` loads through that cache on every path: the per-cwd LRU factory cache (`extensionCacheByCwd`, `MAX_EXTENSION_CACHE_CWD_ENTRIES`, `ExtensionCacheToken`) and the `useCache` opt-in are gone, `loadExtensions` and `loadExtensionsCached` behave identically, and `clearExtensionCache` re-exports the cache module's.
+- `bun-extension-importer.ts` exposes `compiledFiles()`, the source files its graph transpiled. An importer without it (the Node jiti path) is never cached, because its graph cannot be checked for staleness.
+- Invalidation stops REUSING a generation and never disposes it: a session loaded under it can still lazily `import()` from its graph after its factory returned, and a disposed graph makes that throw `ExtensionGenerationDisposedError`. Its modules stay registered either way.
+
+### Why
+
+- A module registry has no eviction API, so each importer generation's modules stay resident for the life of the process. Loading extensions per session therefore cost a shared RPC host one permanent copy of the whole extension graph per `open_session`: measured +14 to +17 MB of settled resident memory per session on the compiled runtime with a full extension set, and ~90-150 new `ModuleRecord`s per session in a heap snapshot. A host reached multiple GB in a few hours of ordinary use.
+- After the change the same measurement (source host, same plugin, five open/close cycles, heap read after a full GC) goes from ~+16 MB per session to ~+0.77 MB, and retained objects from ~125,000 per session to ~271.
+
+### Why an extension could not handle it
+
+- The loader is what evaluates extension modules; an extension cannot decide how many times its own source is compiled.
+
+### Extension impact
+
+- An extension's module scope is now evaluated once per process while its source is unchanged, and its factory still runs once per session, so each session keeps its own instance. Module-scope state was never per session (factories must be pure - `AGENTS.md`), so this changes no documented contract. Editing an extension still takes effect on the next load: the edit changes the fingerprint and the graph is recompiled.
+
+### Expected merge conflict zones
+
+- The cache block near the top of `loader.ts` and its `loadExtensionsInternal` signature, whenever upstream touches loader caching.
+
+
 ## 2026-09-21 - Read es-module-lexer 3 import records in the Bun extension importer (senpi#1895)
 
 ### What changed

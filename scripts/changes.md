@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-22 - Compiled loader probe pins one module generation per source version (senpi#1948)
+
+### What changed
+
+- `compiled-extension-fixtures.ts`: the compiled loader probe now asserts that two `loadExtensions` calls over unchanged source share one module generation (same `moduleToken`, `factoryRuns` [1, 2]), that a second session cwd does not fork it, and that editing an imported source recompiles it (new token, `factoryRuns` back to 1). It no longer calls `clearExtensionCache`, so the freshness leg proves automatic invalidation inside a shipped binary.
+
+### Why
+
+- The probe pinned the previous contract, where every `loadExtensions` call built a new generation. That is the defect senpi#1948 fixes: a module registry cannot evict, so a per-load generation leaked the whole extension graph per session on a shared host.
+
+### Why an extension could not handle it
+
+- The probe runs the compiled loader itself; no extension can observe the generation the host compiles it under.
+
+### Expected merge conflict zones
+
+- The assertion block at the end of `compiledLoaderProbeSource`, whenever upstream changes loader caching.
+
 ## 2026-09-21 - run-workspaces gains --parallel with prefixed lanes and shared signal forwarding (senpi#1895)
 
 ### What changed

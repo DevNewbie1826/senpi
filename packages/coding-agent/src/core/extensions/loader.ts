@@ -34,6 +34,12 @@ import { createSyntheticSourceInfo } from "../source-info.ts";
 import { time } from "../timings.ts";
 import { type ReadClassifier, registerReadClassifier } from "../tools/read-classifiers.ts";
 import { validateMcpServerDeclaration } from "./builtin/mcp/config-schema.ts";
+import {
+	cachedExtensionFactory,
+	type ExtensionModuleImporter,
+	extensionModuleImporter,
+	rememberExtensionFactory,
+} from "./extension-module-cache.ts";
 import type {
 	EntryRenderer,
 	Extension,
@@ -217,55 +223,13 @@ function getAliases(): Record<string, string> {
 }
 
 type HandlerFn = (...args: unknown[]) => Promise<unknown>;
-type ExtensionModuleImporter = {
-	import(path: string, options: { default: true }): Promise<unknown>;
-};
 export type ExtensionFactoryResolver = (extensionPath: string, resolvedPath: string) => ExtensionFactory | undefined;
 
-const MAX_EXTENSION_CACHE_CWD_ENTRIES = 16;
-let nextExtensionCacheGeneration = 0;
-const extensionCacheByCwd = new Map<string, ExtensionCacheEntry>();
 // Bun's module registry must not own generation graphs. Live runtimes and the
 // existing factory cache retain wrappers; invalidation releases runtime ownership.
 const runtimeFactories = new WeakMap<ExtensionRuntime, Set<ExtensionFactory>>();
 
-interface ExtensionCacheToken {
-	cwd: string;
-	generation: number;
-}
-
-interface ExtensionCacheEntry {
-	cwd: string;
-	generation: number;
-	factories: Map<string, ExtensionFactory>;
-}
-
-export function clearExtensionCache(): void {
-	extensionCacheByCwd.clear();
-}
-
-function useExtensionCacheCwd(cwd: string): ExtensionCacheToken {
-	const resolvedCwd = resolvePath(cwd);
-	const existingEntry = extensionCacheByCwd.get(resolvedCwd);
-	if (existingEntry) {
-		extensionCacheByCwd.delete(resolvedCwd);
-		extensionCacheByCwd.set(resolvedCwd, existingEntry);
-		return { cwd: existingEntry.cwd, generation: existingEntry.generation };
-	}
-	if (extensionCacheByCwd.size >= MAX_EXTENSION_CACHE_CWD_ENTRIES) {
-		const leastRecentlyUsedCwd = extensionCacheByCwd.keys().next().value;
-		if (leastRecentlyUsedCwd !== undefined) {
-			extensionCacheByCwd.delete(leastRecentlyUsedCwd);
-		}
-	}
-	const entry: ExtensionCacheEntry = {
-		cwd: resolvedCwd,
-		generation: nextExtensionCacheGeneration++,
-		factories: new Map<string, ExtensionFactory>(),
-	};
-	extensionCacheByCwd.set(resolvedCwd, entry);
-	return { cwd: entry.cwd, generation: entry.generation };
-}
+export { clearExtensionCache, extensionModuleGenerationCount } from "./extension-module-cache.ts";
 
 /**
  * Create a runtime with throwing stubs for action methods.
@@ -737,22 +701,10 @@ async function createExtensionModuleImporter(): Promise<ExtensionModuleImporter>
 	});
 }
 
-function isCurrentCacheToken(cacheToken: ExtensionCacheToken | undefined): cacheToken is ExtensionCacheToken {
-	if (cacheToken === undefined) return false;
-	const cacheEntry = extensionCacheByCwd.get(cacheToken.cwd);
-	return cacheEntry?.generation === cacheToken.generation;
-}
-
-async function loadExtensionModule(
-	extensionPath: string,
-	getImporter: () => Promise<ExtensionModuleImporter>,
-	cacheToken?: ExtensionCacheToken,
-) {
-	if (isCurrentCacheToken(cacheToken)) {
-		const cachedFactory = extensionCacheByCwd.get(cacheToken.cwd)?.factories.get(extensionPath);
-		if (cachedFactory) {
-			return cachedFactory;
-		}
+async function loadExtensionModule(extensionPath: string, getImporter: () => Promise<ExtensionModuleImporter>) {
+	const cachedFactory = cachedExtensionFactory(extensionPath);
+	if (cachedFactory) {
+		return cachedFactory as ExtensionFactory;
 	}
 
 	const importer = await getImporter();
@@ -761,9 +713,7 @@ async function loadExtensionModule(
 	if (typeof factory !== "function") {
 		return undefined;
 	}
-	if (isCurrentCacheToken(cacheToken)) {
-		extensionCacheByCwd.get(cacheToken.cwd)?.factories.set(extensionPath, factory);
-	}
+	rememberExtensionFactory(extensionPath, factory as (...args: never[]) => unknown, importer);
 	return factory;
 }
 
@@ -835,15 +785,13 @@ async function loadExtension(
 	runtime: ExtensionRuntime,
 	getImporter: () => Promise<ExtensionModuleImporter>,
 	factoryResolver?: ExtensionFactoryResolver,
-	cacheToken?: ExtensionCacheToken,
 	session: ExtensionSessionProfile = DEFAULT_EXTENSION_SESSION_PROFILE,
 ): Promise<{ extension: Extension | null; error: string | null }> {
 	const resolvedPath = resolvePath(extensionPath, cwd, { normalizeUnicodeSpaces: true });
 
 	try {
 		const factory =
-			factoryResolver?.(extensionPath, resolvedPath) ??
-			(await loadExtensionModule(resolvedPath, getImporter, cacheToken));
+			factoryResolver?.(extensionPath, resolvedPath) ?? (await loadExtensionModule(resolvedPath, getImporter));
 		time(`${extensionPath} module import`, "extensions");
 		if (!factory) {
 			return { extension: null, error: `Extension does not export a valid factory function: ${extensionPath}` };
@@ -889,20 +837,14 @@ async function loadExtensionsInternal(
 	eventBus?: EventBus,
 	runtime?: ExtensionRuntime,
 	options?: ExtensionSessionOptions & { factoryResolver?: ExtensionFactoryResolver },
-	useCache = false,
 ): Promise<LoadExtensionsResult> {
 	const session = sessionProfile(options);
 	const extensions: Extension[] = [];
 	const errors: Array<{ path: string; error: string }> = [];
-	const cacheToken = useCache ? useExtensionCacheCwd(cwd) : undefined;
-	const resolvedCwd = cacheToken?.cwd ?? resolvePath(cwd);
+	const resolvedCwd = resolvePath(cwd);
 	const resolvedEventBus = eventBus ?? createEventBus();
 	const resolvedRuntime = runtime ?? createExtensionRuntime();
-	let importer: Promise<ExtensionModuleImporter> | undefined;
-	const getImporter = () => {
-		importer ??= createExtensionModuleImporter();
-		return importer;
-	};
+	const getImporter = () => extensionModuleImporter(createExtensionModuleImporter);
 
 	for (const extPath of paths) {
 		const { extension, error } = await loadExtension(
@@ -912,7 +854,6 @@ async function loadExtensionsInternal(
 			resolvedRuntime,
 			getImporter,
 			options?.factoryResolver,
-			cacheToken,
 			session,
 		);
 
@@ -950,7 +891,7 @@ export async function loadExtensionsCached(
 	eventBus?: EventBus,
 	runtime?: ExtensionRuntime,
 ): Promise<LoadExtensionsResult> {
-	return loadExtensionsInternal(paths, cwd, eventBus, runtime, undefined, true);
+	return loadExtensionsInternal(paths, cwd, eventBus, runtime);
 }
 
 function isExtensionFile(name: string): boolean {
