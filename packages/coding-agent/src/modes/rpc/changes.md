@@ -1,3 +1,24 @@
+## 2026-09-22 - The observer reconnect chain survives failed retries, and unknown activity is bounded (#1979)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/observer-link.ts` (new): the supervisor's observer connection, its reconnect chain, and the rule for how long an unhealthy observer may count as busy. `createObserverLink()` retries on every failure until it reconnects or the supervisor settles, and records when it went unhealthy. `activeTurnsForIdleDecision()` returns the observed count while healthy, `1` while unhealthy inside `unknownGraceMs`, and `0` once that grace has elapsed; an infinite grace never elapses.
+- `packages/coding-agent/src/modes/rpc/host-lifecycle.ts`: `runHostSupervisor` builds the link with a socket adapter, and `currentActivity()` feeds the decider through `activeTurnsForIdleDecision` with `decider.idleExitMs` as the grace, so a `persistent` host (infinite window) keeps its infinite pin. The inline `connectObserver()` and its two state variables are gone. Net +7 pure LOC on a file already past the ceiling: the extracted unit is 64 LOC, but the socket adapter that stays behind is about as long as the code it replaced.
+- `test/suite/idle-exit-window-contract.test.ts` (characterization, green before the change), `test/suite/regressions/issue-1979-observer-reconnect-chain.test.ts`, `test/suite/regressions/issue-1979-unknown-activity-bound.test.ts`.
+
+### Why
+
+- The retry callback reused the `lost` handler of the connection that had already gone. That handler starts with `if (observer !== next) return`, and by the time a retry fails the supervisor owns no socket, so the guard was always true and nothing re-armed. One failed reconnect ended the chain for the life of the process. Since `currentActivity()` reported `activeTurns: 1` for an unhealthy observer, the idle window could never elapse - a second path to a host that outlives every client, next to the socket-gone case #1961 fixed.
+- The fail-open itself is right: a momentary observer blip must not kill a turn. What was missing was a bound. One idle window is the natural one: after that, unknown has held the host open exactly as long as idleness would have been allowed to, and there is no longer anything it is protecting.
+
+### Why an extension could not handle it
+
+- The supervisor is a separate process that hosts no session; nothing an extension can reach observes its link or its idle decision.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/host-lifecycle.ts`: the supervisor state declarations near `clientSockets`, `currentActivity()`, the `observerSocket?.destroy()` line in `performShutdown`, the `observerLink` construction beside `publicSocketOwned`, and the removed `connectObserver()` body.
+
 ## 2026-09-22 - A worker that fails during open reports the failure, not `session_closing` (#1953)
 
 ### What changed

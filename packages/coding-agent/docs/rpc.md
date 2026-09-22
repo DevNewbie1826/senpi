@@ -600,7 +600,12 @@ Environment overrides beat the file, and invalid values fall through to the next
 (`transient`|`persistent`) and `SENPI_RPC_HOST_IDLE_EXIT_MS` (positive integer milliseconds).
 
 The host exits only after the window elapses with NO attached client connections and NO active turns — continuously.
-Any connection or agent turn resets the window, so a busy host never exits, and the exit itself is clean: the RPC host
+Any connection or agent turn resets the window, so a busy host never exits. The supervisor learns about turns through
+its observer connection to the host; while that connection is unhealthy it cannot see turns, so it treats activity as
+unknown and keeps the host open as if a turn were running — but only for one idle window, during which it keeps
+reconnecting. An observer that stays unhealthy for longer than the window stops counting as busy, and the connection
+count alone decides from there. A `persistent` host has an infinite window and so keeps its infinite benefit of the
+doubt. The exit itself is clean: the RPC host
 receives SIGTERM first, flushes pending output, removes its socket, and the supervisor then removes `host.pid` and
 `settings.json` (the stderr log stays for diagnostics). After an idle exit, the next `ensureHost()` transparently
 starts a fresh host. `get_protocol_info` over the public socket behaves exactly as before; the supervisor is
