@@ -887,7 +887,7 @@ Response-level `sessionId` = opaque **routing handle**, unique per process epoch
 In the response `error` field, machine-matchable:
 
 - `unknown_session`
-- `session_closing`
+- `session_closing` (an entry whose owner is tearing down). A worker that FAILS while its session is being opened is not that case and reports `open_failed` carrying the worker's own reason, so the code a client matches on always names what actually happened.
 - `session_path_in_use` (path held by an opening or quarantined owner; a fully-open current owner is attached instead, an owner whose teardown is already in flight is waited out on the in-process runtime, and a path a live owner has superseded is released rather than held). A path held by ANOTHER GENERATION of the daemon carries `errorData { owner: { instanceId, pid, processStartTime, sessionPath, current }, retry_after_ms: 2000 }`: that generation is still writing the file and is parking it, so the open is a retry, not a failure. Only a claim whose owner serves the socket (`current: true`) or still has a client attached refuses an open at all - a superseded, attachment-less claim is reclaimed instead
 - `session_reservation_limit` (this worker already holds 64 live session paths; the open or session replacement was refused without disturbing the existing session)
 - `missing_session_id` (session-scoped command without `sessionId` in multi mode)
