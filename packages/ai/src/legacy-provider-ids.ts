@@ -53,3 +53,34 @@ export function readByProviderId<T>(record: Record<string, T> | undefined, provi
 	}
 	return undefined;
 }
+
+/**
+ * Display names the renamed providers used to ship with. A user who types one
+ * of these means the legacy provider just as much as someone typing its id, so
+ * both are rejected with the same message.
+ */
+const LEGACY_PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = Object.freeze({
+	"openai codex": "openai-codex",
+	"claude sdk oauth": "claude-sdk-oauth",
+});
+
+/**
+ * The error a TYPED legacy provider id must produce: it names the new id so the
+ * user can retype it, instead of a generic "Unknown provider" or a filtered
+ * selector that silently shows nothing.
+ *
+ * This is for ids the user TYPES. Ids read from disk (settings, models.json,
+ * sessions, auth.json) are normalized instead and never rejected.
+ */
+export function legacyProviderIdRejection(typed: string): string | undefined {
+	const trimmed = typed.trim();
+	const lowered = trimmed.toLowerCase();
+	const legacyId = Object.hasOwn(LEGACY_PROVIDER_DISPLAY_NAMES, lowered)
+		? LEGACY_PROVIDER_DISPLAY_NAMES[lowered]
+		: Object.hasOwn(LEGACY_PROVIDER_IDS, lowered)
+			? lowered
+			: undefined;
+	if (legacyId === undefined) return undefined;
+	const canonical = LEGACY_PROVIDER_IDS[legacyId as LegacyProviderId];
+	return `${legacyId} was renamed to ${canonical}. Use ${canonical}.`;
+}

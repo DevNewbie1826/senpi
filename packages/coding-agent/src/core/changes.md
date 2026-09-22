@@ -24,6 +24,22 @@ All of these run inside core credential, settings, session and model-runtime plu
 - `packages/coding-agent/src/core/session-manager.ts` the model-restore branches in `getSessionContextSettings`.
 - `packages/coding-agent/src/core/model-config.ts` the `parse` provider loop and the constructor signature (a warnings argument was added).
 
+## 2026-09-22 - reject a typed legacy provider id (senpi#1989)
+
+### What changed
+
+
+### Why
+
+Today a typed legacy id in `/login` falls through to `showLoginProviderSelector(undefined, providerRef)`, which opens a selector filtered to nothing - it reads as "this provider vanished" rather than "it was renamed". `--provider` would fail later with a generic message. Both now name the new id so the user can retype it. Config read from disk is normalized instead (todo 8) and never hard-errored.
+
+### Why an extension could not handle it
+
+CLI parsing and the interactive login command are core surfaces that run before and outside the extension API.
+
+### Expected merge conflict zones
+
+
 ## 2026-09-22 - settings.json provider-key migration (senpi#1989)
 
 ### What changed

@@ -16,6 +16,24 @@ These helpers are consumed by core credential, settings, session and model-confi
 
 - `packages/ai/src/legacy-provider-ids.ts`, against any other addition to the legacy-id surface.
 
+## 2026-09-22 - typed legacy provider id rejection (senpi#1989)
+
+### What changed
+
+- `packages/ai/src/legacy-provider-ids.ts`: adds `legacyProviderIdRejection`, which returns the error text for a TYPED legacy provider id (or one of the legacy DISPLAY NAMES `OpenAI Codex` / `Claude SDK OAuth`), naming the id it was renamed to. Case- and whitespace-insensitive, the way a typed argument is.
+
+### Why
+
+A user who types a legacy id must be told the id MOVED, not shown a generic "Unknown provider" or an empty filtered selector. This is the deliberate counterpart to todo 8: ids READ FROM DISK are normalized and never rejected, while ids the user TYPES are rejected by name. Keeping both behaviours driven by the same legacy map stops them drifting apart.
+
+### Why an extension could not handle it
+
+The rejection must fire inside CLI argument parsing and the interactive login command, both of which run before extensions can observe the input.
+
+### Expected merge conflict zones
+
+- `packages/ai/src/legacy-provider-ids.ts`, against any other addition to the legacy-id surface.
+
 ## 2026-09-22 - claude-sdk-oauth renamed to anthropic-subscription: the pooled-credential sentinel matcher stays legacy-aware (senpi#1989)
 
 ### What changed

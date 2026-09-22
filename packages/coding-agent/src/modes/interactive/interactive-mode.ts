@@ -7,7 +7,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { type AuthEvent, type AuthPrompt, contentText, modelsAreEqual } from "@earendil-works/pi-ai";
+import {
+	type AuthEvent,
+	type AuthPrompt,
+	contentText,
+	legacyProviderIdRejection,
+	modelsAreEqual,
+} from "@earendil-works/pi-ai";
 import type { AssistantMessage, ImageContent, Message, Model, TextContent, Usage } from "@earendil-works/pi-ai/compat";
 import type {
 	AutocompleteItem,
@@ -8413,6 +8419,17 @@ export class InteractiveMode {
 	private async handleLoginCommand(providerRef?: string): Promise<void> {
 		if (!providerRef) {
 			this.showLoginAuthTypeSelector();
+			return;
+		}
+
+		// A TYPED legacy provider id (or its old display name) is rejected by name
+		// so the user learns the new id (senpi#1989). Without this it falls through
+		// to a filtered selector that matches nothing, which reads as "this provider
+		// vanished" rather than "it was renamed". Ids read from disk are normalized
+		// instead and never reach here.
+		const rejection = legacyProviderIdRejection(providerRef);
+		if (rejection) {
+			this.showError(rejection);
 			return;
 		}
 

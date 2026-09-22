@@ -1,3 +1,21 @@
+## 2026-09-22 - --provider rejects a typed legacy provider id (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/cli/args.ts`: the `--provider` branch rejects a legacy provider id at parse time with a message naming the id it was renamed to, instead of letting it fail later as a generic unknown provider.
+
+### Why
+
+A user who types a renamed id must learn the new one. This is the counterpart to the read-boundary normalization: ids read from disk are normalized and never rejected, while ids the user TYPES are rejected by name. Both are driven by the same legacy map so they cannot drift apart.
+
+### Why an extension could not handle it
+
+CLI argument parsing runs before any extension is loaded.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/cli/args.ts` the `--provider` branch.
+
 ## 2026-09-22 - chatgpt-subscription provider id in CLI help (senpi#1989)
 
 ### What changed

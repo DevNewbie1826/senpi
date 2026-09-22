@@ -4,6 +4,7 @@
  */
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { legacyProviderIdRejection } from "@earendil-works/pi-ai";
 import chalk from "chalk";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } from "../config.ts";
 import type { ExtensionFlag } from "../core/extensions/types.ts";
@@ -140,7 +141,13 @@ export function parseArgs(args: string[], options: { grokNeoEnabled?: boolean } 
 		} else if (arg === "--resume" || arg === "-r") {
 			result.resume = true;
 		} else if (arg === "--provider" && i + 1 < args.length) {
-			result.provider = args[++i];
+			const typedProvider = args[++i];
+			// A TYPED legacy provider id is rejected by name so the user learns the
+			// new id (senpi#1989), instead of a generic "Unknown provider" later.
+			// Ids read from disk are normalized instead and never rejected.
+			const rejection = typedProvider === undefined ? undefined : legacyProviderIdRejection(typedProvider);
+			if (rejection) throw new Error(rejection);
+			result.provider = typedProvider;
 		} else if (arg === "--model" && i + 1 < args.length) {
 			result.model = args[++i];
 		} else if (arg === "--api-key" && i + 1 < args.length) {

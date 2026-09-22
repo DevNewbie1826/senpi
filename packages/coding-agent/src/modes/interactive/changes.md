@@ -16,6 +16,24 @@ Startup diagnostics are rendered by interactive mode itself; an extension cannot
 
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` the startup diagnostics block around the models.json error render.
 
+## 2026-09-22 - reject a typed legacy provider id in /login (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`: `handleLoginCommand` rejects a typed legacy provider id, or one of the legacy display names, with a message naming the new id before it can reach the provider selector.
+
+### Why
+
+A typed legacy id previously fell through to `showLoginProviderSelector(undefined, providerRef)`, opening a selector filtered to nothing - which reads as "this provider vanished" rather than "it was renamed". Config read from disk is normalized instead (todo 8) and never hard-errored.
+
+### Why an extension could not handle it
+
+The login command is interactive mode's own command handler; an extension cannot intercept it before the selector opens.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` `handleLoginCommand`.
+
 ## 2026-09-21 - Transcript explains transport drops and never renders the replay marker (senpi#1628)
 
 ### What changed
