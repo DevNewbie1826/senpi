@@ -713,7 +713,7 @@ async function loadExtensionModule(extensionPath: string, getImporter: () => Pro
 	if (typeof factory !== "function") {
 		return undefined;
 	}
-	rememberExtensionFactory(extensionPath, factory as (...args: never[]) => unknown);
+	rememberExtensionFactory(extensionPath, factory as (...args: never[]) => unknown, importer);
 	return factory;
 }
 

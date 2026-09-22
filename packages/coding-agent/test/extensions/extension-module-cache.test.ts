@@ -66,7 +66,7 @@ describe("extension module cache", () => {
 		const before = extensionModuleGenerationCount();
 		const factory = () => undefined;
 		await extensionModuleImporter(async () => importer);
-		rememberExtensionFactory(entry, factory);
+		rememberExtensionFactory(entry, factory, importer);
 
 		// When: the same source is requested again.
 		const reused = cachedExtensionFactory(entry);
@@ -85,7 +85,7 @@ describe("extension module cache", () => {
 		const entry = writeSource(join(root, "extension.ts"), "export default () => {};\n");
 		const { importer, state } = fakeImporter([entry]);
 		await extensionModuleImporter(async () => importer);
-		rememberExtensionFactory(entry, () => undefined);
+		rememberExtensionFactory(entry, () => undefined, importer);
 
 		// When
 		writeSource(entry, "export default () => 1;\n");
@@ -103,7 +103,7 @@ describe("extension module cache", () => {
 		const dependency = writeSource(join(root, "dependency.ts"), "export const value = 1;\n");
 		const { importer } = fakeImporter([entry, dependency]);
 		await extensionModuleImporter(async () => importer);
-		rememberExtensionFactory(entry, () => undefined);
+		rememberExtensionFactory(entry, () => undefined, importer);
 
 		// When: only the dependency is edited.
 		writeSource(dependency, "export const value = 2;\n");
@@ -120,12 +120,33 @@ describe("extension module cache", () => {
 		const dependency = writeSource(join(root, "dependency.ts"), "export const value = 1;\n");
 		const { importer } = fakeImporter([entry, dependency]);
 		await extensionModuleImporter(async () => importer);
-		rememberExtensionFactory(entry, () => undefined);
+		rememberExtensionFactory(entry, () => undefined, importer);
 
 		// When
 		rmSync(dependency);
 
 		// Then
+		expect(cachedExtensionFactory(entry)).toBeUndefined();
+	});
+
+	it("ignores a factory compiled by a generation that was already dropped", async () => {
+		// Given: a load in flight under one importer while a source change drops that generation.
+		const root = fixtureRoot();
+		const entry = writeSource(join(root, "extension.ts"), "export default () => {};\n");
+		const inFlight = fakeImporter([entry]);
+		await extensionModuleImporter(async () => inFlight.importer);
+		rememberExtensionFactory(entry, () => undefined, inFlight.importer);
+		writeSource(entry, "export default () => 1;\n");
+		touchForward(entry);
+		expect(cachedExtensionFactory(entry)).toBeUndefined();
+		const successor = fakeImporter([entry]);
+		await extensionModuleImporter(async () => successor.importer);
+
+		// When: the in-flight load files its result after the swap.
+		const staleFactory = () => undefined;
+		rememberExtensionFactory(entry, staleFactory, inFlight.importer);
+
+		// Then: the successor generation never serves bytes it did not compile.
 		expect(cachedExtensionFactory(entry)).toBeUndefined();
 	});
 
@@ -137,7 +158,7 @@ describe("extension module cache", () => {
 		await extensionModuleImporter(async () => importer);
 
 		// When
-		rememberExtensionFactory(entry, () => undefined);
+		rememberExtensionFactory(entry, () => undefined, importer);
 
 		// Then
 		expect(cachedExtensionFactory(entry)).toBeUndefined();

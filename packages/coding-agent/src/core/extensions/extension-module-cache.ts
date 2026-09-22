@@ -103,9 +103,20 @@ export async function extensionModuleImporter(
 	return pendingImporter;
 }
 
-/** Remember a freshly compiled factory and re-read the generation's source fingerprints. */
-export function rememberExtensionFactory(resolvedPath: string, factory: CachedFactory): void {
-	if (!generation || generation.importer.compiledFiles === undefined) return;
+/**
+ * Remember a freshly compiled factory and re-read the generation's source fingerprints.
+ *
+ * `compiledBy` is the importer that produced the factory: a load already in flight when a source
+ * change dropped the generation must not file its result under the successor, whose fingerprint
+ * describes different bytes.
+ */
+export function rememberExtensionFactory(
+	resolvedPath: string,
+	factory: CachedFactory,
+	compiledBy: ExtensionModuleImporter,
+): void {
+	if (!generation || generation.importer !== compiledBy) return;
+	if (generation.importer.compiledFiles === undefined) return;
 	generation.factories.set(resolvedPath, factory);
 	absorbNewlyCompiled(generation);
 }
