@@ -233,4 +233,64 @@ describe("classifySenpiAssistantFailure", () => {
 			}
 		});
 	});
+
+	describe("account usage-limit exhaustion is terminal on the first failure", () => {
+		// Verbatim provider error observed on a dead OpenAI account (senpi#1969):
+		// a hard 429 whose body carries the usage_limit_reached error type. The
+		// account cannot serve more requests until its quota resets, so every
+		// same-account retry is guaranteed to fail.
+		const usageLimitExhaustedMessage =
+			'OpenAI API error (429): {"type":"usage_limit_reached","message":"The usage limit has been reached"}';
+
+		it("classifies the exhaustion body as non-retryable", () => {
+			expect(isRetryableErrorMessage(usageLimitExhaustedMessage)).toBe(false);
+		});
+
+		it("treats a message-only exhaustion failure as terminal", () => {
+			const failure: RetryFailure = {
+				origin: "senpi-assistant-test",
+				kind: "unknown",
+				message: usageLimitExhaustedMessage,
+			};
+			expect(classifySenpiAssistantFailure(failure)).toEqual({ verdict: "terminal" });
+		});
+
+		it("treats an exhaustion failure carrying statusCode 429 as terminal, not rate-limited", () => {
+			const failure: RetryFailure = {
+				origin: "senpi-assistant-test",
+				kind: "http-status",
+				statusCode: 429,
+				message: usageLimitExhaustedMessage,
+			};
+			expect(classifySenpiAssistantFailure(failure)).toEqual({ verdict: "terminal" });
+		});
+
+		it.each([["usage_limit_reached"], ["usage_not_included"]] as const)(
+			"treats a 429 with the %s provider code as terminal",
+			(code) => {
+				const failure: RetryFailure = {
+					origin: "senpi-assistant-test",
+					kind: "http-status",
+					statusCode: 429,
+					message: "The provider could not complete this request right now",
+					providerCodes: [code],
+				};
+				expect(classifySenpiAssistantFailure(failure)).toEqual({ verdict: "terminal" });
+			},
+		);
+
+		it("keeps an approaching-the-limit warning retryable (over-match guard)", () => {
+			// "Approaching" the limit is a transient throttle warning, not
+			// exhaustion: the family patterns must not swallow it.
+			const approachingLimitMessage = "OpenAI API error (429): You are approaching your usage limit";
+			expect(isRetryableErrorMessage(approachingLimitMessage)).toBe(true);
+			const failure: RetryFailure = {
+				origin: "senpi-assistant-test",
+				kind: "http-status",
+				statusCode: 429,
+				message: approachingLimitMessage,
+			};
+			expect(classifySenpiAssistantFailure(failure)).toEqual({ verdict: "transient" });
+		});
+	});
 });
