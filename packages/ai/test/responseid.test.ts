@@ -6,7 +6,7 @@ import { resolveApiKey } from "./oauth.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
-const oauthTokens = await Promise.all([resolveApiKey("github-copilot"), resolveApiKey("openai-codex")]);
+const oauthTokens = await Promise.all([resolveApiKey("github-copilot"), resolveApiKey("chatgpt-subscription")]);
 const [githubCopilotToken, openaiCodexToken] = oauthTokens;
 
 async function expectResponseId<TApi extends Api>(model: Model<TApi>, options: StreamOptionsWithExtras = {}) {
@@ -113,7 +113,7 @@ describe("responseId E2E Tests", () => {
 
 	describe("OpenAI Codex Provider", () => {
 		it.skipIf(!openaiCodexToken)("should expose responseId", { retry: 3, timeout: 30000 }, async () => {
-			const llm = getModel("openai-codex", "gpt-5.5");
+			const llm = getModel("chatgpt-subscription", "gpt-5.5");
 			await expectResponseId(llm, { apiKey: openaiCodexToken });
 		});
 	});

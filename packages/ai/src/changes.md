@@ -1,3 +1,28 @@
+## 2026-09-22 - openai-codex renamed to chatgpt-subscription (senpi#1989)
+
+### What changed
+
+- `packages/ai/src/providers/openai-codex.ts`: provider `id` -> `chatgpt-subscription`, `name` -> `ChatGPT Subscription`, OAuth label -> `ChatGPT Subscription (Plus/Pro)`. The function still returns `Provider<"openai-codex-responses">`.
+- `packages/ai/src/providers/openai-codex.models.ts`: the catalog aggregator flattens under the new provider id.
+- `packages/ai/src/types.ts`: `"chatgpt-subscription"` added to `KnownProvider`; `"openai-codex"` is RETAINED as a documented legacy member so configuration written by an older build still type-checks.
+- `packages/ai/src/auth/oauth/openai-codex.ts`: every user-visible label and error string now reads "ChatGPT Subscription", including the login select prompt.
+- `packages/ai/src/api/openai-responses.ts`, `packages/ai/src/api/openai-codex-responses.ts`, `packages/ai/src/api/azure-openai-responses.ts` and `packages/ai/src/api/openai-responses-shared.ts`: the provider comparisons that gate tool-call handling match `model.provider`, so each moved to the new id.
+- `packages/ai/src/live-api-gates.ts`: the env-switch map is keyed by PROVIDER ID, so its key moved with the provider.
+- Catalog data (`packages/ai/src/providers/data/openai-codex.json`, its manifest) carries the new provider id; `packages/ai/src/models.generated.ts` is regenerated output.
+
+### Why
+
+The id named a CLI rather than the thing a user signs in with, and the display name followed it. The wire api id `openai-codex-responses` is deliberately NOT renamed: it names the dialect (`https://chatgpt.com/backend-api`, `codex/responses/compact`), not the provider, and about ten runtime branches switch on it. `packages/ai/src/live-api-gates.ts` mattered more than it looks - renaming the provider without moving that key leaves a lookup that silently never matches, and it is invisible in CI because everything it gates is skipped by default (886 skips in this package).
+
+### Why an extension could not handle it
+
+The provider id is resolved inside this package before any extension loads: the catalog is keyed by it, `getModel` resolves through it, and the tool-call provider Sets compare `model.provider` during request construction. An extension cannot rename an id that the package has already used to build its own catalog.
+
+### Expected merge conflict zones
+
+- `packages/ai/src/types.ts` `KnownProvider`, against any other provider addition.
+- `packages/ai/src/providers/data/*.json` and `packages/ai/src/models.generated.ts`, against any catalog regeneration.
+
 ## 2026-09-22 - Canonical map for renamed provider ids (senpi#1989)
 
 ### What changed

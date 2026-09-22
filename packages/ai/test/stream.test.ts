@@ -29,7 +29,7 @@ const __dirname = dirname(__filename);
 const oauthTokens = await Promise.all([
 	resolveApiKey("anthropic"),
 	resolveApiKey("github-copilot"),
-	resolveApiKey("openai-codex"),
+	resolveApiKey("chatgpt-subscription"),
 ]);
 const [anthropicOAuthToken, githubCopilotToken, openaiCodexToken] = oauthTokens;
 const openRouterApiKey = getLiveEnvApiKey("OPENROUTER_API_KEY", OPENROUTER_LIVE_TEST_FLAG);
@@ -1493,7 +1493,7 @@ describe("Generate E2E Tests", () => {
 	});
 
 	describe("OpenAI Codex Provider (gpt-5.5)", () => {
-		const llm = getModel("openai-codex", "gpt-5.5");
+		const llm = getModel("chatgpt-subscription", "gpt-5.5");
 
 		it.skipIf(!openaiCodexToken)("should complete basic text generation", { retry: 3 }, async () => {
 			await basicTextGeneration(llm, { apiKey: openaiCodexToken });
@@ -1521,7 +1521,7 @@ describe("Generate E2E Tests", () => {
 	});
 
 	describe("OpenAI Codex Provider (gpt-5.5 via WebSocket)", () => {
-		const llm = getModel("openai-codex", "gpt-5.5");
+		const llm = getModel("chatgpt-subscription", "gpt-5.5");
 		const wsOptions = { apiKey: openaiCodexToken, transport: "websocket" as const };
 
 		it.skipIf(!openaiCodexToken)("should complete basic text generation", { retry: 3 }, async () => {

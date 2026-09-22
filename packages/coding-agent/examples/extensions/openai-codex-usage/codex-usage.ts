@@ -93,7 +93,7 @@ export function codexUsageStatusText(
 	usage: CodexUsage | null,
 	visible: boolean,
 ): string | undefined {
-	return visible && provider === "openai-codex" && usage ? formatCodexUsage(usage) : undefined;
+	return visible && provider === "chatgpt-subscription" && usage ? formatCodexUsage(usage) : undefined;
 }
 
 export async function fetchCodexUsage(options: CodexUsageRequestOptions): Promise<CodexUsage | null> {

@@ -35,7 +35,7 @@ function makeContext(assistant: AssistantMessage): Context {
 	};
 }
 
-const ALLOWED_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
+const ALLOWED_TOOL_CALL_PROVIDERS = new Set(["openai", "chatgpt-subscription", "opencode"]);
 
 type ResponsesInput = ReturnType<typeof convertResponsesMessages>;
 
@@ -56,7 +56,7 @@ function assistantTexts(input: ResponsesInput): string[] {
 }
 
 describe("OpenAI Responses foreign thinking-signature replay", () => {
-	const model = getModel("openai-codex", "gpt-5.5");
+	const model = getModel("chatgpt-subscription", "gpt-5.5");
 
 	it("demotes a Kimi-style field-name signature to plain text instead of throwing", () => {
 		const assistant = sameModelAssistant(model, [

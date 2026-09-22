@@ -10,8 +10,8 @@ import { accountDisplayNameCommand, promptAccountDisplayName } from "./account-d
 import { emitProviderAccountsChanged } from "./claude-sdk-oauth/account-events.ts";
 import { createExtensionLoginInteraction, LOGIN_CANCELLED_MESSAGE } from "./oauth-login-interaction.ts";
 
-const OPENAI_CODEX_PROVIDER_ID = "openai-codex";
-const OPENAI_CODEX_PROVIDER_LABEL = "OpenAI Codex OAuth";
+const OPENAI_CODEX_PROVIDER_ID = "chatgpt-subscription";
+const OPENAI_CODEX_PROVIDER_LABEL = "ChatGPT Subscription OAuth";
 
 export interface GptAccountExtensionDeps {
 	/** Browser launcher for the browser login method; tests inject a recorder. */
@@ -31,7 +31,7 @@ function usage(ctx: ExtensionCommandContext): void {
 
 async function showAccounts(ctx: ExtensionCommandContext): Promise<void> {
 	const accounts = await getCredentialAccounts(ctx.modelRegistry.authStorage, OPENAI_CODEX_PROVIDER_ID);
-	const lines = ["OpenAI Codex OAuth accounts:"];
+	const lines = ["ChatGPT Subscription OAuth accounts:"];
 	if (accounts.length === 0) lines.push("  (none)");
 	for (const account of accounts) {
 		const states = [accountLabel(account), account.source, account.blocked ? "blocked" : "available"];
@@ -59,7 +59,7 @@ async function addAccount(ctx: ExtensionCommandContext, deps: GptAccountExtensio
 			},
 		});
 		emitProviderAccountsChanged(OPENAI_CODEX_PROVIDER_ID);
-		ctx.ui.notify("OpenAI Codex OAuth account added.", "info");
+		ctx.ui.notify("ChatGPT Subscription OAuth account added.", "info");
 		await promptAccountDisplayName(ctx, receipt);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -74,7 +74,7 @@ async function removeAccount(ctx: ExtensionCommandContext, name: string | undefi
 		return;
 	}
 	await removeCredentialAccount(ctx.modelRegistry.authStorage, OPENAI_CODEX_PROVIDER_ID, name);
-	ctx.ui.notify(`Removed OpenAI Codex OAuth account '${name}'.`, "info");
+	ctx.ui.notify(`Removed ChatGPT Subscription OAuth account '${name}'.`, "info");
 }
 
 async function pinAccount(ctx: ExtensionCommandContext, name: string | undefined): Promise<void> {
@@ -83,12 +83,12 @@ async function pinAccount(ctx: ExtensionCommandContext, name: string | undefined
 		return;
 	}
 	await pinCredentialAccount(ctx.modelRegistry.authStorage, OPENAI_CODEX_PROVIDER_ID, name);
-	ctx.ui.notify(`Pinned OpenAI Codex OAuth account '${name}'.`, "info");
+	ctx.ui.notify(`Pinned ChatGPT Subscription OAuth account '${name}'.`, "info");
 }
 
 export default function gptAccountExtension(pi: ExtensionAPI, deps: GptAccountExtensionDeps = {}): void {
 	pi.registerCommand("gpt-account", {
-		description: "List and manage OpenAI Codex OAuth accounts.",
+		description: "List and manage ChatGPT Subscription OAuth accounts.",
 		argumentHint: "[add | remove <id> | pin <id> | unpin | rename <id> <display name...> | clear-name <id>]",
 		handler: async (rawArgs, ctx) => {
 			if (await accountDisplayNameCommand(ctx, OPENAI_CODEX_PROVIDER_ID, rawArgs)) return;
@@ -113,7 +113,7 @@ export default function gptAccountExtension(pi: ExtensionAPI, deps: GptAccountEx
 				}
 				if (action === "unpin" || (action === "pin" && args[1] === "unpin")) {
 					await pinCredentialAccount(ctx.modelRegistry.authStorage, OPENAI_CODEX_PROVIDER_ID, null);
-					ctx.ui.notify("Unpinned OpenAI Codex OAuth account.", "info");
+					ctx.ui.notify("Unpinned ChatGPT Subscription OAuth account.", "info");
 					return;
 				}
 				usage(ctx);

@@ -426,7 +426,7 @@ export async function runExtensionCompaction(
 		if (!summary) {
 			const stopReason = isAssistantMessage(response) ? response.stopReason : "unknown";
 			// A summarizer can hijack the forwarded agent tools and answer with a
-			// bare tool call (observed on openai-codex gpt-5.6-sol, 2026-08-31),
+			// bare tool call (observed on chatgpt-subscription gpt-5.6-sol, 2026-08-31),
 			// which used to surface as a terminal empty-summary failure. Spend one
 			// retry with tool calling forbidden; the tools stay in the request
 			// because Anthropic rejects tool_use history without the tools param.

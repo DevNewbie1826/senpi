@@ -163,12 +163,13 @@ function percentile(values: number[], p: number): number {
 
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
-	const model = getModel("openai-codex", "gpt-5.5") as Model<"openai-codex-responses"> | undefined;
+	const model = getModel("chatgpt-subscription", "gpt-5.5") as Model<"openai-codex-responses"> | undefined;
 	if (!model) throw new Error("Model openai-codex/gpt-5.5 not found");
 	const modelWithMaxTokens = { ...model, maxTokens: args.maxTokens };
 	const modelRuntime = await ModelRuntime.create();
 	const apiKey =
-		(await modelRuntime.getAuth("openai-codex"))?.auth.apiKey ?? (await modelRuntime.getAuth("openai"))?.auth.apiKey;
+		(await modelRuntime.getAuth("chatgpt-subscription"))?.auth.apiKey ??
+		(await modelRuntime.getAuth("openai"))?.auth.apiKey;
 	if (!apiKey) {
 		throw new Error("No OpenAI Codex API key found in coding-agent auth storage.");
 	}

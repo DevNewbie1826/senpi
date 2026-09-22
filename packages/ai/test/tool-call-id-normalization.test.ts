@@ -20,7 +20,7 @@ import { resolveApiKey } from "./oauth.ts";
 // Resolve API keys
 const copilotToken = await resolveApiKey("github-copilot");
 const openrouterKey = getLiveEnvApiKey("OPENROUTER_API_KEY", OPENROUTER_LIVE_TEST_FLAG);
-const codexToken = await resolveApiKey("openai-codex");
+const codexToken = await resolveApiKey("chatgpt-subscription");
 
 // Simple echo tool for testing
 const echoToolSchema = Type.Object({
@@ -117,7 +117,7 @@ describe("Tool Call ID Normalization - Live Handoff", () => {
 		"github-copilot -> openai-codex should normalize pipe-separated IDs",
 		async () => {
 			const copilotModel = getModel("github-copilot", "gpt-5.5");
-			const codexModel = getModel("openai-codex", "gpt-5.5");
+			const codexModel = getModel("chatgpt-subscription", "gpt-5.5");
 
 			// Step 1: Generate tool call with github-copilot
 			const userMessage: Message = {
@@ -266,7 +266,7 @@ describe("Tool Call ID Normalization - Prefilled Context", () => {
 	it.skipIf(!codexToken)(
 		"openai-codex should handle prefilled context with long pipe-separated IDs",
 		async () => {
-			const model = getModel("openai-codex", "gpt-5.5");
+			const model = getModel("chatgpt-subscription", "gpt-5.5");
 			const messages = buildPrefilledMessages();
 
 			const response = await completeSimple(

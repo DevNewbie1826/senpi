@@ -119,7 +119,7 @@ describe("Kimi K2.8 prompt preset", () => {
 	it("allows settings.json to force kimi-k2-8 regardless of model id", () => {
 		// given
 		const settings: PromptPresetSettings = { promptPreset: "kimi-k2-8" };
-		const model = createModel("gpt-5.5", "openai-codex", "openai-codex-responses");
+		const model = createModel("gpt-5.5", "chatgpt-subscription", "openai-codex-responses");
 
 		// when
 		const preset = resolvePreset(model, settings);

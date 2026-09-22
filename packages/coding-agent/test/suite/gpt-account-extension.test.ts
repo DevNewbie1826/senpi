@@ -27,7 +27,7 @@ function createContext() {
 }
 
 async function seedCodexPool(): Promise<void> {
-	await storage.modify("openai-codex", async () => ({
+	await storage.modify("chatgpt-subscription", async () => ({
 		type: "oauth",
 		access: "access-secret",
 		refresh: "refresh-secret",
@@ -40,21 +40,21 @@ async function seedCodexPool(): Promise<void> {
 }
 
 describe("/gpt-account command", () => {
-	it("lists OpenAI Codex OAuth accounts without leaking tokens", async () => {
+	it("lists ChatGPT Subscription OAuth accounts without leaking tokens", async () => {
 		await seedCodexPool();
 		const { ctx, notices } = createContext();
 
 		await registeredGptCommand().handler("", ctx);
 
 		const output = notices.map((notice) => notice.message).join("\n");
-		expect(output).toContain("OpenAI Codex OAuth accounts:");
+		expect(output).toContain("ChatGPT Subscription OAuth accounts:");
 		expect(output).toContain("default | login | available");
 		expect(output).toContain("work | login | available");
 		expect(output).not.toContain("access-secret");
 		expect(output).not.toContain("work-access");
 	});
 
-	it("pins and unpins an OpenAI Codex OAuth account", async () => {
+	it("pins and unpins an ChatGPT Subscription OAuth account", async () => {
 		await seedCodexPool();
 		const { ctx, notices } = createContext();
 		const command = registeredGptCommand();
@@ -64,7 +64,7 @@ describe("/gpt-account command", () => {
 		expect(notices[notices.length - 1]?.message).toContain("work | login | available | pinned");
 
 		await command.handler("unpin", ctx);
-		expect(storage.get("openai-codex")).not.toHaveProperty("pinned");
+		expect(storage.get("chatgpt-subscription")).not.toHaveProperty("pinned");
 	});
 
 	it("remove deletes exactly the named account", async () => {
@@ -73,14 +73,14 @@ describe("/gpt-account command", () => {
 
 		await registeredGptCommand().handler("remove work", ctx);
 
-		expect(notices.at(-1)?.message).toContain("Removed OpenAI Codex OAuth account 'work'");
-		expect(storage.listSlots("openai-codex").map((slot) => slot.name)).toEqual(["default"]);
+		expect(notices.at(-1)?.message).toContain("Removed ChatGPT Subscription OAuth account 'work'");
+		expect(storage.listSlots("chatgpt-subscription").map((slot) => slot.name)).toEqual(["default"]);
 	});
 
 	it("remove default on a promoted pool leaves the survivor as the stored top-level credential", async () => {
 		// The shape appendLoginSlot writes when a legacy flat openai-codex credential
 		// gains a second login: the flat fields still project the legacy `default`.
-		await storage.modify("openai-codex", async () => ({
+		await storage.modify("chatgpt-subscription", async () => ({
 			type: "oauth",
 			access: "legacy-access",
 			refresh: "legacy-refresh",
@@ -94,9 +94,9 @@ describe("/gpt-account command", () => {
 
 		await registeredGptCommand().handler("remove default", ctx);
 
-		expect(notices.at(-1)?.message).toContain("Removed OpenAI Codex OAuth account 'default'");
-		expect(storage.listSlots("openai-codex").map((slot) => slot.name)).toEqual(["login-2"]);
-		expect(storage.get("openai-codex")).toMatchObject({
+		expect(notices.at(-1)?.message).toContain("Removed ChatGPT Subscription OAuth account 'default'");
+		expect(storage.listSlots("chatgpt-subscription").map((slot) => slot.name)).toEqual(["login-2"]);
+		expect(storage.get("chatgpt-subscription")).toMatchObject({
 			type: "oauth",
 			access: "second-access",
 			refresh: "second-refresh",

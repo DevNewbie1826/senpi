@@ -29,7 +29,7 @@ import {
 import { resolveApiKey } from "./oauth.ts";
 
 // Resolve OAuth tokens at module level (async, runs before tests)
-const oauthTokens = await Promise.all([resolveApiKey("github-copilot"), resolveApiKey("openai-codex")]);
+const oauthTokens = await Promise.all([resolveApiKey("github-copilot"), resolveApiKey("chatgpt-subscription")]);
 const [githubCopilotToken, openaiCodexToken] = oauthTokens;
 const openRouterApiKey = getLiveEnvApiKey("OPENROUTER_API_KEY", OPENROUTER_LIVE_TEST_FLAG);
 const anthropicApiKey = getLiveEnvApiKey("ANTHROPIC_API_KEY", "PI_ENABLE_ANTHROPIC_LIVE");
@@ -244,7 +244,7 @@ describe("Context overflow error handling", () => {
 		it.skipIf(!openaiCodexToken)(
 			"gpt-5.5 - should detect overflow via isContextOverflow",
 			async () => {
-				const model = getModel("openai-codex", "gpt-5.5");
+				const model = getModel("chatgpt-subscription", "gpt-5.5");
 				const result = await testContextOverflow(model, openaiCodexToken!);
 				logResult(result);
 

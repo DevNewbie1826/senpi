@@ -1,3 +1,23 @@
+## 2026-09-22 - chatgpt-subscription provider id in core resolution and display (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/model-resolver.ts`: provider-id comparisons and default-model selection use the new id.
+- `packages/coding-agent/src/core/provider-display-names.ts`: the built-in display map is keyed by the new id and renders "ChatGPT Subscription".
+- `packages/coding-agent/src/core/agent-session.ts`: session-level provider checks use the new id.
+
+### Why
+
+The OpenAI subscription provider id was renamed from `openai-codex` to `chatgpt-subscription` (senpi#1989): the old id named a CLI rather than the thing a user signs in with. These modules resolve or display that provider id at runtime, so they move with it. The wire api id `openai-codex-responses` is deliberately NOT renamed - it names the dialect, not the provider - and neither are file names or module paths.
+
+### Why an extension could not handle it
+
+The provider id is resolved inside the package before any extension loads, and these call sites compare or render it while building requests and UI. An extension cannot rewrite an id the package has already used.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/provider-display-names.ts`, against any other provider label change.
+
 # changes
 
 ## 2026-09-22 - xAI provider default moves to grok-4.7 (senpi#1990)

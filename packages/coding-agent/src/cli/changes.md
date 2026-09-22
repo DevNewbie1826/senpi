@@ -1,3 +1,21 @@
+## 2026-09-22 - chatgpt-subscription provider id in CLI help (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/cli/args.ts`: the `--provider` usage example names `chatgpt-subscription` instead of the renamed id.
+
+### Why
+
+The OpenAI subscription provider id was renamed from `openai-codex` to `chatgpt-subscription` (senpi#1989): the old id named a CLI rather than the thing a user signs in with. These modules name that provider id in user-visible text or resolve it at runtime, so they move with it. The wire api id `openai-codex-responses` is deliberately NOT renamed - it names the dialect, not the provider - and neither are file names or module paths.
+
+### Why an extension could not handle it
+
+The provider id is resolved and rendered inside the package before any extension loads; an extension cannot rewrite an id the package has already used to build its own help text and requests.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/cli/args.ts`, against any other flag-help change.
+
 # changes
 
 ## 2026-09-17 - `senpi host` command surface and its dispatch (senpi#1782)

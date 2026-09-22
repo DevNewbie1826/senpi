@@ -6,7 +6,7 @@ import type { ExtensionAPI, RegisteredCommand } from "../../src/core/extensions/
 import { SettingsManager } from "../../src/core/settings-manager.ts";
 import { createHarness, type Harness, type HarnessOptions } from "./harness.ts";
 
-const CODEX_PROVIDER = "openai-codex";
+const CODEX_PROVIDER = "chatgpt-subscription";
 const CODEX_API = "openai-codex-responses";
 const BASE_MODEL_ID = "gpt-5.6-sol";
 const FAST_MODEL_ID = `${BASE_MODEL_ID}-fast`;
@@ -426,7 +426,7 @@ describe("/fast per-model service-tier persistence", () => {
 		await harness.session.prompt("/fast on");
 
 		// then
-		expect(notify).toHaveBeenCalledWith("Fast mode is only available for OpenAI Codex models.", "warning");
+		expect(notify).toHaveBeenCalledWith("Fast mode is only available for ChatGPT Subscription models.", "warning");
 		expect(readSettings(harness).modelServiceTiers).toBeUndefined();
 	});
 

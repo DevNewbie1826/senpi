@@ -6,12 +6,12 @@ import { OPENAI_CODEX_MODELS } from "./openai-codex.models.ts";
 
 export function openaiCodexProvider(): Provider<"openai-codex-responses"> {
 	return createProvider({
-		id: "openai-codex",
-		name: "OpenAI Codex",
+		id: "chatgpt-subscription",
+		name: "ChatGPT Subscription",
 		baseUrl: "https://chatgpt.com/backend-api",
 		auth: {
 			oauth: lazyOAuth({
-				name: "OpenAI (ChatGPT Plus/Pro)",
+				name: "ChatGPT Subscription (Plus/Pro)",
 				isSubscription: true,
 				load: loadOpenAICodexOAuth,
 			}),

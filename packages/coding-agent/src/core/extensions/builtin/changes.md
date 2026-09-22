@@ -1,3 +1,23 @@
+## 2026-09-22 - chatgpt-subscription provider id in the account and tier extensions (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/gpt-account.ts`: account commands resolve and label the provider under the new id.
+- `packages/coding-agent/src/core/extensions/builtin/service-tier.ts`: the tier notices read "ChatGPT Subscription".
+- `packages/coding-agent/src/core/extensions/builtin/oauth-login-interaction.ts`: the login interaction labels the provider by its new name.
+
+### Why
+
+The OpenAI subscription provider id was renamed from `openai-codex` to `chatgpt-subscription` (senpi#1989): the old id named a CLI rather than the thing a user signs in with. These modules resolve or display that provider id at runtime, so they move with it. The wire api id `openai-codex-responses` is deliberately NOT renamed - it names the dialect, not the provider - and neither are file names or module paths.
+
+### Why an extension could not handle it
+
+The provider id is resolved inside the package before any extension loads, and these call sites compare or render it while building requests and UI. An extension cannot rewrite an id the package has already used.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/gpt-account.ts`, against any other account-command change.
+
 # Builtin extensions changes
 
 ## 2026-09-21 - Re-export the canonical question types from ask-user schema (#1931)

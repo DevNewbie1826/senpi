@@ -34,7 +34,7 @@ describe("committed account receipts", () => {
 		const models = createModels({ credentials: storage });
 		models.setProvider(
 			createProvider({
-				id: "openai-codex",
+				id: "chatgpt-subscription",
 				name: "Fake Codex",
 				baseUrl: "https://example.invalid",
 				auth: { oauth: flow },
@@ -43,14 +43,16 @@ describe("committed account receipts", () => {
 			}),
 		);
 		const receipts: unknown[] = [];
-		await models.login("openai-codex", "oauth", interaction(receipts));
-		await renameCredentialAccount(storage, "openai-codex", "default", "Personal");
-		await models.login("openai-codex", "oauth", interaction(receipts));
+		await models.login("chatgpt-subscription", "oauth", interaction(receipts));
+		await renameCredentialAccount(storage, "chatgpt-subscription", "default", "Personal");
+		await models.login("chatgpt-subscription", "oauth", interaction(receipts));
 		expect(receipts).toEqual([
-			{ providerId: "openai-codex", name: "default", origin: "generated" },
-			{ providerId: "openai-codex", name: "login-2", origin: "generated" },
+			{ providerId: "chatgpt-subscription", name: "default", origin: "generated" },
+			{ providerId: "chatgpt-subscription", name: "login-2", origin: "generated" },
 		]);
-		expect(listSlots(storage.get("openai-codex")).map(({ name, displayName }) => ({ name, displayName }))).toEqual([
+		expect(
+			listSlots(storage.get("chatgpt-subscription")).map(({ name, displayName }) => ({ name, displayName })),
+		).toEqual([
 			{ name: "default", displayName: "Personal" },
 			{ name: "login-2", displayName: undefined },
 		]);
@@ -104,7 +106,7 @@ describe("committed account receipts", () => {
 		});
 		models.setProvider(
 			createProvider({
-				id: "openai-codex",
+				id: "chatgpt-subscription",
 				name: "Fake",
 				baseUrl: "https://example.invalid",
 				auth: { oauth: flow },
@@ -112,7 +114,7 @@ describe("committed account receipts", () => {
 				api: {},
 			}),
 		);
-		await expect(models.login("openai-codex", "oauth", interaction(receipts))).rejects.toThrow();
+		await expect(models.login("chatgpt-subscription", "oauth", interaction(receipts))).rejects.toThrow();
 		expect(receipts).toEqual([]);
 	});
 

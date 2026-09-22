@@ -33,7 +33,7 @@ import { resolveApiKey } from "./oauth.ts";
 const oauthTokens = await Promise.all([
 	resolveApiKey("anthropic"),
 	resolveApiKey("github-copilot"),
-	resolveApiKey("openai-codex"),
+	resolveApiKey("chatgpt-subscription"),
 ]);
 const [anthropicOAuthToken, githubCopilotToken, openaiCodexToken] = oauthTokens;
 const openRouterApiKey = getLiveEnvApiKey("OPENROUTER_API_KEY", OPENROUTER_LIVE_TEST_FLAG);
@@ -896,7 +896,7 @@ describe("totalTokens field", () => {
 			"gpt-5.5 - should return totalTokens equal to sum of components",
 			{ retry: 3, timeout: 60000 },
 			async () => {
-				const llm = getModel("openai-codex", "gpt-5.5");
+				const llm = getModel("chatgpt-subscription", "gpt-5.5");
 
 				console.log(`\nOpenAI Codex / ${llm.id}:`);
 				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: openaiCodexToken });

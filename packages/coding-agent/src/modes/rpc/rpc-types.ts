@@ -78,7 +78,7 @@ type RpcSessionCommand =
 	| { id?: string; type: "cycle_thinking_level" }
 	| { id?: string; type: "get_available_thinking_levels" }
 
-	// Fast mode (OpenAI Codex priority service tier)
+	// Fast mode (ChatGPT Subscription priority service tier)
 	| { id?: string; type: "set_fast_mode"; enabled: boolean }
 	| { id?: string; type: "get_fast_mode" }
 

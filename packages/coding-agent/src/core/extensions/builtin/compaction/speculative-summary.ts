@@ -40,7 +40,7 @@ function summaryMaxTokens(model: Model<any>, contextWindow: number): number {
  * summarization request that inherits the provider's default reasoning mode
  * burns its latency (and output budget) on invisible thinking before emitting
  * the summary. Disable or minimize reasoning per wire family; adapters ignore
- * options their provider does not support. Mirrors how OpenAI Codex keeps its
+ * options their provider does not support. Mirrors how ChatGPT Subscription keeps its
  * compaction turn cheap.
  */
 function summarizationReasoningOptions(model: Model<any>): Record<string, unknown> {

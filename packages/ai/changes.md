@@ -1,3 +1,21 @@
+## 2026-09-22 - generator rows for the chatgpt-subscription rename (senpi#1989)
+
+### What changed
+
+- `packages/ai/scripts/generate-models.ts`: the six hardcoded `openai-codex` rows now emit the `chatgpt-subscription` provider id. They were edited in place rather than regenerated.
+
+### Why
+
+A full `generate-models` run fetches live data for Venice, Together, Vercel AI Gateway, Vertex, NVIDIA and Bedrock, so regenerating to move one provider id would pull unrelated network drift into this diff and make it unreviewable. The six rows for this provider are hardcoded literals in the generator, so editing them in place is both sufficient and auditable.
+
+### Why an extension could not handle it
+
+The generator produces the committed catalog shards that ship inside this package; nothing loaded at runtime can change what it wrote.
+
+### Expected merge conflict zones
+
+- `packages/ai/scripts/generate-models.ts`, against any other change to the hardcoded provider tables.
+
 ## 2026-09-22 - Grok 4.7 + MiMo V2.6 Pro catalog additions (senpi#1990)
 
 ### What changed

@@ -30,9 +30,9 @@ describe("recommended-models builtin", () => {
 		expect(RECOMMENDED_DEFAULT_MODELS[astraIndex]?.[1]).toBe("high");
 	});
 
-	it("#given openai-codex/gpt-6-astra and sol #when an implicit-fallback provenance starts #then it switches to astra at high", async () => {
-		const astra = model("gpt-6-astra", "openai-codex");
-		const sol = model("gpt-5.6-sol", "openai-codex");
+	it("#given chatgpt-subscription/gpt-6-astra and sol #when an implicit-fallback provenance starts #then it switches to astra at high", async () => {
+		const astra = model("gpt-6-astra", "chatgpt-subscription");
+		const sol = model("gpt-5.6-sol", "chatgpt-subscription");
 		const harness = createHarness({
 			active: model("off-list"),
 			available: [sol, astra],
@@ -51,7 +51,7 @@ describe("recommended-models builtin", () => {
 
 		const harness = createHarness({
 			active: model("gpt-6-astra-fast"),
-			available: [model("gpt-5.6-sol", "openai-codex"), model("gpt-6-astra", "openai-codex")],
+			available: [model("gpt-5.6-sol", "chatgpt-subscription"), model("gpt-6-astra", "chatgpt-subscription")],
 		});
 
 		await harness.start("first-available");

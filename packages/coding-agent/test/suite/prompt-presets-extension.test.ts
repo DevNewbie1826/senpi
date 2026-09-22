@@ -86,7 +86,7 @@ describe("prompt preset resolver", () => {
 	it.each([
 		{
 			id: "gpt-5.5",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			api: "openai-codex-responses" as const,
 		},
 		{
@@ -146,7 +146,7 @@ describe("prompt preset resolver", () => {
 		},
 		{
 			id: "gpt-5.6-sol",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			api: "openai-codex-responses" as const,
 		},
 		{
@@ -228,7 +228,11 @@ describe("prompt preset resolver", () => {
 
 		// then
 		expect(catalogModelIds).toEqual(
-			expect.arrayContaining(["openai/gpt-5.6-sol", "openai-codex/gpt-5.6-sol", "openrouter/openai/gpt-5.6-sol"]),
+			expect.arrayContaining([
+				"openai/gpt-5.6-sol",
+				"chatgpt-subscription/gpt-5.6-sol",
+				"openrouter/openai/gpt-5.6-sol",
+			]),
 		);
 		expect(misses).toEqual([]);
 	});
@@ -336,7 +340,7 @@ describe("prompt preset resolver", () => {
 	it("allows settings.json to force kimi-k2-7 regardless of model id", () => {
 		// given
 		const settings: PromptPresetSettings = { promptPreset: "kimi-k2-7" };
-		const model = createModel("gpt-5.5", "openai-codex", "openai-codex-responses");
+		const model = createModel("gpt-5.5", "chatgpt-subscription", "openai-codex-responses");
 
 		// when
 		const preset = resolvePreset(model, settings);
@@ -428,7 +432,7 @@ describe("prompt preset resolver", () => {
 	it("allows settings.json to force claude-opus-4-7 regardless of model id", () => {
 		// given
 		const settings: PromptPresetSettings = { promptPreset: "claude-opus-4-7" };
-		const model = createModel("gpt-5.5", "openai-codex", "openai-codex-responses");
+		const model = createModel("gpt-5.5", "chatgpt-subscription", "openai-codex-responses");
 
 		// when
 		const preset = resolvePreset(model, settings);
@@ -454,7 +458,7 @@ describe("prompt preset resolver", () => {
 	it("allows settings.json to force kimi-k2-6 regardless of model id", () => {
 		// given
 		const settings: PromptPresetSettings = { promptPreset: "kimi-k2-6" };
-		const model = createModel("gpt-5.5", "openai-codex", "openai-codex-responses");
+		const model = createModel("gpt-5.5", "chatgpt-subscription", "openai-codex-responses");
 
 		// when
 		const preset = resolvePreset(model, settings);
@@ -527,7 +531,7 @@ describe("prompt preset resolver", () => {
 	it("does not include Kimi tuning in gpt-5 preset", () => {
 		// given
 		const settings: PromptPresetSettings = { promptPreset: "auto" };
-		const model = createModel("gpt-5.5", "openai-codex", "openai-codex-responses");
+		const model = createModel("gpt-5.5", "chatgpt-subscription", "openai-codex-responses");
 
 		// when
 		const preset = resolvePreset(model, settings);
@@ -588,7 +592,7 @@ describe("prompt preset resolver", () => {
 
 	it("resolves gpt-5.3-codex preset", () => {
 		const settings: PromptPresetSettings = { promptPreset: "auto" };
-		const model = createModel("gpt-5.3-codex", "openai-codex", "openai-codex-responses");
+		const model = createModel("gpt-5.3-codex", "chatgpt-subscription", "openai-codex-responses");
 		const preset = resolvePreset(model, settings);
 		expect(preset?.name).toBe("gpt-5.3-codex");
 		expect(preset?.prompt).toContain("Bias hard toward action");
@@ -621,7 +625,7 @@ describe("prompt preset resolver", () => {
 		{
 			presetName: "gpt-5.3-codex" as const,
 			modelId: "gpt-5.3-codex",
-			provider: "openai-codex",
+			provider: "chatgpt-subscription",
 			api: "openai-codex-responses" as const,
 		},
 		{ presetName: "gpt-5.4" as const, modelId: "gpt-5.4", provider: "openai", api: "openai-responses" as const },

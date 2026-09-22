@@ -169,7 +169,7 @@ const MISSING_REMOTE_REPLAY_ORIGIN_REASON = "missing-remote-replay-origin-proven
 const REMOTE_REPLAY_ORIGIN_MISMATCH_REASON = "remote-replay-origin-mismatch";
 const UNPROVEN_REMOTE_REPLAY_BOUNDARY_REASON = "unproven-remote-replay-boundary";
 const OPENAI_REMOTE_REPLAY_BOUNDARY_SCOPE = "openai-remote-replay";
-const OPENAI_RESPONSES_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
+const OPENAI_RESPONSES_TOOL_CALL_PROVIDERS = new Set(["openai", "chatgpt-subscription", "opencode"]);
 
 export function createOpenAiRemoteCompactionRequest(options: {
 	model: Model<Api> | undefined;
