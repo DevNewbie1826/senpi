@@ -65,6 +65,15 @@ describe("ModelRegistry", () => {
 		return registry.getAll().filter((m) => m.provider === provider);
 	}
 
+	function requireModel<T extends { id: string }>(models: readonly T[], id: string): T {
+		const found = models.find((model) => model.id === id);
+		expect(found, `expected model ${id} to exist`).toBeDefined();
+		if (!found) {
+			throw new Error(`expected model ${id} to exist`);
+		}
+		return found;
+	}
+
 	function toShPath(value: string): string {
 		return value.replace(/\\/g, "/").replace(/"/g, '\\"');
 	}
@@ -691,6 +700,26 @@ describe("ModelRegistry", () => {
 	});
 
 	describe("modelOverrides (per-model customization)", () => {
+		const FIXTURE_OVERRIDE_ID = "fixture/override-target";
+		const FIXTURE_SIBLING_ID = "fixture/sibling-model";
+
+		function fixtureOverrideCatalog(): NonNullable<ModelsJsonProvider["models"]> {
+			return [
+				{
+					id: FIXTURE_OVERRIDE_ID,
+					name: "Fixture Override Target",
+					reasoning: false,
+					input: ["text"],
+				},
+				{
+					id: FIXTURE_SIBLING_ID,
+					name: "Fixture Sibling",
+					reasoning: false,
+					input: ["text"],
+				},
+			];
+		}
+
 		test("model override applies to a single built-in model", async () => {
 			writeRawModelsJson({
 				openrouter: {
@@ -769,9 +798,10 @@ describe("ModelRegistry", () => {
 
 		test("supportsFinishReason can be configured at provider and model levels", async () => {
 			const provider: ModelsJsonProvider = {
+				models: fixtureOverrideCatalog(),
 				compat: { supportsFinishReason: true },
 				modelOverrides: {
-					"anthropic/claude-sonnet-4": {
+					[FIXTURE_OVERRIDE_ID]: {
 						compat: { supportsFinishReason: false },
 					},
 				},
@@ -780,11 +810,11 @@ describe("ModelRegistry", () => {
 
 			const registry = await createModelRegistry(authStorage, modelsJsonPath);
 			const models = getModelsForProvider(registry, "openrouter");
-			const sonnet = models.find((model) => model.id === "anthropic/claude-sonnet-4");
-			const opus = models.find((model) => model.id === "anthropic/claude-opus-4");
+			const overridden = requireModel(models, FIXTURE_OVERRIDE_ID);
+			const sibling = requireModel(models, FIXTURE_SIBLING_ID);
 
-			expect((sonnet?.compat as OpenAICompletionsCompat | undefined)?.supportsFinishReason).toBe(false);
-			expect((opus?.compat as OpenAICompletionsCompat | undefined)?.supportsFinishReason).toBe(true);
+			expect((overridden.compat as OpenAICompletionsCompat | undefined)?.supportsFinishReason).toBe(false);
+			expect((sibling.compat as OpenAICompletionsCompat | undefined)?.supportsFinishReason).toBe(true);
 		});
 
 		test("model override deep merges compat settings", async () => {
@@ -812,11 +842,12 @@ describe("ModelRegistry", () => {
 		test("multiple model overrides on same provider", async () => {
 			writeRawModelsJson({
 				openrouter: {
+					models: fixtureOverrideCatalog(),
 					modelOverrides: {
-						"anthropic/claude-sonnet-4": {
+						[FIXTURE_OVERRIDE_ID]: {
 							compat: { openRouterRouting: { only: ["amazon-bedrock"] } },
 						},
-						"anthropic/claude-opus-4": {
+						[FIXTURE_SIBLING_ID]: {
 							compat: { openRouterRouting: { only: ["anthropic"] } },
 						},
 					},
@@ -826,21 +857,22 @@ describe("ModelRegistry", () => {
 			const registry = await createModelRegistry(authStorage, modelsJsonPath);
 			const models = getModelsForProvider(registry, "openrouter");
 
-			const sonnet = models.find((m) => m.id === "anthropic/claude-sonnet-4");
-			const opus = models.find((m) => m.id === "anthropic/claude-opus-4");
+			const overridden = requireModel(models, FIXTURE_OVERRIDE_ID);
+			const sibling = requireModel(models, FIXTURE_SIBLING_ID);
 
-			const sonnetCompat = sonnet?.compat as OpenAICompletionsCompat | undefined;
-			const opusCompat = opus?.compat as OpenAICompletionsCompat | undefined;
-			expect(sonnetCompat?.openRouterRouting).toEqual({ only: ["amazon-bedrock"] });
-			expect(opusCompat?.openRouterRouting).toEqual({ only: ["anthropic"] });
+			const overriddenCompat = overridden.compat as OpenAICompletionsCompat | undefined;
+			const siblingCompat = sibling.compat as OpenAICompletionsCompat | undefined;
+			expect(overriddenCompat?.openRouterRouting).toEqual({ only: ["amazon-bedrock"] });
+			expect(siblingCompat?.openRouterRouting).toEqual({ only: ["anthropic"] });
 		});
 
 		test("model override combined with baseUrl override", async () => {
 			writeRawModelsJson({
 				openrouter: {
 					baseUrl: "https://my-proxy.example.com/v1",
+					models: fixtureOverrideCatalog(),
 					modelOverrides: {
-						"anthropic/claude-sonnet-4": {
+						[FIXTURE_OVERRIDE_ID]: {
 							name: "Proxied Sonnet",
 						},
 					},
@@ -849,16 +881,16 @@ describe("ModelRegistry", () => {
 
 			const registry = await createModelRegistry(authStorage, modelsJsonPath);
 			const models = getModelsForProvider(registry, "openrouter");
-			const sonnet = models.find((m) => m.id === "anthropic/claude-sonnet-4");
+			const overridden = requireModel(models, FIXTURE_OVERRIDE_ID);
+			const sibling = requireModel(models, FIXTURE_SIBLING_ID);
 
 			// Both overrides should apply
-			expect(sonnet?.baseUrl).toBe("https://my-proxy.example.com/v1");
-			expect(sonnet?.name).toBe("Proxied Sonnet");
+			expect(overridden.baseUrl).toBe("https://my-proxy.example.com/v1");
+			expect(overridden.name).toBe("Proxied Sonnet");
 
 			// Other models should have the baseUrl but not the name override
-			const opus = models.find((m) => m.id === "anthropic/claude-opus-4");
-			expect(opus?.baseUrl).toBe("https://my-proxy.example.com/v1");
-			expect(opus?.name).not.toBe("Proxied Sonnet");
+			expect(sibling.baseUrl).toBe("https://my-proxy.example.com/v1");
+			expect(sibling.name).not.toBe("Proxied Sonnet");
 		});
 
 		test("model override for non-existent model ID is ignored", async () => {

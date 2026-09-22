@@ -19,6 +19,25 @@
 
 - LOW: `model-resolver.ts` provider-default map on upstream syncs.
 
+
+## 2026-09-22 - modelOverrides tests fail loudly when a fixture model is missing (senpi#1993)
+
+### What changed
+
+- `packages/coding-agent/test/model-registry.test.ts`: the three `modelOverrides` cases that used `anthropic/claude-opus-4` now inject `fixture/override-target` and `fixture/sibling-model` (same approach as `41c7e6cd58`) and call `requireModel` before any override assertion, so a missing id names that id instead of `expected undefined to be ...`.
+
+### Why
+
+- Catalog regeneration `9f11abadfb` dropped `claude-opus-4`. Optional chaining on the lookup then yielded `undefined`, so the assertions reported a missing override rather than a missing fixture. That silent miss went red on `main` and blocked unrelated PRs (#1991, #1992).
+
+### Why an extension could not handle it
+
+- These are package tests of `ModelRegistry` composition. No extension hook observes or repairs the fixture catalog.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/test/model-registry.test.ts`: the `modelOverrides (per-model customization)` describe, especially `supportsFinishReason`, `multiple model overrides on same provider`, and `model override combined with baseUrl override`.
+
 ## 2026-09-21 - Take es-module-lexer 3 (senpi#1895)
 
 ### What changed
