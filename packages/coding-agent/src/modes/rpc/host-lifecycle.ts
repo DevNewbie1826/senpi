@@ -26,7 +26,9 @@
  * `agent_start`/`agent_settled` for all sessions even when no client is
  * attached. If the observer connection is ever unhealthy, activity is reported
  * as unknown (non-idle), so a broken observer can only keep the host alive,
- * never kill it mid-turn.
+ * never kill it mid-turn - for one idle window. Past that, unknown has held
+ * the host open for as long as idleness itself would have, and it stops
+ * counting as busy; the link keeps reconnecting the whole time (#1979).
  *
  * Lifetime binding: the host is spawned with an extra inherited pipe on fd 3
  * whose write end this supervisor holds and never writes to. The kernel closes
@@ -64,6 +66,7 @@ import {
 	HOST_WATCH_PPID_ENV,
 } from "./host-watchdog.ts";
 import { attachJsonlLineReader, MAX_RPC_LINE_CHARACTERS } from "./jsonl.ts";
+import { activeTurnsForIdleDecision, createObserverLink } from "./observer-link.ts";
 import { HOST_INSTANCE_ID_ENV } from "./protocol-identity.ts";
 import {
 	MAX_SOCKET_PATH_BYTES,
@@ -462,8 +465,6 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 	const internalSecret = process.platform === "win32" ? await createSocketSecret(internalSecretPath) : undefined;
 	const clientSockets = new Set<Socket>();
 	const busySessions = new Map<string, number>();
-	let observerHealthy = false;
-	let observerReconnectTimer: ReturnType<typeof setTimeout> | undefined;
 	let childExitWatchTimer: ReturnType<typeof setInterval> | undefined;
 	let stopSupersessionWatch: (() => void) | undefined;
 	let shuttingDown = false;
@@ -573,7 +574,13 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 	function currentActivity(): HostActivity {
 		return {
 			connections: clientSockets.size,
-			activeTurns: observerHealthy ? countBusySessions() : 1,
+			activeTurns: activeTurnsForIdleDecision({
+				healthy: observerLink.healthy(),
+				unhealthySince: observerLink.unhealthySince(),
+				now: Date.now(),
+				unknownGraceMs: decider.idleExitMs,
+				observedBusy: countBusySessions(),
+			}),
 		};
 	}
 
@@ -634,7 +641,8 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 			// own watchdog cleanup makes the removal idempotent.
 			if (internal.dir) await rm(internal.dir, { recursive: true, force: true });
 			await stopChild(child);
-			observer?.destroy();
+			observerLink.stop();
+			observerSocket?.destroy();
 			if (publicSocketOwned && process.platform !== "win32") {
 				// Ownership-checked: after a takeover, a newer host may have published
 				// a fresh entry at this path; only the entry THIS supervisor bound is
@@ -654,7 +662,31 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 		}
 	}
 
-	let observer: Socket | undefined;
+	let observerSocket: Socket | undefined;
+	const observerLink = createObserverLink({
+		open: async () => {
+			const secret = internalSecret;
+			const next = createConnection(resolveSocketTransportAddress(internalSocket, process.platform, secret));
+			if (secret) sendSocketHandshake(next, secret);
+			await waitForConnect(next, 5_000);
+			observerSocket = next;
+			attachJsonlLineReader(next, observeHostEvent, { maxLineLength: MAX_RPC_LINE_CHARACTERS });
+			return {
+				onLost: (handler) => {
+					next.once("close", handler);
+					next.once("error", handler);
+				},
+			};
+		},
+		settled: () => shuttingDown,
+		retryDelayMs: 250,
+		now: Date.now,
+		setTimer: (run, ms) => {
+			const timer = setTimeout(run, ms);
+			timer.unref?.();
+			return { cancel: () => clearTimeout(timer) };
+		},
+	});
 	let publicSocketOwned = false;
 	let publicSocketIdentity: SocketFileIdentity | undefined;
 	function supervisorLog(message: string): void {
@@ -698,7 +730,7 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 	registerSupervisorSignals(shutdown, drainForHandoff);
 	try {
 		await waitForListener(internalSocket, 30_000, internalSecret);
-		await connectObserver();
+		await observerLink.open();
 		await prepareSocketPath(bindSocket);
 		await listen(server, bindSocket, publicSecret);
 		publicSocketOwned = true;
@@ -727,30 +759,6 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 	} catch (cause) {
 		await shutdown(`startup failed: ${errorMessage(cause)}`, 1);
 	}
-	async function connectObserver(): Promise<void> {
-		const secret = internalSecret;
-		const next = createConnection(resolveSocketTransportAddress(internalSocket, process.platform, secret));
-		if (secret) sendSocketHandshake(next, secret);
-		await waitForConnect(next, 5_000);
-		observer = next;
-		observerHealthy = true;
-		attachJsonlLineReader(next, observeHostEvent, { maxLineLength: MAX_RPC_LINE_CHARACTERS });
-		const lost = (): void => {
-			if (observer !== next || shuttingDown) return;
-			observerHealthy = false;
-			observer = undefined;
-			if (observerReconnectTimer === undefined) {
-				observerReconnectTimer = setTimeout(() => {
-					observerReconnectTimer = undefined;
-					void connectObserver().catch(() => lost());
-				}, 250);
-				observerReconnectTimer.unref?.();
-			}
-		};
-		next.once("close", lost);
-		next.once("error", lost);
-	}
-
 	if (process.platform === "win32" && child.pid !== undefined) {
 		// This baseline read sits outside the startup try/catch, and readProcessStartTime
 		// THROWS when the 1s CIM probe fails (execFile's timeout SIGTERMs the PowerShell

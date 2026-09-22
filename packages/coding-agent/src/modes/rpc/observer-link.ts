@@ -31,6 +31,26 @@ export interface ObserverLink {
 	readonly stop: () => void;
 }
 
+export interface UnknownActivityInput {
+	readonly healthy: boolean;
+	readonly unhealthySince: number | undefined;
+	readonly now: number;
+	readonly unknownGraceMs: number;
+	readonly observedBusy: number;
+}
+
+/**
+ * The turn count the idle decision should see. A healthy observer's count is the truth. An
+ * unhealthy one cannot see turns at all, so its count is UNKNOWN and reported as 1 (busy) so a
+ * momentary blip never kills a host mid-turn - but only for `graceMs`; past that, unknown has
+ * been allowed to hold the host open for a whole idle window and it stops counting as busy.
+ */
+export function activeTurnsForIdleDecision(input: UnknownActivityInput): number {
+	if (input.healthy) return input.observedBusy;
+	if (input.unhealthySince === undefined) return 1;
+	return input.now - input.unhealthySince < input.unknownGraceMs ? 1 : 0;
+}
+
 export function createObserverLink(options: ObserverLinkOptions): ObserverLink {
 	let current: ObserverSocket | undefined;
 	let healthy = false;
