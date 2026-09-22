@@ -20,6 +20,26 @@ The read happens inside the package's daemon-control surface (`readHostStatus`, 
 
 - `packages/coding-agent/src/modes/rpc/host-process-metrics.ts`, against any change to the metrics fields or their null semantics.
 
+## 2026-09-22 - durable_session_id on the worker registry, and a chosen id that is on disk at once (#2010)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/worker-session-registry.ts`: `openSession` validates `durableSessionId` with `assertValidSessionId` (refusing with `invalid_session_id`) and refuses an id any non-closed entry already holds with `session_id_in_use`, both synchronously before its first await; the requested id is recorded on the entry before that await so a concurrent open sees it, and `snapshot.state.sessionId` still overwrites it after commit. Re-opening the same path stays an attach.
+- `.agents/skills/senpi-qa/scripts/scenarios/durable-session-id-qa.mjs` (new): drives the REAL `senpi --mode rpc --multi-session` process over stdio and asserts the whole contract - capability advertised, create under a chosen id, duplicate live id refused, malformed id refused, resume keeps its header id, reopen of the created path reads the chosen id back from disk, id reusable once its holder closed.
+
+### Why
+
+- #1956 added the collision guard to `RpcSessionRegistry` only. `multi-session-host.ts` instantiates `WorkerSessionRegistry` whenever a worker configuration is present - the real host's normal shape - and that registry forwarded the profile straight to `worker.prepare`, so on the real host two live sessions could share one durable id. The unit suite drove `RpcSessionRegistry` directly and stayed green while the host bypassed the guard; the real-surface scenario is what caught it.
+- The format refusal did fire on the real host, but as `open_failed: invalid_session_id` from the worker's own `SessionManager` after the worker had already died. Validating at the registry boundary gives the caller the stable code before any worker is spawned.
+
+### Why an extension could not handle it
+
+- Both checks need the registry's view of every live session and run before any runtime or extension exists for the new session.
+
+### Expected merge conflict zones
+
+- `worker-session-registry.ts`: the prologue of `openSession` (after the `invalid_path` check) and the entry literal.
+
 ## 2026-09-22 - chatgpt-subscription provider id on the RPC surface (senpi#1989)
 
 ### What changed
