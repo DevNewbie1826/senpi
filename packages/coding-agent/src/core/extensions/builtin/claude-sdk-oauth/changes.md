@@ -1,3 +1,21 @@
+## 2026-09-22 - read the renamed provider settings block (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/settings.ts`: `loadClaudeSdkOauthProviderSettings` now reads the canonical `anthropicSubscriptionProvider` block, falling back to the legacy `claudeSdkOauthProvider` key; the `SettingsWithClaudeSdkOauthProvider` type carries both.
+
+### Why
+
+The settings-key migration (senpi#1989) renames `claudeSdkOauthProvider` -> `anthropicSubscriptionProvider` on first parse, so a reader that only looked at the legacy key resolved `undefined` for every migrated user (systemPromptMode/File, resumeMode, tokenInjection, ambient enabled). Reading the canonical key first restores the block; the legacy fallback keeps settings that predate the migration working for at least two releases.
+
+### Why an extension could not handle it
+
+This IS the provider extension's own settings reader; the migration happens in core SettingsManager and the extension must read the post-migration key.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/settings.ts` `loadClaudeSdkOauthProviderSettings` and the `SettingsWithClaudeSdkOauthProvider` type.
+
 ## 2026-09-22 - claude-sdk-oauth provider id renamed to anthropic-subscription across the extension (senpi#1989)
 
 ### What changed

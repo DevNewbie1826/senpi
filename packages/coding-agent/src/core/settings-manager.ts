@@ -1,5 +1,11 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { DEFAULT_MAX_AGENT_RETRY_DELAY_MS, type Transport } from "@earendil-works/pi-ai";
+import {
+	DEFAULT_MAX_AGENT_RETRY_DELAY_MS,
+	LEGACY_PROVIDER_IDS,
+	normalizeModelRef,
+	normalizeProviderId,
+	type Transport,
+} from "@earendil-works/pi-ai";
 import { SENPI_DEFAULT_RETRY_PROFILE } from "@earendil-works/pi-ai/utils/retry-profile/profiles";
 import type {
 	RetryPolicyProfile,
@@ -798,7 +804,77 @@ export class SettingsManager {
 			delete retrySettings.maxDelayMs;
 		}
 
+		// Migrate renamed subscription provider ids (senpi#1989) in place, on first
+		// parse: the settings block key, defaultProvider, the provider prefix of
+		// defaultModel, favoriteModels, the `${provider}/${id}` keys of the model
+		// maps, and retry.fallbackChains keys + the providers named inside rungs.
+		// Idempotent (normalize is a no-op on canonical ids) and never hard-errors:
+		// an unrecognised shape is left untouched.
+		SettingsManager.migrateRenamedProviderIds(settings);
+
 		return settings as Settings;
+	}
+
+	/** camelCase provider-settings block key, e.g. `claude-sdk-oauth` -> `claudeSdkOauthProvider`. */
+	private static providerSettingsKey(providerId: string): string {
+		const camel = providerId
+			.split("-")
+			.map((part, i) => (i === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+			.join("");
+		return `${camel}Provider`;
+	}
+
+	private static migrateRenamedProviderIds(settings: Record<string, unknown>): void {
+		// settings block key: <legacyCamel>Provider -> <canonicalCamel>Provider
+		for (const [legacyId, canonicalId] of Object.entries(LEGACY_PROVIDER_IDS)) {
+			const legacyKey = SettingsManager.providerSettingsKey(legacyId);
+			const canonicalKey = SettingsManager.providerSettingsKey(canonicalId);
+			if (legacyKey in settings && !(canonicalKey in settings)) {
+				settings[canonicalKey] = settings[legacyKey];
+				delete settings[legacyKey];
+			}
+		}
+
+		if (typeof settings.defaultProvider === "string") {
+			settings.defaultProvider = normalizeProviderId(settings.defaultProvider);
+		}
+		if (typeof settings.defaultModel === "string") {
+			settings.defaultModel = normalizeModelRef(settings.defaultModel);
+		}
+		if (Array.isArray(settings.favoriteModels)) {
+			settings.favoriteModels = settings.favoriteModels.map((entry) =>
+				typeof entry === "string" ? normalizeModelRef(entry) : entry,
+			);
+		}
+
+		for (const field of ["modelThinkingLevels", "modelServiceTiers", "modelLastOnThinkingLevels"]) {
+			const map = settings[field];
+			if (typeof map === "object" && map !== null && !Array.isArray(map)) {
+				settings[field] = SettingsManager.rekeyByModelRef(map as Record<string, unknown>);
+			}
+		}
+
+		if (typeof settings.retry === "object" && settings.retry !== null && !Array.isArray(settings.retry)) {
+			const retry = settings.retry as Record<string, unknown>;
+			const chains = retry.fallbackChains;
+			if (typeof chains === "object" && chains !== null && !Array.isArray(chains)) {
+				const rekeyed: Record<string, unknown> = {};
+				for (const [key, rungs] of Object.entries(chains as Record<string, unknown>)) {
+					const nextRungs = Array.isArray(rungs)
+						? rungs.map((rung) => (typeof rung === "string" ? normalizeModelRef(rung) : rung))
+						: rungs;
+					rekeyed[normalizeModelRef(key)] = nextRungs;
+				}
+				retry.fallbackChains = rekeyed;
+			}
+		}
+	}
+
+	/** Rewrite every `${provider}/${id}` key of a model map through normalizeModelRef. */
+	private static rekeyByModelRef(map: Record<string, unknown>): Record<string, unknown> {
+		const out: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(map)) out[normalizeModelRef(key)] = value;
+		return out;
 	}
 
 	getGlobalSettings(): Settings {

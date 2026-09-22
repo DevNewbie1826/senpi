@@ -1,3 +1,21 @@
+## 2026-09-22 - settings.json provider-key migration (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/settings-manager.ts`: `migrateSettings` now rewrites every provider-keyed settings field from the legacy subscription ids to the canonical ones on first parse - the settings block key (`claudeSdkOauthProvider` -> `anthropicSubscriptionProvider`, `openaiCodexProvider` -> `chatgptSubscriptionProvider`), `defaultProvider`, the provider prefix of `defaultModel`, every `favoriteModels` entry, the `${provider}/${id}` keys of `modelThinkingLevels`/`modelServiceTiers`/`modelLastOnThinkingLevels`, and every `retry.fallbackChains` key plus the providers named inside each rung. Driven by the shared `normalizeProviderId`/`normalizeModelRef` helpers so no second map drifts.
+
+### Why
+
+Existing users have the old subscription ids written into settings.json (defaultProvider, defaultModel, favourites, the per-model thinking/tier maps, fallback chains). After the provider rename an un-migrated settings file would silently lose those preferences - the planner would not find the renamed provider and would fall closed. The migration is idempotent (`normalize` is a no-op on canonical ids) and never hard-errors: an unrecognised shape is left untouched. The legacy settings-block key is still READ for at least two releases.
+
+### Why an extension could not handle it
+
+Settings are parsed and migrated inside SettingsManager before any extension loads; the provider-lane extensions read their block through `getGlobalSettings()`/`getProjectSettings()`, so the rename must happen at the migration seam, not in an extension.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/settings-manager.ts` `migrateSettings`, against any other settings migration added to the same hook.
+
 ## 2026-09-22 - claude-sdk-oauth provider id renamed to anthropic-subscription in core resolution, accounts and fallback precedence (senpi#1989)
 
 ### What changed
