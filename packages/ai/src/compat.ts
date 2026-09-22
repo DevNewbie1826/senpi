@@ -28,6 +28,7 @@ export * from "./images.ts";
 export * from "./images-api-registry.ts";
 export * from "./index.ts";
 export * from "./legacy-api-aliases.ts";
+export * from "./legacy-provider-ids.ts";
 export * from "./providers/images/register-builtins.ts";
 export {
 	getProtocol,

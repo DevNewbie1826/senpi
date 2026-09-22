@@ -279,6 +279,17 @@ const renderErrorLoggedClasses = new Set<string>();
 let renderErrorLogWrites = 0;
 let renderDiagnosticLineScans = 0;
 const DIAGNOSTIC_LOG_MODE = 0o600;
+
+function defaultDiagnosticLogDirectory(): string {
+	return path.join(os.homedir(), ".senpi", "agent");
+}
+
+/**
+ * Render containment logs from module scope because `Container` has no TUI
+ * instance, so the host-resolved log directory has to be published here or the
+ * diagnostic silently lands outside the agent directory the operator reads.
+ */
+let renderErrorLogDirectory: string | undefined;
 const VIEWPORT_RENDER_OVERSCAN = 16;
 // Keep scroll-region wins cheap when a few visible rows mutate during append streaming.
 const MAX_SCROLL_DIFF_ROWS = 4;
@@ -343,7 +354,7 @@ function logRenderErrorOnce(component: Component, error: unknown): void {
 	renderErrorLogWrites += 1;
 
 	const errorText = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-	const logPath = path.join(os.homedir(), ".senpi", "agent", "senpi-debug.log");
+	const logPath = path.join(renderErrorLogDirectory ?? defaultDiagnosticLogDirectory(), "senpi-debug.log");
 	const msg = `[${new Date().toISOString()}] render error: ${componentName}: ${errorText}\n`;
 	appendRenderErrorLogBestEffort(logPath, msg);
 }
@@ -770,7 +781,8 @@ export abstract class TuiBase extends Container {
 		// Preserve existing positional boolean callers while allowing explicit render-policy overrides.
 		const normalizedOptions = typeof options === "boolean" ? { showHardwareCursor: options } : (options ?? {});
 		this.#muxDetector = normalizedOptions.muxDetector ?? isMultiplexerSession;
-		this.logDirectory = logDirectory ?? path.join(os.homedir(), ".senpi", "agent");
+		this.logDirectory = logDirectory ?? defaultDiagnosticLogDirectory();
+		renderErrorLogDirectory = this.logDirectory;
 		if (normalizedOptions.showHardwareCursor !== undefined) {
 			this.showHardwareCursor = normalizedOptions.showHardwareCursor;
 		}
