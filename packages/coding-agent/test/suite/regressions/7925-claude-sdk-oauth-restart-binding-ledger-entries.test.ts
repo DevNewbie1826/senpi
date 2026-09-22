@@ -4,9 +4,12 @@
  * assistant (omo memory writes several per turn and one on every session_start),
  * so `omo --session <id>` cold-seeded with `registry_miss` and re-sent the whole
  * conversation. Ledger entries never enter the LLM context, so they cannot shift
- * the sent-stream digest the binding is verified against. Entries that DO reach
- * the model (messages, custom messages, compaction, branch summaries) must keep
- * failing closed.
+ * the sent-stream digest the binding is verified against. Entries that rewrite
+ * the anchored assistant's meaning (compaction, branch summaries) must keep
+ * failing closed. senpi#1964 realigned the append-only tail: a later user message
+ * or custom message extends the branch without rewriting its anchor, and
+ * decideNativeContinuity proves the resume safe through sentPrefixHash, so those
+ * now keep the binding instead of forcing a full re-send.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { readStoredBinding } from "../../../src/core/extensions/builtin/claude-sdk-oauth/session-binding-store.ts";
@@ -82,12 +85,27 @@ describe("oh-my-openagent#7925 restart binding survives ledger entries", () => {
 		expect(getBinding(SESSION_ID)).toMatchObject({ sdkSessionId, sentCount: 1 });
 	});
 
-	const modelVisibleEntries: Array<[string, BranchEntry]> = [
+	// senpi#1964: realigned from "still fails closed". A later user message is an unsent delta
+	// whose safety decideNativeContinuity proves by comparing sentPrefixHash before resuming;
+	// a custom message is never transmitted on this lane (isTransmittedMessage admits only user
+	// and toolResult), so neither can make a resume diverge. Rejecting them here re-sent whole
+	// conversations as registry_miss.
+	const appendOnlyEntries: Array<[string, BranchEntry]> = [
 		["a user message", { type: "message", id: "user-2", message: { role: "user", content: "again", timestamp: 2 } }],
 		[
 			"a custom message",
 			{ type: "custom_message", id: "nudge", customType: "ttsr-injection", content: "nudge", display: false },
 		],
+	];
+
+	it.each(appendOnlyEntries)("keeps the binding when %s follows the assistant (#1964)", async (_label, entry) => {
+		const { sessionFile, sdkSessionId } = await persistTurnAndRestart([entry]);
+
+		expect(getBinding(SESSION_ID)).toMatchObject({ sdkSessionId, sentCount: 1 });
+		expect(await readStoredBinding(sessionFile)).toMatchObject({ sessionId: SESSION_ID });
+	});
+
+	const modelVisibleEntries: Array<[string, BranchEntry]> = [
 		[
 			"a compaction entry",
 			{

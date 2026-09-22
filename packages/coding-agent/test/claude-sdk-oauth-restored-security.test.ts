@@ -204,5 +204,32 @@ describe("claude-sdk-oauth restored security", () => {
 				await runVerify([sdkMessage({ type: "assistant", uuid: ASSISTANT_UUID, session_id: SDK_SESSION_ID })]),
 			).toBe(true);
 		});
+
+		// senpi#1964: a user frame the SDK already holds after the anchor means the process died
+		// between push and commit; a plain resume would append that message a second time.
+		it("returns false when a top-level user frame follows the anchored assistant", async () => {
+			expect(
+				await runVerify([
+					sdkMessage({ type: "user", uuid: "uuid-u1", session_id: SDK_SESSION_ID }),
+					sdkMessage({ type: "assistant", uuid: ASSISTANT_UUID, session_id: SDK_SESSION_ID }),
+					sdkMessage({ type: "user", uuid: "uuid-u2-orphan", session_id: SDK_SESSION_ID }),
+				]),
+			).toBe(false);
+		});
+
+		it("returns true when only subagent or non-user frames follow the anchored assistant", async () => {
+			expect(
+				await runVerify([
+					sdkMessage({ type: "assistant", uuid: ASSISTANT_UUID, session_id: SDK_SESSION_ID }),
+					sdkMessage({
+						type: "user",
+						uuid: "uuid-nested",
+						session_id: SDK_SESSION_ID,
+						parent_tool_use_id: "tool-1",
+					}),
+					sdkMessage({ type: "system", uuid: "uuid-system", session_id: SDK_SESSION_ID }),
+				]),
+			).toBe(true);
+		});
 	});
 });

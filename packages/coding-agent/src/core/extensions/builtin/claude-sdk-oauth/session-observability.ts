@@ -124,6 +124,11 @@ export function resetContinuityObservabilityBoundary(): void {
 	activeBoundary = defaultBoundary;
 }
 
+/** Writes one structured session.log line through the active boundary (never conversation content). */
+export function logContinuityEvent(event: string, data: Record<string, unknown>): void {
+	activeBoundary.log(event, data);
+}
+
 /** Maps a fixed vocabulary member through, and anything else to a bucketed cause. */
 export function sanitizeReason(value: unknown): ContinuityReason {
 	const text = typeof value === "string" ? value : value instanceof Error ? value.message : "";
