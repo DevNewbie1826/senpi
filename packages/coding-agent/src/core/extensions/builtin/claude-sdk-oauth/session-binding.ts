@@ -122,7 +122,7 @@ export function bindingFromStoredBranch(
 	const marker = branch[markerIndex];
 	if (marker?.id !== stored.markerEntryId || !isBindingMarker(marker.data)) return undefined;
 	const assistantIndex = committedAssistantIndex(branch, markerIndex + 1);
-	if (assistantIndex < 0 || !branch.slice(assistantIndex + 1).every(isLedgerOnlyEntry)) return undefined;
+	if (assistantIndex < 0 || !branch.slice(assistantIndex + 1).every(isAppendOnlyTailEntry)) return undefined;
 	const committedAssistant = branch[assistantIndex]?.message;
 	if (!isAssistantMessage(committedAssistant)) return undefined;
 	if (assistantContentHash(committedAssistant) !== stored.assistantContentHash) return undefined;
@@ -167,6 +167,24 @@ const LEDGER_ONLY_ENTRY_TYPES: ReadonlySet<string> = new Set([
 function isLedgerOnlyEntry(entry: BranchEntry): boolean {
 	if (entry.type === "custom_message") return entry.customType === GOAL_CONTINUATION_MESSAGE_TYPE;
 	return LEDGER_ONLY_ENTRY_TYPES.has(entry.type);
+}
+
+/**
+ * Entries the anchor may be followed by: they extend the branch without rewriting the committed
+ * assistant. A `custom_message` never reaches this lane's wire at all (`isTransmittedMessage`
+ * admits only `user` and `toolResult`), and a later `user` / `toolResult` is an unsent delta whose
+ * safety `decideNativeContinuity` already proves by comparing `sentPrefixHash` before it resumes.
+ * Retiring the binding for either duplicated that check and charged a full re-send for it
+ * (senpi#1964). A later assistant, a compaction, a branch summary and an explicit invalidation
+ * still fail closed, here or in the checks around this one.
+ */
+function isAppendOnlyTailEntry(entry: BranchEntry): boolean {
+	if (isLedgerOnlyEntry(entry)) return true;
+	if (entry.type === "custom_message") return true;
+	if (entry.type !== "message") return false;
+	const message: unknown = entry.message;
+	if (typeof message !== "object" || message === null || !("role" in message)) return false;
+	return message.role === "user" || message.role === "toolResult";
 }
 
 function newestBindingEntryIndex(branch: readonly BranchEntry[]): number {

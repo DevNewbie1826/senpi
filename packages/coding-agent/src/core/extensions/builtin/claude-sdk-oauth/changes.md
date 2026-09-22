@@ -1,3 +1,22 @@
+## 2026-09-22 - An append-only tail keeps the restart binding (senpi#1964)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/session-binding.ts`: `bindingFromStoredBranch` now admits an append-only tail after the committed assistant through a new `isAppendOnlyTailEntry` predicate - the existing ledger-only set, plus `custom_message` entries and `message` entries whose role is `user` or `toolResult`. A later assistant message, and every check around this one, still fail closed.
+- `packages/coding-agent/test/claude-sdk-oauth-binding-anchor.test.ts`: two assertions were REALIGNED, not deleted. "rejects a later user message after the committed assistant" and "rejects a model-visible custom message after the committed assistant" now expect a binding, with the reason recorded inline; new cases cover a later tool result, the terminal startup notice that triggered the report, and a later assistant message that must still reject.
+
+### Why
+
+- Opening a second terminal on a live session appends a `custom_message` of type `senpi-terminal:notification`. The old predicate rejected the branch, `session-registry-wiring` deleted the sidecar, and the next turn cold-seeded and re-sent the whole conversation as `flatten / registry_miss`. On one machine that reason was the most frequent continuity failure - 20 of 54 observations, median re-sent payload 371,057 bytes, maximum 1,770,192 bytes.
+- The rejection was redundant rather than protective. A `custom_message` is never transmitted on this lane (`isTransmittedMessage` in `session-sync.ts` admits only `user` and `toolResult`), so it cannot have reached the SDK transcript and cannot make a resume diverge. A later `user` / `toolResult` IS transmitted, but `decideNativeContinuity` already compares `sentPrefixHash` through `sentCount` before resuming and re-sends the remainder as the delta.
+- The two realigned assertions had pinned the defective contract, which is why it survived review. Reverting the predicate turns exactly the four admit cases red and leaves all thirteen fail-closed cases green.
+- oh-my-openagent#8424 finding 2 reached the same diagnosis independently.
+
+### Expected merge conflict zones
+
+- LOW: the predicate block near `isLedgerOnlyEntry` and the single guard line in `bindingFromStoredBranch`.
+- MEDIUM: `claude-sdk-oauth-binding-anchor.test.ts`, whose two flipped assertions will conflict with any upstream edit to the same cases.
+
 ## 2026-09-22 - A rejected fork point is dropped, not republished (senpi#1958)
 
 ### What changed
