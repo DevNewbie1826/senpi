@@ -1,6 +1,6 @@
 # claude-sdk-oauth
 
-Claude SDK OAuth provider extension. Registers a builtin provider that runs turns through the `@anthropic-ai/claude-agent-sdk` subprocess with native multi-account OAuth, HRW session affinity, stream-safe account failover, and resume-first session continuity. Renamed from `claude-agent-sdk` on 2026-07-31; old persisted identities are intentionally not aliased.
+Claude SDK OAuth provider extension. Registers a builtin provider that runs turns through the `@anthropic-ai/claude-agent-sdk` subprocess with native multi-account OAuth, HRW session affinity, stream-safe account failover, and resume-first session continuity. Renamed from `claude-agent-sdk` on 2026-07-31, then to the provider id `anthropic-subscription` on 2026-09-22 (senpi#1989). Unlike the first rename, this one IS backward compatible: legacy provider ids are normalized at every read boundary, `auth.json` and `settings.json` are migrated once, and the per-account directory is moved once, so an upgrading user keeps their login, default model and saved accounts. A legacy id the user TYPES is still rejected, with the new id named.
 
 Generated: 2026-08-07 | Commit: `4f26b8282`
 
