@@ -711,11 +711,16 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 			await writeSocketIdentityFile(join(internal.dir, PUBLIC_SOCKET_IDENTITY_FILE), publicSocketIdentity);
 		}
 		// Losing the public entry IS a drain request: nothing can reach this supervisor by path any
-		// more, and the handoff that replaced it may never have signalled (#1893).
+		// more, and the handoff that replaced it may never have signalled (#1893). A name that was
+		// deleted rather than taken over is the same loss with nobody serving the path (#1961).
 		stopSupersessionWatch = watchForSupersession(
 			{ path: publicSocket, identity: publicSocketIdentity, settled: () => shuttingDown || draining },
-			() => {
-				supervisorLog("another generation owns the public socket; draining this one");
+			(loss) => {
+				supervisorLog(
+					loss === "absent"
+						? "the public socket entry is gone; nothing can reach this generation; draining"
+						: "another generation owns the public socket; draining this one",
+				);
 				drainForHandoff();
 			},
 		);

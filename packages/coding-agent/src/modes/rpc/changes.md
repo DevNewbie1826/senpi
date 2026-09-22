@@ -1,3 +1,27 @@
+## 2026-09-22 - Drain a generation whose public entry is GONE, not only one that was replaced (#1961)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/socket-ownership.ts`: `classifyEndpointOwnership()` answers `held` / `replaced` / `absent` / `unknown` from ONE stat, so the two loss questions can never disagree with each other across separate calls. `socketEntryReplaced()` keeps its exact contract and is now that classifier's `replaced` case.
+- `packages/coding-agent/src/modes/rpc/host-supersession.ts`: the watch reports WHICH loss it saw (`"replaced" | "absent"`). An absent entry counts only after `ABSENT_CONFIRMATIONS` (3) consecutive polls and a stat that cannot answer resets the count instead of adding to it, so a momentary race is never read as a loss. The transition also latches now: clearing the interval cannot unsend the classifications already in flight, so several pending observations of one loss still deliver a single drain request - the once-only contract the module docstring already promised.
+- `packages/coding-agent/src/modes/rpc/host-lifecycle.ts`: the supervisor's drain log names the loss it acted on.
+- `packages/coding-agent/test/suite/regressions/issue-1961-public-endpoint-absent.test.ts`: fake-timer regression for the absent case.
+
+### Why
+
+- `socket-ownership.ts` deliberately answered `false` for an absent entry: "a name that is merely missing is somebody's `rm`, not a newer host". That is right for the supersession question and wrong for reachability. An unlinked unix socket name can never accept another connection, so the generation holding it is unreachable by construction - and because `coldStart=persistent` never idle-exits while an unhealthy observer reports activity as unknown (non-idle), the two conditions that prove such a generation useless were also the ones keeping it alive. Measured: a supervisor plus host pair alive 23h45m after its socket directory had been deleted. Reproduced on a pristine build in 60 seconds (`exited_after_seconds: "never"`, both pids alive) and closed by this change in 6 seconds (both pids gone, `processes_left: 0`).
+- Draining rather than killing is what makes absence safe to act on: `session-command-router` refuses to park sessions that still have attachments and exits only at an empty registry, so live work finishes and only an unreachable, empty generation goes away.
+
+### Why an extension could not handle it
+
+- This is the supervisor's own lifecycle policy, decided before and outside any session. Extensions run inside sessions the host serves and can neither observe the endpoint's ownership nor decide whether the generation may keep running.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/socket-ownership.ts`: the block around `socketEntryReplaced()`.
+- `packages/coding-agent/src/modes/rpc/host-supersession.ts`: the whole `watchForSupersession()` body and the module docstring.
+- `packages/coding-agent/src/modes/rpc/host-lifecycle.ts`: the `watchForSupersession(...)` call site inside the startup try block.
+
 ## 2026-09-22 - Caller-chosen durable session id on open_session (#1951)
 
 ### What changed

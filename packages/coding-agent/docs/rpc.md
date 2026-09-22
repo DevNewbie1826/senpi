@@ -279,6 +279,13 @@ the moment it does not, it applies the same drain to itself: park each retained 
 release its claims, and exit when it holds no attached session. Nothing else changes - a session mid-turn
 still finishes, and a client still attached is still served.
 
+That check separates a name that was TAKEN OVER from a name that is GONE, because the evidence differs in
+strength. A different entry at the path proves supersession on sight and drains immediately. An absent entry
+proves only that nobody is serving the name, so it has to be seen on several consecutive checks before it
+counts, and a check that cannot answer resets the count rather than adding to it. Either way the outcome is
+the same drain: an unlinked socket name can never accept a connection again, so the generation behind it is
+unreachable no matter why the name went away.
+
 `stopHost({ socket, agentDir, drain?, force? })` ends a generation: `drain: true` is always permitted (it
 ends no work, it only stops the host from taking new work), while a hard stop requires a host that reports
 no open sessions, or `force: true`. A hard stop also drops that generation's registration (the pointer and
