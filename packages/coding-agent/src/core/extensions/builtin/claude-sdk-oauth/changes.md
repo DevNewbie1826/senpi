@@ -1,3 +1,20 @@
+## 2026-09-22 - Split the wire api id from the provider id (senpi#1989)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/api-id.ts`: new `CLAUDE_SDK_OAUTH_API_ID`, frozen at `"claude-sdk-oauth"`. That string is the wire identity sent to the provider and persisted in user data; it must not follow a provider-id rename.
+- `packages/coding-agent/src/core/extensions/builtin/claude-sdk-oauth/index.ts`: `registerProvider` still takes the provider id from `CLAUDE_SDK_OAUTH_PROVIDER_ID`. `api` and `baseUrl` now come from `CLAUDE_SDK_OAUTH_API_ID`.
+- Guarded by `packages/coding-agent/test/suite/anthropic-subscription-api-id.test.ts`. A failure there means a rename went too far; restore the wire id, do not update the expected value.
+
+### Why
+
+- The extension previously registered provider id, `api`, and `baseUrl` from one constant. Renaming the provider to `anthropic-subscription` would have silently moved the wire api id too. `packages/ai/src/utils/prompt-cache-ttl.ts:358` and the compaction lane policy switch on that exact string.
+
+### Expected merge conflict zones
+
+- LOW: the `registerProvider` call in `index.ts` (`api` / `baseUrl`).
+- LOW: the new `api-id.ts` module.
+
 ## 2026-09-22 - An append-only tail keeps the restart binding (senpi#1964)
 
 ### What changed

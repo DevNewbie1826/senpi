@@ -7,6 +7,7 @@ import type { ExtensionAPI } from "../../types.ts";
 import { registerClaudeAccountCommand } from "./account-command.ts";
 import { CLAUDE_SDK_OAUTH_PROVIDER_ID } from "./account-management.ts";
 import type { ClaudeSdkOauthCredential } from "./accounts.ts";
+import { CLAUDE_SDK_OAUTH_API_ID } from "./api-id.ts";
 import { createOAuthConfig } from "./oauth-login.ts";
 import { registerSessionRegistry } from "./session-registry-wiring.ts";
 import { type ClaudeSdkOauthProviderSettings, loadClaudeSdkOauthProviderSettingsFromDisk } from "./settings.ts";
@@ -48,8 +49,8 @@ export function registerClaudeSdkOauthExtension(pi: ExtensionAPI, deps: ClaudeSd
 	registerClaudeAccountCommand(pi);
 	registerSessionRegistry(pi);
 	pi.registerProvider(CLAUDE_SDK_OAUTH_PROVIDER_ID, {
-		baseUrl: CLAUDE_SDK_OAUTH_PROVIDER_ID,
-		api: CLAUDE_SDK_OAUTH_PROVIDER_ID,
+		baseUrl: CLAUDE_SDK_OAUTH_API_ID,
+		api: CLAUDE_SDK_OAUTH_API_ID,
 		models: MODELS,
 		streamSimple: streamClaudeSdkOauth,
 		// A verbatim `enabled: false` is the kill switch: the lane cannot serve, so
