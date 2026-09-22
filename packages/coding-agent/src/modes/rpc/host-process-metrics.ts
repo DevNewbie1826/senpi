@@ -7,18 +7,17 @@
  * that holds every session is its child. Reporting only the supervisor would answer "3 MB" for a
  * daemon holding two gigabytes.
  *
- * Every field is `number | null`, and `null` means "this platform does not publish it here" rather
- * than zero: a status that reported 0 open descriptors on a platform it cannot count them on would
- * be worse than saying nothing. A failing probe never fails the status - an operator asking what a
- * daemon is doing must still get its identity and its sessions when `ps` is unavailable.
+ * The table itself is read through the kernel (`host-process-table.ts`), never by spawning `ps`:
+ * a daemon-control surface polled at client cadence must not run one probe child per read - on a
+ * runtime whose `execFile` does not reap, that is the #1507/omo-desktop#594 zombie machine, one
+ * permanent defunct child per status request. Where the kernel reader is unavailable (Node,
+ * unsupported platforms) every field is `null`, which means "this platform does not publish it
+ * here" rather than zero: a status that reported 0 open descriptors on a platform it cannot count
+ * them on would be worse than saying nothing. A failing read never fails the status - an operator
+ * asking what a daemon is doing must still get its identity and its sessions.
  */
-import { execFile } from "node:child_process";
 import { readdir } from "node:fs/promises";
-import { promisify } from "node:util";
-
-const run = promisify(execFile);
-const PS_TIMEOUT_MS = 5_000;
-const KILOBYTES_PER_MEGABYTE = 1024;
+import { loadProcessTableReader, type ProcessTableReader, type ProcessTableRow } from "./host-process-table.ts";
 
 export interface HostProcessMetrics {
 	/** Resident memory of the daemon's process tree, in megabytes; shared pages count once per process. */
@@ -31,11 +30,15 @@ export interface HostProcessMetrics {
 
 const UNOBSERVED: HostProcessMetrics = { rss_mb: null, open_fds: null, zombies: null };
 
-interface ProcessRow {
-	readonly pid: number;
-	readonly ppid: number;
-	readonly state: string;
-	readonly rssKb: number;
+/** Resolved once per platform; `undefined` on runtimes that cannot read the table without spawning. */
+const readers = new Map<string, Promise<ProcessTableReader | undefined>>();
+
+function tableReader(platform: NodeJS.Platform): Promise<ProcessTableReader | undefined> {
+	const cached = readers.get(platform);
+	if (cached !== undefined) return cached;
+	const loading = loadProcessTableReader(platform);
+	readers.set(platform, loading);
+	return loading;
 }
 
 export async function readHostProcessMetrics(
@@ -43,7 +46,9 @@ export async function readHostProcessMetrics(
 	platform: NodeJS.Platform = process.platform,
 ): Promise<HostProcessMetrics> {
 	if (platform === "win32") return UNOBSERVED;
-	const rows = await processTable();
+	const read = await tableReader(platform);
+	if (read === undefined) return UNOBSERVED;
+	const rows = read();
 	if (rows === undefined) return UNOBSERVED;
 	const tree = descendants(rows, pid);
 	if (tree.length === 0) return UNOBSERVED;
@@ -54,27 +59,7 @@ export async function readHostProcessMetrics(
 	};
 }
 
-/**
- * One `ps` reading of the whole table. A daemon's children are found by walking `ppid`, so the
- * table has to be read once rather than probed per pid - and this process spawns nothing else.
- */
-async function processTable(): Promise<readonly ProcessRow[] | undefined> {
-	try {
-		const { stdout } = await run("ps", ["-A", "-o", "pid=,ppid=,stat=,rss="], { timeout: PS_TIMEOUT_MS });
-		return stdout.split("\n").flatMap((line) => {
-			const [pid, ppid, state, rss] = line.trim().split(/\s+/u);
-			if (pid === undefined || ppid === undefined || state === undefined || rss === undefined) return [];
-			const row = { pid: Number(pid), ppid: Number(ppid), state, rssKb: Number(rss) };
-			return Number.isInteger(row.pid) && Number.isInteger(row.ppid) && Number.isFinite(row.rssKb) ? [row] : [];
-		});
-	} catch {
-		// `ps` missing, denied or slow: the daemon's own answers still stand, so this stays a gap in
-		// the report rather than a failed status.
-		return undefined;
-	}
-}
-
-function descendants(rows: readonly ProcessRow[], root: number): readonly ProcessRow[] {
+function descendants(rows: readonly ProcessTableRow[], root: number): readonly ProcessTableRow[] {
 	const tree = rows.filter((row) => row.pid === root);
 	if (tree.length === 0) return tree;
 	for (let index = 0; index < tree.length; index++) {
@@ -86,7 +71,9 @@ function descendants(rows: readonly ProcessRow[], root: number): readonly Proces
 	return tree;
 }
 
-async function openDescriptors(tree: readonly ProcessRow[]): Promise<number | null> {
+const KILOBYTES_PER_MEGABYTE = 1024;
+
+async function openDescriptors(tree: readonly ProcessTableRow[]): Promise<number | null> {
 	let total = 0;
 	let counted = false;
 	for (const row of tree) {

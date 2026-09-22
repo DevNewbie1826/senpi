@@ -1,3 +1,25 @@
+## 2026-09-22 - Daemon status metrics read the process table through the kernel, never a `ps` child (omo-desktop#594)
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/host-process-table.ts` (new): a zero-spawn whole-table reader. darwin reads `sysctl(KERN_PROC, KERN_PROC_ALL)` - the same table `ps` itself reads, zombies included - plus `proc_pidinfo(PROC_PIDTASKINFO)` for resident memory; linux scans `/proc/<pid>/stat`. `bun:ffi` is imported behind the runtime gate exactly like `child-reaper-syscalls.ts`, so Node resolves the loader to `undefined` instead of becoming unloadable.
+- `packages/coding-agent/src/modes/rpc/host-process-metrics.ts`: `readHostProcessMetrics` no longer spawns `ps -A` per read. It walks the kernel table; when the reader is unavailable (Node, unsupported platforms) every field is `null` - "this platform does not publish it here" - rather than falling back to a child process. Tree walking, `open_fds`, and the win32 short-circuit are unchanged.
+- `test/suite/regressions/issue-omo-594-host-status-zero-spawn.test.ts`: the RED/GREEN contract. Thirty status reads through the real metrics path must spawn zero probe processes (the unmodified tree spawns one per read); a bun-run fixture proves the kernel reader keeps the observability `ps` provided - real orphans under the host are counted, and the count returns to 0 once the reaper collects them.
+
+### Why
+
+The omo production RPC host accumulated `<defunct>` children at client-driven cadence (omo-desktop-app#594: ~1.7 zombies/min, 0 live children, monotonic). The class, measured at scale in senpi#1507 (9,386 zombies), is a long-lived process spawning a short-lived probe child per request: on a runtime whose `execFile` does not reap, every probe becomes a permanent zombie. The watchdog lost its `ps` probe for exactly this reason (#1721) and the host got a reaper for terminated-worker orphans (f1d1bdaf8d); the status metrics - `host status` and the generations rows, polled per request, once per live generation - still ran `ps -A` per read on whatever long-lived process embedded them. This closes the last member of that class on the daemon-control surface the same way #1721 closed the watchdog's: by not spawning.
+
+A read-only census of the live production hosts on this machine (three samples one minute apart) shows zero zombies under every `omo --mode rpc --multi-session` pid - consistent with #1721 and the reaper already covering the historical host-side sites; the surviving member of the class was this status path, which is why it moves to the kernel table rather than relying on the reaper.
+
+### Why an extension could not handle it
+
+The read happens inside the package's daemon-control surface (`readHostStatus`, `readGenerationRows`) before any extension loads; an extension cannot stop the package from spawning its own probe.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/modes/rpc/host-process-metrics.ts`, against any change to the metrics fields or their null semantics.
+
 ## 2026-09-22 - chatgpt-subscription provider id on the RPC surface (senpi#1989)
 
 ### What changed
