@@ -1,3 +1,23 @@
+## 2026-09-22 - Canonical map for renamed provider ids (senpi#1989)
+
+### What changed
+
+- `packages/ai/src/legacy-provider-ids.ts` (new): frozen `LEGACY_PROVIDER_IDS` maps `openai-codex` -> `chatgpt-subscription` and `claude-sdk-oauth` -> `anthropic-subscription`. `normalizeProviderId` is an O(1) own-property hit that returns the input unchanged when the id is already canonical. `normalizeModelRef` splits on the first `/` only so a model id that itself contains `/` survives. `isLegacyProviderId` is `Object.hasOwn` on that map. Re-exported from `packages/ai/src/index.ts` and `packages/ai/src/compat.ts`. Nothing calls these functions yet.
+- Guarded by `packages/ai/test/legacy-provider-ids.test.ts`.
+
+### Why
+
+- Two provider ids are being renamed. Existing users have the old ids written into auth.json, settings.json, models.json, and session files, so every later read path will need to normalize. This module is the single canonical map both packages import so no second copy drifts. It lives in `packages/ai` because `packages/coding-agent` cannot be imported from here without a cycle.
+
+### Why an extension could not handle it
+
+- Auth, settings, models, and session files are read inside the package before any extension runs. A second map in an extension would drift from the rewrite every later task imports.
+
+### Expected merge conflict zones
+
+- `packages/ai/src/legacy-provider-ids.ts`: the frozen map, whenever another provider id is renamed.
+- `packages/ai/src/index.ts` and `packages/ai/src/compat.ts`: the re-export lines.
+
 ## 2026-09-22 - Hard account-quota exhaustion is terminal on the first failure (senpi#1969)
 
 ### What changed
