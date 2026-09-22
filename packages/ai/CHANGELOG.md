@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- OpenAI hard-quota exhaustion (`usage_limit_reached`, `usage_not_included`) is terminal on the first failure instead of retrying a dead account five more times, and a failure carrying either provider code is terminal even when the message text is opaque. Approaching-the-limit warnings stay retryable. ([#1969](https://github.com/code-yeongyu/senpi/issues/1969))
+
 ### Removed
 
 ## [2026.9.22] - 2026-09-21

@@ -1,0 +1,139 @@
+# RED capture - senpi#1969 hard usage-limit terminal
+# Captured 2026-09-22T05:27:29.550Z BEFORE any production edit; only the new tests were added.
+
+$ cd /Users/yeongyu/.worktrees/senpi-1969/packages/ai && bunx vitest --run test/retry-profile-classifiers.test.ts test/retry.test.ts
+EXIT CODE: 1
+RUN  v5.0.1 /Users/yeongyu/.worktrees/senpi-1969/packages/ai
+
+··························································xxxxx·····························································
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  5 failed | 119 passed (124)
+   Start at  14:27:06
+   Duration  734ms (transform 71%, tests 15%, import 12%, worker 2%)
+[stderr]
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/retry-profile-classifiers.test.ts > classifySenpiAssistantFailure > account usage-limit exhaustion is terminal on the first failure > classifies the exhaustion body as non-retryable
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ test/retry-profile-classifiers.test.ts:246:64
+    244|
+    245|   it("classifies the exhaustion body as non-retryable", () => {
+    246|    expect(isRetryableErrorMessage(usageLimitExhaustedMessage)).toBe(fa…
+       |                                                                ^
+    247|   });
+    248|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  test/retry-profile-classifiers.test.ts > classifySenpiAssistantFailure > account usage-limit exhaustion is terminal on the first failure > treats a message-only exhaustion failure as terminal
+AssertionError: expected { verdict: 'transient' } to deeply equal { verdict: 'terminal' }
+
+- Expected
++ Received
+
+  {
+-   "verdict": "terminal",
++   "verdict": "transient",
+  }
+
+ ❯ test/retry-profile-classifiers.test.ts:255:51
+    253|     message: usageLimitExhaustedMessage,
+    254|    };
+    255|    expect(classifySenpiAssistantFailure(failure)).toEqual({ verdict: "…
+       |                                                   ^
+    256|   });
+    257|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  test/retry-profile-classifiers.test.ts > classifySenpiAssistantFailure > account usage-limit exhaustion is terminal on the first failure > treats an exhaustion failure carrying statusCode 429 as terminal, not rate-limited
+AssertionError: expected { verdict: 'transient' } to deeply equal { verdict: 'terminal' }
+
+- Expected
++ Received
+
+  {
+-   "verdict": "terminal",
++   "verdict": "transient",
+  }
+
+ ❯ test/retry-profile-classifiers.test.ts:265:51
+    263|     message: usageLimitExhaustedMessage,
+    264|    };
+    265|    expect(classifySenpiAssistantFailure(failure)).toEqual({ verdict: "…
+       |                                                   ^
+    266|   });
+    267|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  test/retry-profile-classifiers.test.ts > classifySenpiAssistantFailure > account usage-limit exhaustion is terminal on the first failure > treats a 429 with the usage_limit_reached provider code as terminal
+ FAIL  test/retry-profile-classifiers.test.ts > classifySenpiAssistantFailure > account usage-limit exhaustion is terminal on the first failure > treats a 429 with the usage_not_included provider code as terminal
+AssertionError: expected { verdict: 'rate-limited' } to deeply equal { verdict: 'terminal' }
+
+- Expected
++ Received
+
+  {
+-   "verdict": "terminal",
++   "verdict": "rate-limited",
+  }
+
+ ❯ test/retry-profile-classifiers.test.ts:278:52
+    276|      providerCodes: [code],
+    277|     };
+    278|     expect(classifySenpiAssistantFailure(failure)).toEqual({ verdict: …
+       |                                                    ^
+    279|    },
+    280|   );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+$ cd /Users/yeongyu/.worktrees/senpi-1969 && bun run --cwd packages/coding-agent test test/suite/retry-fallback-billing-swap.test.ts
+EXIT CODE: 1
+RUN  v5.0.1 /Users/yeongyu/.worktrees/senpi-1969/packages/coding-agent
+
+·········xx·······
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 16 passed (18)
+   Start at  14:27:07
+   Duration  21.57s (transform 83%, import 16%, tests 1%)
+
+  Transform  transforming modules took 17.85s · 83% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+[stderr]
+$ vitest --run test/suite/retry-fallback-billing-swap.test.ts
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/suite/retry-fallback-billing-swap.test.ts > isBillingErrorMessage > openai usage_limit_reached 429
+ FAIL  test/suite/retry-fallback-billing-swap.test.ts > isBillingErrorMessage > openai usage_not_included
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ test/suite/retry-fallback-billing-swap.test.ts:142:42
+    140|   ["undefined", undefined, false],
+    141|  ])("%s", (_label, message, expected) => {
+    142|   expect(isBillingErrorMessage(message)).toBe(expected);
+       |                                          ^
+    143|  });
+    144| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+error: script "test" exited with code 1

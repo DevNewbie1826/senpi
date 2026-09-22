@@ -16,6 +16,10 @@ const creditBalanceError =
 const creditsRequiredError =
 	'429 event: error\ndata: {"type":"error","error":{"type":"rate_limit_error","message":"Usage credits are required for this model.","details":{"error_code":"credits_required","model":"claude-fable-5"}},"request_id":"req_011CdW2nFxprAx6KQ9JhnAvq"}';
 const terminalNonBillingError = "Error: provider rejected the request permanently";
+// Verbatim provider error observed on a dead OpenAI account (senpi#1969): hard
+// account-quota exhaustion arrives as a 429 usage_limit_reached.
+const usageLimitExhaustedError =
+	'OpenAI API error (429): {"type":"usage_limit_reached","message":"The usage limit has been reached"}';
 
 const billingError = () => fauxAssistantMessage("", { stopReason: "error", errorMessage: creditBalanceError });
 const creditsRequiredBillingError = () =>
@@ -125,6 +129,17 @@ describe("isBillingErrorMessage", () => {
 		["purchase credits", "Please purchase credits to continue using this API", true],
 		["anthropic credits_required 429", creditsRequiredError, true],
 		["credits_required error code only", '429 {"error_code":"credits_required"}', true],
+		["openai usage_limit_reached 429", usageLimitExhaustedError, true],
+		[
+			"openai usage_not_included",
+			'429 {"error":{"type":"usage_not_included","message":"This model is not included in your current plan"}}',
+			true,
+		],
+		[
+			"usage-limit approach warning is a throttle, not billing",
+			"OpenAI API error (429): You are approaching your usage limit",
+			false,
+		],
 		["generic credits wording stays non-billing", "earn bonus credits with referrals", false],
 		["overloaded", "overloaded_error", false],
 		["rate limit", "429 rate_limit_exceeded - retry after 30 seconds", false],
