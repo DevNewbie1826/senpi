@@ -1,3 +1,26 @@
+## 2026-09-22 - Claude Opus 5.5 request compat: no disabled thinking, no forced tool_choice
+
+### What changed
+
+- `packages/ai/src/api/anthropic-messages.ts`: `DISABLED_THINKING_REJECTING_MODEL_MARKERS` gains `opus-5-5` / `opus-5.5`, so rows with no generated compat (a `models.json` entry, a gateway row) never send `thinking.type: "disabled"` and pin effort `low` for a thinking-off turn instead.
+- `packages/ai/src/api/bedrock-converse-stream.ts`: `rejectsDisabledThinking` matches the same two markers for Bedrock application inference profiles that carry no catalog metadata.
+- `packages/ai/src/utils/prompt-cache-ttl.ts`: `getAnthropicCompat` defaults `supportsForcedToolChoice` to `false` for `claude-opus-5-5` / `claude-opus-5.5` ids alongside Fable and Mythos, so `tool_choice: any` / `{type: "tool"}` is omitted from the request rather than round-tripping a 400.
+- Catalog rows and generator changes for the same release are tracked in `packages/ai/changes.md`.
+
+### Why
+
+Claude Opus 5.5 (2026-09-22) returns 400 for `thinking.type` `disabled` and `enabled` alike and for `tool_choice` `any` / `tool`; on Opus 5 both were accepted. Verified against the live Models API (`thinking.types.enabled.supported: false`). The generated catalog encodes the facts as compat, but `models.json` entries and third-party gateway rows carry no generated compat, so the family fact has to live in the providers as well.
+
+### Why an extension could not handle it
+
+The request shape is built inside the Messages and Bedrock providers before any extension hook runs.
+
+### Expected merge conflict zones
+
+- `packages/ai/src/api/anthropic-messages.ts`: the family-marker constant block near the top of the file.
+- `packages/ai/src/api/bedrock-converse-stream.ts`: `rejectsDisabledThinking`.
+- `packages/ai/src/utils/prompt-cache-ttl.ts`: the forced-tool-choice family regex.
+
 ## 2026-09-22 - rename the subscription-provider symbols and modules (senpi#1989)
 
 ### What changed

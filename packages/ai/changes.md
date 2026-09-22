@@ -1,3 +1,23 @@
+## 2026-09-22 - Claude Opus 5.5 catalog rows and request compat
+
+### What changed
+
+- `packages/ai/scripts/generate-models.ts`: `ANTHROPIC_ALLOWED_FALLBACK_MODELS["claude-opus-5-5"] = ["claude-opus-4-8", "claude-opus-5"]` (the live Models API allowlist; the generator keeps only targets that also support per-message effort, so the emitted `compat.allowedFallbackModels` is `[claude-opus-5]`); `BEDROCK_INFERENCE_PROFILE_ONLY_MODEL_IDS` gains `anthropic.claude-opus-5-5` so only the global/us/eu/jp/au profiles are emitted, mirroring Opus 5; `supportsAnthropicMidConvoEffort` matches `claude-opus-5-5` / `claude-opus-5.5`; the Fable-5 adaptive-only branch is now `isAnthropicAdaptiveOnlyModel` and covers Opus 5.5 too (`compat.supportsDisabledThinking: false` on `anthropic-messages`, `thinkingLevelMap.off: null` elsewhere). `src/providers/data/` regenerated (one strict run): anthropic, amazon-bedrock, openrouter (`anthropic/claude-opus-5.5`), vercel-ai-gateway (`anthropic/claude-opus-5.5`, `-fast`); venice picked up one unrelated metadata refresh.
+- Runtime compat for the same release (Messages and Bedrock family markers, forced-tool-choice default) is tracked in `src/changes.md`.
+- Tests: `test/anthropic-opus-5-5.test.ts` (catalog shape, Bedrock profile-only, thinking-off request, xhigh/max effort mapping), `test/anthropic-tool-choice-compat.test.ts` (forced `any` / named omitted for 5.5, kept for Opus 5), `test/bedrock-thinking-payload.test.ts` (Bedrock thinking-off pins effort low).
+
+### Why
+
+Claude Opus 5.5 (2026-09-22) returns 400 for `thinking.type` `disabled` and `enabled` alike and for `tool_choice` `any` / `tool`; on Opus 5 both were accepted. Verified against the live Models API (`thinking.types.enabled.supported: false`, `allowed_fallback_models: [claude-opus-4-8, claude-opus-5]`). Without the compat facts, a thinking-off turn or a forced-tool turn failed every request on the new model.
+
+### Why an extension could not handle it
+
+The catalog shards ship inside this package and the request shape is built inside the Messages and Bedrock providers before any extension hook runs.
+
+### Expected merge conflict zones
+
+- `packages/ai/scripts/generate-models.ts`: the Anthropic family-marker functions and the hardcoded allowlist tables, against any other model-release change.
+
 ## 2026-09-22 - generator rows for the chatgpt-subscription rename (senpi#1989)
 
 ### What changed

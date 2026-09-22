@@ -4,7 +4,11 @@
 
 ### Breaking Changes
 
+- The recommended Anthropic model is now Claude Opus 5.5 at `max`, in the slot Claude Opus 5 held at `xhigh`. A session that lands on an implicit Anthropic default picks `claude-opus-5-5:max` when it is authenticated; the shipped Fable 5.1 / Fable 5 fallback ladders step down onto `claude-opus-5-5:max` first (then Opus 5, 4.8, 4.6, all at `max`), and Opus 5.5 ships its own ladder. Your explicitly configured `defaultModel`, `recommendedModels`, and `retry.fallbackChains` are untouched; if you carry `claude-opus-5:xhigh` in your own configuration and want the recommended level on the new model, change it to `claude-opus-5-5:max`. Claude Opus 5 stays selectable.
+
 ### Added
+
+- Claude Opus 5.5 gets its own system prompt preset (`promptPreset: "claude-opus-5-5"`, selected automatically for any `claude-opus-5-5` / `claude-opus-5.5` id, Bedrock profiles and Vertex `@default` included). It is the Opus 5 prompt plus what Anthropic's Opus 5.5 guide documents for coding agents: the model is told which text-only turn endings count as stopping early while work is still owed, to read the sources that bear on a loosely specified task before changing anything, and to treat time spent as a cost when deciding what to delegate.
 
 ### Changed
 
