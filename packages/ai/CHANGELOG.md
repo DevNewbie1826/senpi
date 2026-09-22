@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Claude Opus 5.5 is usable on the release that first exposed it. 2026.9.22-3 shipped a partial catalog row for `claude-opus-5-5`, so selecting the model and turning thinking off sent `thinking: {type: "disabled"}` and the request failed with a 400; per-message effort and the server-side refusal fallback were missing too, and Amazon Bedrock listed the bare `anthropic.claude-opus-5-5` id, which is available only through an inference profile. The row now carries the full set and Bedrock lists only the five profiles.
+
 - Requests to Claude Opus 5.5 never carry `thinking: {type: "disabled"}` or a forced `tool_choice` (`any` / a named tool). Opus 5.5 rejects both with a 400 where Opus 5 accepted them, so a thinking-off turn now pins effort `low` and a forced-tool turn sends `tool_choice` omitted, on the Anthropic Messages and Bedrock providers alike, including gateway rows that carry no catalog metadata.
 
 ### Removed
