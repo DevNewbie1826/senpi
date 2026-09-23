@@ -4626,3 +4626,22 @@ Detection has to happen inside the Anthropic SSE loop while the stream is still 
 - HIGH: `packages/ai/src/api/anthropic-messages.ts` (`getAnthropicCompat`, beta header list, `buildParams`), `packages/ai/src/api/openai-responses.ts` and `openai-codex-responses.ts` request builders, `packages/ai/src/types.ts` option interfaces, `packages/ai/src/index.ts` export list.
 - MEDIUM: `retryDelayMs`/`NON_RETRYABLE_PROVIDER_ERROR_PATTERN` in `utils/retry.ts`; `EventStream` iterator in `utils/event-stream.ts`; `usesReasoningEffort` in `mistral-conversations.ts`; `models.ts` auth resolution.
 - LOW: `providers/faux.ts` option types; `providers/cloudflare-ai-gateway.ts` model list; `utils/uuid.ts` byte source.
+
+
+## 2026-09-23 — Add model-only text audience without changing provider payloads
+
+### What changed
+
+`packages/ai/src/types.ts`, `packages/ai/src/api/pi-messages.ts`: Add the optional model-only audience contract and project protocol text fields without UI metadata. Adapter tests compare serialized marked and unmarked requests, including image-bearing results and Cursor/Devin protobuf messages.
+
+### Why
+
+Tool notices must remain model context without being presented as user-facing output.
+
+### Why an extension could not handle it
+
+The shared content type and provider serialization belong to the AI package, before extension rendering hooks.
+
+### Expected merge conflict zones
+
+TextContent and pi-messages request construction.

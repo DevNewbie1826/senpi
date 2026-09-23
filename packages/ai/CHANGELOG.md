@@ -6,9 +6,13 @@
 
 ### Added
 
+- Text content can carry `audience: "model"` so clients can hide model-only instructions without changing provider text. Provider request regression coverage includes text-only and image-bearing tool results. ([#2041](https://github.com/code-yeongyu/senpi/issues/2041))
+
 ### Changed
 
 ### Fixed
+
+- The `pi-messages` provider projects tool-result text fields onto the wire instead of forwarding display audience metadata. ([#2041](https://github.com/code-yeongyu/senpi/issues/2041))
 
 ### Removed
 
