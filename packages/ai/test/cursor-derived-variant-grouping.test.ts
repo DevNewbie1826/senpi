@@ -379,6 +379,105 @@ describe("regroupStoredCursorModels (derived families, senpi#2038)", () => {
 		expect(regroupStoredCursorModels(out)).toEqual(out);
 	});
 
+	it("retains conflicting xhigh variants as flat models while merging only represented grok members", () => {
+		const existing = entryToCursorModel(
+			normalizeCursorCatalog(["grok-4.7-low", "grok-4.7-extra-high"].map(rawEntry))[0] as CursorCatalogEntry,
+		);
+		const batch = [
+			existing,
+			storedFlat("grok-4.7-xhigh"),
+			storedFlat("grok-4.7-high"),
+			storedFlat("grok-4.7-xhigh-fast"),
+		];
+		for (const listed of [batch, [...batch].reverse()]) {
+			const out = regroupStoredCursorModels(listed);
+			const ids = out.map((model) => model.id);
+			expect(ids).toEqual(
+				listed[0]?.id === "grok-4.7"
+					? ["grok-4.7", "grok-4.7-xhigh", "grok-4.7-xhigh-fast"]
+					: ["grok-4.7-xhigh-fast", "grok-4.7", "grok-4.7-xhigh"],
+			);
+			const group = out.find((model) => model.id === "grok-4.7") as Model<"cursor-agent">;
+			expect(group.compat?.cursorReasoning?.variantIds).toEqual({
+				low: "grok-4.7-low",
+				xhigh: "grok-4.7-extra-high",
+				high: "grok-4.7-high",
+			});
+			expect(resolveCursorSelectionDescriptor(group, { level: "xhigh", source: "explicit" })).toEqual({
+				modelId: "grok-4.7-extra-high",
+				parameters: [],
+			});
+			const flat = out.find((model) => model.id === "grok-4.7-xhigh") as Model<"cursor-agent">;
+			expect(flat.reasoning).toBe(false);
+			expect(resolveCursorSelectionDescriptor(flat, undefined)).toEqual({
+				modelId: "grok-4.7-xhigh",
+				parameters: [],
+			});
+			expect(regroupStoredCursorModels(out)).toEqual(out);
+		}
+	});
+
+	it("coalesces the thinking identity even when every incoming level conflicts", () => {
+		const existing = entryToCursorModel(
+			normalizeCursorCatalog(
+				["claude-fable-5-1-thinking-low", "claude-fable-5-1-thinking-high"].map(rawEntry),
+			)[0] as CursorCatalogEntry,
+		);
+		const batch = [
+			existing,
+			storedFlat("claude-fable-5-1-low-thinking"),
+			storedFlat("claude-fable-5-1-high-thinking"),
+		];
+		for (const listed of [batch, [...batch].reverse()]) {
+			const out = regroupStoredCursorModels(listed);
+			expect(out.map((model) => model.id)).toEqual(
+				listed[0]?.id === "claude-fable-5-1-thinking"
+					? ["claude-fable-5-1-thinking", "claude-fable-5-1-low-thinking", "claude-fable-5-1-high-thinking"]
+					: ["claude-fable-5-1-high-thinking", "claude-fable-5-1-low-thinking", "claude-fable-5-1-thinking"],
+			);
+			const group = out.find((model) => model.id === "claude-fable-5-1-thinking") as Model<"cursor-agent">;
+			expect(group.compat?.cursorReasoning?.variantIds).toEqual({
+				low: "claude-fable-5-1-thinking-low",
+				high: "claude-fable-5-1-thinking-high",
+			});
+			expect(resolveCursorSelectionDescriptor(group, { level: "low", source: "explicit" })).toEqual({
+				modelId: "claude-fable-5-1-thinking-low",
+				parameters: [],
+			});
+			for (const id of ["claude-fable-5-1-low-thinking", "claude-fable-5-1-high-thinking"]) {
+				const flat = out.find((model) => model.id === id) as Model<"cursor-agent">;
+				expect(flat.reasoning).toBe(false);
+				expect(resolveCursorSelectionDescriptor(flat, undefined)).toEqual({ modelId: id, parameters: [] });
+			}
+			expect(regroupStoredCursorModels(out)).toEqual(out);
+		}
+	});
+
+	it("coalesces duplicate conflicting flat ids without consuming them into the retained group", () => {
+		const existing = entryToCursorModel(
+			normalizeCursorCatalog(["grok-4.7-low", "grok-4.7-extra-high"].map(rawEntry))[0] as CursorCatalogEntry,
+		);
+		const conflicting = storedFlat("grok-4.7-xhigh");
+		const out = regroupStoredCursorModels([existing, conflicting, { ...conflicting, name: "duplicate" }]);
+		expect(out.map((model) => model.id)).toEqual(["grok-4.7", "grok-4.7-xhigh"]);
+		expect(out[1]).toEqual(conflicting);
+		expect(regroupStoredCursorModels(out)).toEqual(out);
+	});
+
+	it("coalesces duplicate stored derived identities without any flat entries or new metadata", () => {
+		const existing = entryToCursorModel(findDerived("grok-4.7"));
+		const duplicate = { ...existing, name: "second copy" };
+		for (const listed of [
+			[storedFlat("before"), existing, storedFlat("between"), duplicate, storedFlat("after")],
+			[storedFlat("before"), duplicate, storedFlat("between"), existing, storedFlat("after")],
+		]) {
+			const out = regroupStoredCursorModels(listed);
+			expect(out.map((model) => model.id)).toEqual(["before", "grok-4.7", "between", "after"]);
+			expect(out[1]).toEqual(listed[1]);
+			expect(regroupStoredCursorModels(out)).toEqual(out);
+		}
+	});
+
 	it("is idempotent on its own output", () => {
 		const once = regroupStoredCursorModels(storedGrokBatch());
 		const twice = regroupStoredCursorModels(once);
