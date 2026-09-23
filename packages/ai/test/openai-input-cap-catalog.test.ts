@@ -11,10 +11,20 @@ const DOCUMENTED_TOTALS = new Map([
 	[400_000, 272_000],
 	[1_050_000, 922_000],
 ]);
+// GPT-6 Sol documents a 1,050,000 window; its project prompt budget is 400,000, which happens to
+// equal the 400,000-tier total. Only that exact pairing is a deliberate budget rather than an uncapped row.
+const DELIBERATE_TIER_BUDGETS = new Map([["gpt-6-sol", 400_000]]);
 
 function isFlagshipFamily(id: string): boolean {
 	const bare = id.replace(GATEWAY_PREFIX, "");
 	return /^gpt-(?:5|6)(?:[.-]|$)/.test(bare) && !bare.startsWith("gpt-oss");
+}
+
+function isDeliberateTierBudget(model: Model<Api>): boolean {
+	for (const [marker, contextWindow] of DELIBERATE_TIER_BUDGETS) {
+		if (model.id.includes(marker) && model.contextWindow === contextWindow) return true;
+	}
+	return false;
 }
 
 function flagshipRows(): Array<{ provider: BuiltinProvider; model: Model<Api> }> {
@@ -33,7 +43,7 @@ describe("OpenAI flagship catalog rows store the input cap", () => {
 
 		//#when
 		const offenders = rows
-			.filter(({ model }) => DOCUMENTED_TOTALS.has(model.contextWindow))
+			.filter(({ model }) => DOCUMENTED_TOTALS.has(model.contextWindow) && !isDeliberateTierBudget(model))
 			.map(({ provider, model }) => `${provider}/${model.id}=${model.contextWindow}`);
 
 		//#then
@@ -48,6 +58,9 @@ describe("OpenAI flagship catalog rows store the input cap", () => {
 		["amazon-bedrock", "openai.gpt-5.6-luna", 922_000],
 		["amazon-bedrock", "global.openai.gpt-5.6-terra", 922_000],
 		["openrouter", "openai/gpt-6-astra", 600_000],
+		["openrouter", "openai/gpt-6-sol", 400_000],
+		["openrouter", "openai/gpt-6-luna", 922_000],
+		["vercel-ai-gateway", "openai/gpt-6-sol-fast", 400_000],
 		["openai", "gpt-5-pro", 272_000],
 		["azure-openai-responses", "gpt-5-pro", 272_000],
 	] as const)("%s/%s resolves to %i", (provider: BuiltinProvider, id: string, contextWindow: number) => {
@@ -58,7 +71,8 @@ describe("OpenAI flagship catalog rows store the input cap", () => {
 	});
 
 	it("keeps the direct OpenAI cost-tier defaults below the cap", () => {
-		//#given - luna/terra ship the 272k tier, sol its 650k default and astra its 600k default on purpose
+		//#given - 5.6 luna/terra ship the 272k tier, 5.6 sol its 650k default, astra its 600k default,
+		// GPT-6 Sol its 400k default and GPT-6 Luna the full 922k input cap, all on purpose
 		const openai = getBuiltinModels("openai");
 		const byId = new Map(openai.map((model) => [model.id, model.contextWindow]));
 
@@ -67,5 +81,7 @@ describe("OpenAI flagship catalog rows store the input cap", () => {
 		expect(byId.get("gpt-5.6-terra")).toBe(272_000);
 		expect(byId.get("gpt-5.6-sol")).toBe(650_000);
 		expect(byId.get("gpt-6-astra")).toBe(600_000);
+		expect(byId.get("gpt-6-sol")).toBe(400_000);
+		expect(byId.get("gpt-6-luna")).toBe(922_000);
 	});
 });

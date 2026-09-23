@@ -1,3 +1,22 @@
+## 2026-09-23 - GPT-6 Sol / Luna id inference for map-less rows
+
+### What changed
+
+- `packages/ai/src/models.ts`: `XHIGH_MODEL_IDS` and `OPENAI_MAX_MODEL_IDS` gain `gpt-6-sol` and `gpt-6-luna`, so a custom provider that ships either id without a `thinkingLevelMap` still surfaces `xhigh` and `max` on the OpenAI-compatible APIs. `inferOpenAIThinkingLevelMap` stays Astra-only: Sol and Luna document `none`, so their `off` level remains selectable.
+- Catalog rows and generator changes for the same release are tracked in `packages/ai/changes.md`.
+
+### Why
+
+The generated catalogs carry explicit maps, but `models.json` entries and gateway rows for the new tiers carry none; without the id families the two top efforts disappeared on those routes (`test/gpt-6-family-catalog.test.ts`, map-less block).
+
+### Why an extension could not handle it
+
+Effort inference runs inside the model registry before any extension hook sees the model.
+
+### Expected merge conflict zones
+
+- `packages/ai/src/models.ts`: the `XHIGH_MODEL_IDS` / `OPENAI_MAX_MODEL_IDS` constant block.
+
 ## 2026-09-22 - Claude Opus 5.5 request compat: no disabled thinking, no forced tool_choice
 
 ### What changed
