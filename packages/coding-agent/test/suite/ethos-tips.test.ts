@@ -51,7 +51,7 @@ describe("ethos tips", () => {
 			"Try ulw-plan on fable-5.1 xhigh. A patient sage obsessed with the essence does the agonizing for you and fills in every blank you were pretending not to see.",
 		);
 		expect(byId.get("ethos.ulw-loop-shallow")).toBe(
-			"For days when deep thought sounds awful, run the ulw loop with gpt-5.6-sol fast/medium. Fair warning: shallow thinking sends invoices.",
+			"For days when deep thought sounds awful, run the ulw loop with gpt-6-sol fast/medium. Fair warning: shallow thinking sends invoices.",
 		);
 		expect(byId.get("ethos.monitor-subscribe")).toBe(
 			"Subscribe to a command's stdout and forget it. CI finishes, server boots, log line lands... you're mid-edit and the news finds *you*. No sleep loops, no polling, no re-reading context like a chump.",

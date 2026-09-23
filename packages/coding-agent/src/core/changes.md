@@ -1,3 +1,27 @@
+## 2026-09-23 - GPT-6 Sol becomes the recommended and default OpenAI model
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/recommended-models/index.ts`: `RECOMMENDED_DEFAULT_MODELS` gains `["gpt-6-sol", "medium"]` directly after `["gpt-6-astra", "high"]` and ahead of `["gpt-5.6-sol", "medium"]`, so an implicit OpenAI default lands on GPT-6 Sol when Astra is not authenticated and GPT-5.6 Sol stays the next rung.
+- `packages/coding-agent/src/core/model-resolver.ts`: `defaultModelPerProvider.openai` and `["chatgpt-subscription"]` move from `gpt-5.6-sol` to `gpt-6-sol`.
+- `packages/coding-agent/src/core/high-reasoning-warning.ts`: `SENSITIVE_MODEL_ID_PATTERN` adds `gpt-6-sol` beside the GPT-5.x Sol and Astra markers; the level rule is unchanged (Sol tiers warn at `xhigh` and `max`, Astra only at `max`), and GPT-6 Luna is deliberately not matched.
+- `packages/coding-agent/src/modes/interactive/tips/catalog/ethos-tips.ts`: the ulw-loop tip now names `gpt-6-sol fast/medium`.
+- Tests: `test/suite/recommended-models-extension.test.ts` (ladder order and the off-list → gpt-6-sol switch), `test/model-resolver.test.ts` (provider defaults), `test/high-reasoning-warning.test.ts` (Sol id shapes warn at xhigh/max, Luna and near-miss ids do not).
+
+### Why
+
+GPT-6 Sol is the GPT-6 tier OpenAI positions for coding and agentic work at Sol pricing; with its catalog rows landing in this release the user asked for it to sit in the favorable/defaultable set beside Opus, Fable and Astra. The shipped Fable 5.1 fallback ladder already leads with `claude-opus-5-5:max` (2026-09-22), so no retry-fallback change was needed.
+
+### Why an extension could not handle it
+
+Provider defaults and the recommendation ladder are read by the resolver and the builtin before user extensions bind; a user can override them through `defaultModel` / `recommendedModels` but cannot change what ships.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/model-resolver.ts`: the `defaultModelPerProvider` table.
+- `packages/coding-agent/src/core/extensions/builtin/recommended-models/index.ts`: `RECOMMENDED_DEFAULT_MODELS`.
+- `packages/coding-agent/src/core/high-reasoning-warning.ts`: the two id patterns at the top.
+
 ## 2026-09-22 - Claude Opus 5.5 leads the shipped fallback ladders
 
 ### What changed

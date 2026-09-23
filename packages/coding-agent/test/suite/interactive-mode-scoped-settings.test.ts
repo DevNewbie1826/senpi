@@ -119,7 +119,7 @@ describe("InteractiveMode scoped-setting caller compatibility", () => {
 
 	it("keeps post-auth default model selection on the global-setting setter", async () => {
 		// Given: authentication completes while the session still has the unknown placeholder model.
-		const defaultModel = { provider: "openai", id: "gpt-5.6-sol" };
+		const defaultModel = { provider: "openai", id: "gpt-6-sol" };
 		const setModel = vi.fn(async () => undefined);
 		const setSessionModel = vi.fn(async () => undefined);
 		const fakeThis = {
