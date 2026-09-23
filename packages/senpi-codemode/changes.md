@@ -1,5 +1,25 @@
 # senpi-codemode fork changes
 
+## 2026-09-23 - Bound interpreter test concurrency in CI (#2039)
+
+### What changed
+
+- `packages/senpi-codemode/vitest.config.ts` limits CI and GitHub Actions to two fork workers, matching the existing coding-agent suite.
+- `test/ci-worker-policy.test.ts` imports the actual configuration in isolated processes and verifies both CI signals, unchanged assertion deadlines, and unchanged local defaults.
+
+### Why
+
+- Real interpreter tests can each spawn several child runtimes. The default four-core scheduler ran three interpreter test files concurrently; the explicit bound reduces simultaneous runtime startup without increasing any timeout or skipping assertions.
+- The reported Julia timeout was not reproduced in isolated macOS or Linux checks. This is concurrency hardening, not a claim that its exact historical delay was identified.
+
+### Why an extension could not handle it
+
+- `packages/senpi-codemode/vitest.config.ts` owns the test runner's worker pool, outside the runtime extension API.
+
+### Expected merge conflict zones
+
+- LOW: `packages/senpi-codemode/vitest.config.ts`, the `test` options; the regression is a new file.
+
 ## 2026-09-21 - Remove write-only Python prelude session state
 
 ### What changed
