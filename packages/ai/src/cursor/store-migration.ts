@@ -1,7 +1,22 @@
-import type { Model } from "../types.ts";
+import type { Model, ModelThinkingLevel } from "../types.ts";
 import { type CursorCatalogEntry, deriveCursorVariantAliases, normalizeCursorCatalog } from "./catalog-grouping.ts";
 import { resolveCursorContextWindow } from "./context-limit-store.ts";
 import { getCursorVariantAlias, parseCursorVariantId } from "./model-capabilities.ts";
+
+/**
+ * Fill levels a stored static group lacks from flat alias rows regrouped beside it;
+ * the group's own levels, representative, and compat metadata are never replaced.
+ */
+function absorbStaticLevels(
+	current: Model<"cursor-agent">,
+	flatGroup: Model<"cursor-agent"> | undefined,
+): Model<"cursor-agent"> {
+	const additions = Object.entries(flatGroup?.thinkingLevelMap ?? {}).filter(
+		([level, value]) => value != null && current.thinkingLevelMap?.[level as ModelThinkingLevel] == null,
+	);
+	if (additions.length === 0) return current;
+	return { ...current, thinkingLevelMap: { ...current.thinkingLevelMap, ...Object.fromEntries(additions) } };
+}
 
 function entryToModel(entry: CursorCatalogEntry, maxTokensById: ReadonlyMap<string, number>): Model<"cursor-agent"> {
 	const representative = entry.representativeVariantId ?? entry.legacyAliases[0] ?? entry.id;
@@ -41,16 +56,23 @@ function entryToModel(entry: CursorCatalogEntry, maxTokensById: ReadonlyMap<stri
  * Idempotent stored-catalog transform: pre-grouping 204-variant cursor entries
  * are regrouped into selectable identities, including families the static
  * alias table does not list yet, which are derived over the stored batch
- * (senpi#2038); conflicting variants stay flat, and duplicate identities
- * coalesce at their first position in stable input order.
+ * (senpi#2038). An already-grouped identity (static or derived) always wins
+ * over flat rows aliasing it, regardless of input order, and absorbs their
+ * levels without losing its own metadata; conflicting derived variants stay
+ * flat, and duplicate identities coalesce at their first position in stable
+ * input order.
  */
 export function regroupStoredCursorModels(models: readonly Model<"cursor-agent">[]): Model<"cursor-agent">[] {
+	const existingGroups = new Map<string, Model<"cursor-agent">>();
 	const existingDerived = new Map<string, Model<"cursor-agent">>();
 	const representedTargetById = new Map<string, string>();
 	for (const model of models) {
-		if (model.compat?.cursorReasoning?.variantIds === undefined || existingDerived.has(model.id)) continue;
+		const reasoning = model.compat?.cursorReasoning;
+		if (reasoning === undefined || existingGroups.has(model.id)) continue;
+		existingGroups.set(model.id, model);
+		if (reasoning.variantIds === undefined) continue;
 		existingDerived.set(model.id, model);
-		for (const id of Object.values(model.compat.cursorReasoning.variantIds)) representedTargetById.set(id, model.id);
+		for (const id of Object.values(reasoning.variantIds)) representedTargetById.set(id, model.id);
 	}
 	const derived = deriveCursorVariantAliases([
 		...models.filter((model) => model.compat?.cursorReasoning === undefined).map((model) => model.id),
@@ -74,9 +96,12 @@ export function regroupStoredCursorModels(models: readonly Model<"cursor-agent">
 		).map((entry) => [entry.id, entryToModel(entry, maxTokensById)] as const),
 	);
 	const merged = new Map<string, Model<"cursor-agent">>();
-	for (const [targetId, current] of existingDerived) {
+	for (const [targetId, current] of existingGroups) {
 		const kept = current.compat?.cursorReasoning;
-		if (kept?.variantIds === undefined) continue;
+		if (kept?.variantIds === undefined) {
+			merged.set(targetId, absorbStaticLevels(current, regrouped.get(targetId)));
+			continue;
+		}
 		const variantIds = { ...kept.variantIds };
 		const thinkingLevelMap = { ...current.thinkingLevelMap };
 		let changed = false;
@@ -108,7 +133,11 @@ export function regroupStoredCursorModels(models: readonly Model<"cursor-agent">
 		const coalesced = merged.get(targetId);
 		if (coalesced !== undefined) {
 			const retainedIds = coalesced.compat?.cursorReasoning?.variantIds;
-			if (model.id !== targetId && !Object.values(retainedIds ?? {}).includes(model.id)) {
+			// Static groups absorb every flat alias row; derived groups keep conflicting variants flat.
+			const absorbed =
+				model.id === targetId ||
+				(retainedIds === undefined ? isLegacy(model) : Object.values(retainedIds).includes(model.id));
+			if (!absorbed) {
 				if (!seen.has(model.id)) out.push(model);
 				seen.add(model.id);
 				continue;

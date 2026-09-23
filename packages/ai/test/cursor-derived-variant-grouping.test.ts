@@ -10,6 +10,11 @@ function rawEntry(id: string): { id: string; name: string; input: ("text" | "ima
 	return { id, name: id, input: ["text"], cursorMaxMode: false };
 }
 
+/** Derived maps are total: every unobserved level is explicitly unsupported (null). */
+function levelMap(observed: Partial<Record<ModelThinkingLevel, string>>): Record<ModelThinkingLevel, string | null> {
+	return { off: null, minimal: null, low: null, medium: null, high: null, xhigh: null, max: null, ...observed };
+}
+
 function normalizedUnlisted(): CursorCatalogEntry[] {
 	return normalizeCursorCatalog(
 		fixture.models.map((entry) => ({
@@ -77,7 +82,7 @@ describe("normalizeCursorCatalog (derived variant grouping, senpi#2038)", () => 
 		const byId = new Map(normalizedUnlisted().map((entry) => [entry.id, entry]));
 
 		const grok = byId.get("grok-4.7");
-		expect(grok?.thinkingLevelMap).toEqual({ low: "low", medium: "medium", high: "high", xhigh: "xhigh" });
+		expect(grok?.thinkingLevelMap).toEqual(levelMap({ low: "low", medium: "medium", high: "high", xhigh: "xhigh" }));
 		expect(grok?.variantIds).toEqual({
 			low: "grok-4.7-low",
 			medium: "grok-4.7-medium",
@@ -87,38 +92,26 @@ describe("normalizeCursorCatalog (derived variant grouping, senpi#2038)", () => 
 
 		const fablePlain = byId.get("claude-fable-5-1");
 		expect(fablePlain?.thinkingMode).toBe(false);
-		expect(fablePlain?.thinkingLevelMap).toEqual({
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: "xhigh",
-			max: "max",
-		});
+		expect(fablePlain?.thinkingLevelMap).toEqual(
+			levelMap({ low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" }),
+		);
 
 		const fableThinking = byId.get("claude-fable-5-1-thinking");
 		expect(fableThinking?.thinkingMode).toBe(true);
-		expect(fableThinking?.thinkingLevelMap).toEqual({
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: "xhigh",
-			max: "max",
-		});
+		expect(fableThinking?.thinkingLevelMap).toEqual(
+			levelMap({ low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" }),
+		);
 		expect(fableThinking?.variantIds?.xhigh).toBe("claude-fable-5-1-thinking-xhigh");
 		expect(fableThinking?.variantIds?.max).toBe("claude-fable-5-1-thinking-max");
 
 		const opus = byId.get("claude-opus-5-5");
-		expect(opus?.thinkingLevelMap).toEqual({
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: "xhigh",
-			max: "max",
-		});
+		expect(opus?.thinkingLevelMap).toEqual(
+			levelMap({ low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" }),
+		);
 		expect(opus?.variantIds?.medium).toBe("claude-opus-5-5-medium");
 
 		const gemini = byId.get("gemini-3.8-flash");
-		expect(gemini?.thinkingLevelMap).toEqual({ low: "low", medium: "medium", high: "high" });
+		expect(gemini?.thinkingLevelMap).toEqual(levelMap({ low: "low", medium: "medium", high: "high" }));
 		expect(gemini?.variantIds).toEqual({
 			low: "gemini-3.8-flash-low",
 			medium: "gemini-3.8-flash-medium",
@@ -126,14 +119,9 @@ describe("normalizeCursorCatalog (derived variant grouping, senpi#2038)", () => 
 		});
 
 		const muse = byId.get("muse-spark-1.3");
-		expect(muse?.thinkingLevelMap).toEqual({
-			minimal: "minimal",
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: "xhigh",
-			max: "max",
-		});
+		expect(muse?.thinkingLevelMap).toEqual(
+			levelMap({ minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" }),
+		);
 		expect(muse?.variantIds?.minimal).toBe("muse-spark-1.3-minimal");
 	});
 
@@ -202,14 +190,14 @@ describe("normalizeCursorCatalog (derived variant grouping, senpi#2038)", () => 
 			const out = normalizeCursorCatalog(listed.map(rawEntry));
 			const group = out.find((entry) => entry.id === "probe");
 			expect(group?.variantIds).toEqual({ low: "probe-low", xhigh: "probe-xhigh" });
-			expect(group?.thinkingLevelMap).toEqual({ low: "low", xhigh: "xhigh" });
+			expect(group?.thinkingLevelMap).toEqual(levelMap({ low: "low", xhigh: "xhigh" }));
 			expect(group?.legacyAliases).toEqual(["probe-low", "probe-xhigh"]);
 			expect(out.find((entry) => entry.id === "probe-extra-high")?.reasoning).toBe(false);
 			expect(out.find((entry) => entry.id === "probe-xhigh-fast")?.reasoning).toBe(false);
 		}
 	});
 
-	it("uses the original parser base for derived capability and window, not the target parsed twice", () => {
+	it("uses the original parser base for derived capability and window; a static alias key target stays flat", () => {
 		const out = normalizeCursorCatalog(
 			["probe-high-low", "probe-high-medium", "gpt-5.5-high-low", "gpt-5.5-high-medium"].map(rawEntry),
 		);
@@ -217,10 +205,11 @@ describe("normalizeCursorCatalog (derived variant grouping, senpi#2038)", () => 
 			capabilityId: "probe-high",
 			window: 200000,
 		});
-		expect(out.find((entry) => entry.id === "gpt-5.5-high")).toMatchObject({
-			capabilityId: "gpt-5.5-high",
-			window: 200000,
-		});
+		// `gpt-5.5-high` is a static alias key (of `gpt-5.5`); a derived identity must not shadow it.
+		expect(out.some((entry) => entry.id === "gpt-5.5-high")).toBe(false);
+		for (const id of ["gpt-5.5-high-low", "gpt-5.5-high-medium"]) {
+			expect(out.find((entry) => entry.id === id)).toMatchObject({ reasoning: false, legacyAliases: [id] });
+		}
 	});
 
 	it("yields static families next to derived ones byte-identically (no variantIds)", () => {
@@ -325,7 +314,7 @@ describe("regroupStoredCursorModels (derived families, senpi#2038)", () => {
 		expect(grok?.id).toBe("grok-4.7");
 		expect(grok?.reasoning).toBe(true);
 		expect(grok?.upstreamModelId).toBe("grok-4.7-medium");
-		expect(grok?.thinkingLevelMap).toEqual({ low: "low", medium: "medium", high: "high", xhigh: "xhigh" });
+		expect(grok?.thinkingLevelMap).toEqual(levelMap({ low: "low", medium: "medium", high: "high", xhigh: "xhigh" }));
 		expect(grok?.compat?.cursorReasoning?.capabilityId).toBe("grok-4.7");
 		expect(grok?.compat?.cursorReasoning?.representativeVariantId).toBe("grok-4.7-medium");
 		expect(grok?.compat?.cursorReasoning?.variantIds).toEqual({
@@ -340,7 +329,7 @@ describe("regroupStoredCursorModels (derived families, senpi#2038)", () => {
 		const complete = entryToCursorModel(findDerived("grok-4.7"));
 		const partial = {
 			...complete,
-			thinkingLevelMap: { medium: "medium", xhigh: "xhigh" },
+			thinkingLevelMap: levelMap({ medium: "medium", xhigh: "xhigh" }),
 			compat: {
 				cursorReasoning: {
 					capabilityId: "grok-4.7",
@@ -366,7 +355,9 @@ describe("regroupStoredCursorModels (derived families, senpi#2038)", () => {
 					low: "grok-4.7-low",
 					high: "grok-4.7-high",
 				});
-				expect(grouped?.thinkingLevelMap).toEqual({ medium: "medium", xhigh: "xhigh", low: "low", high: "high" });
+				expect(grouped?.thinkingLevelMap).toEqual(
+					levelMap({ medium: "medium", xhigh: "xhigh", low: "low", high: "high" }),
+				);
 				expect(regroupStoredCursorModels(out)).toEqual(out);
 			}
 	});

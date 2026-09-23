@@ -125,11 +125,19 @@ function normalizeDerivedLevel(token: string): ModelThinkingLevel | undefined {
 	}
 }
 
+/**
+ * Every level is explicit: an unobserved level maps to `null` (unsupported), because the
+ * shared model contract treats an absent ordinary level as supported and would otherwise
+ * offer levels the server never listed.
+ */
 function buildDerivedLevelMap(members: readonly GroupMember[]): ThinkingLevelMap {
-	const map: ThinkingLevelMap = {};
+	const map = Object.fromEntries(ALL_LEVELS.map((level) => [level, null])) as Record<
+		ModelThinkingLevel,
+		string | null
+	>;
 	for (const member of members) {
 		const level = member.alias.level;
-		if (level !== undefined && member.level !== undefined && map[level] === undefined) {
+		if (level !== undefined && member.level !== undefined && map[level] === null) {
 			map[level] = member.level;
 		}
 	}
@@ -176,7 +184,14 @@ export function deriveCursorVariantAliases(ids: readonly string[]): ReadonlyMap<
 	}
 	const derived = new Map<string, CursorVariantAlias>();
 	for (const family of families.values()) {
-		if (family.levels.size < 2 || STATIC_TARGETS.has(family.targetId) || rawIds.has(family.targetId)) continue;
+		// A derived target must not shadow a static identity, a static alias key, or a raw id.
+		if (
+			family.levels.size < 2 ||
+			STATIC_TARGETS.has(family.targetId) ||
+			getCursorVariantAlias(family.targetId) !== undefined ||
+			rawIds.has(family.targetId)
+		)
+			continue;
 		const chosen = new Map<ModelThinkingLevel, string>();
 		for (const [id, level, suffix] of family.members) {
 			const previous = chosen.get(level);
