@@ -36,3 +36,5 @@ Built-in renderers own these detail-derived lines and run independently of exten
 ### Expected merge conflict zones
 
 Read, grep, and bash result formatting; ordinary collapse hints remain.
+
+- Covered production paths: `packages/coding-agent/src/core/tools/renderers/read.ts`, `packages/coding-agent/src/core/tools/renderers/grep.ts`, `packages/coding-agent/src/core/tools/renderers/bash.ts`.

@@ -1293,3 +1293,5 @@ These card builders own the rendered details and cannot be corrected by an exter
 ### Expected merge conflict zones
 
 Detailed eval cells and fallback result blocks; no collector, output grouping, or model content changes.
+
+- Covered production paths: `packages/senpi-codemode/src/tool/render.ts`.

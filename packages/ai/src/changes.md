@@ -4645,3 +4645,5 @@ The shared content type and provider serialization belong to the AI package, bef
 ### Expected merge conflict zones
 
 TextContent and pi-messages request construction.
+
+- Covered production paths: `packages/ai/src/types.ts`, `packages/ai/src/api/pi-messages.ts`.

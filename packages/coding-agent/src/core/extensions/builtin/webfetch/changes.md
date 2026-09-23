@@ -160,3 +160,5 @@ The built-in webfetch producer owns the cap and its notice before downstream too
 ### Expected merge conflict zones
 
 capWebfetchOutput and webfetchTool result assembly.
+
+- Covered production paths: `packages/coding-agent/src/core/extensions/builtin/webfetch/webfetch/tool.ts`.

@@ -706,3 +706,5 @@ An extension cannot change the built-in return contract or reliably distinguish 
 ### Expected merge conflict zones
 
 Built-in tool output assembly, grep formatting, and getTextOutput.
+
+- Covered production paths: `packages/coding-agent/src/core/tools/model-only-text.ts`, `packages/coding-agent/src/core/tools/read.ts`, `packages/coding-agent/src/core/tools/bash.ts`, `packages/coding-agent/src/core/tools/find.ts`, `packages/coding-agent/src/core/tools/ls.ts`, `packages/coding-agent/src/core/tools/grep/format.ts`, `packages/coding-agent/src/core/tools/grep/index.ts`, `packages/coding-agent/src/core/tools/render-utils.ts`.

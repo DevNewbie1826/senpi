@@ -107,3 +107,5 @@ This built-in extension is the producer and therefore must declare the audience 
 ### Expected merge conflict zones
 
 The single appended text-part literal after appendRuleActivation; a separate lane will add toolCallId to the unchanged activation call.
+
+- Covered production paths: `packages/coding-agent/src/core/extensions/builtin/rules/index.ts`.

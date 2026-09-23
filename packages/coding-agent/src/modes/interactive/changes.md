@@ -1492,3 +1492,5 @@ The interactive component controls the common render-state boundary for every to
 ### Expected merge conflict zones
 
 The result field of createRenderState; exploration-container hooks belong to the sibling lane.
+
+- Covered production paths: `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`.
