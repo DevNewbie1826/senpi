@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Cursor legacy variant references for families the static alias table does not list (grok-4.7, claude-opus-5-5, claude-fable-5-1, gemini-3.8-flash, muse-spark-1.3) now resolve onto the runtime-derived identity with their thinking level instead of fuzzy-matching a flat `-fast` model: `--model cursor/grok-4.7:low` selects grok-4.7 at low (previously grok-4.7-xhigh-fast with thinking off), `cursor/grok-4.7-xhigh` and stored variant ids restore their level, `cursor/grok-4.7-*` globs project the derived identity alongside the fast models, and the cursor-cli-oauth catalog keeps the derived level-to-variant-id map. ([#2038](https://github.com/code-yeongyu/senpi/issues/2038))
+
 ### Removed
 
 ## [2026.9.23-2] - 2026-09-23

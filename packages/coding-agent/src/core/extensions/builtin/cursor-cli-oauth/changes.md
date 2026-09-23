@@ -1,5 +1,23 @@
 # cursor-cli-oauth extension changes
 
+## 2026-09-23 - `normalizeEntries` copies derived variant ids into `cursorReasoning` (senpi#2038)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/cursor-cli-oauth/models.ts`: `normalizeEntries` copies `entry.variantIds` into `compat.cursorReasoning.variantIds` when `normalizeCursorCatalog` derived a group from ids the static alias table does not list, mirroring `packages/ai/src/providers/cursor.ts` `fetchCursorModels`. Static-table entries keep byte-identical output (the field spreads in only when present); `-fast` variants stay flat. Test: `packages/coding-agent/test/cursor-cli-oauth/cursor-cli-derived-variants.test.ts`.
+
+### Why
+
+- A live `cursor-agent models` listing now contains level families (grok-4.7-low..-xhigh) the static tables cannot know. Without the copy, this lane grouped them but dropped the level-to-variant-id map, so the core resolver could not map legacy references and every explicit level fell back to the representative variant.
+
+### Why an extension could not handle it
+
+- `normalizeEntries` is this builtin's private catalog boundary feeding provider registration; the variant-id map must exist on the registered `ProviderModelConfig` before any other extension can observe the models.
+
+### Expected merge conflict zones
+
+- LOW: the `cursorReasoning` object literal inside `normalizeEntries` in `packages/coding-agent/src/core/extensions/builtin/cursor-cli-oauth/models.ts`.
+
 ## 2026-09-15 - Startup `cursor-agent models` probe: lane-gated, account HOME, explicit env (senpi#1722)
 
 ### What changed

@@ -93,6 +93,7 @@ function normalizeEntries(raw: readonly { id: string; label: string }[]): Provid
 							capabilityId: entry.capabilityId,
 							...(entry.thinkingMode !== undefined ? { thinkingMode: entry.thinkingMode } : {}),
 							representativeVariantId: entry.representativeVariantId,
+							...(entry.variantIds !== undefined ? { variantIds: entry.variantIds } : {}),
 						},
 					}
 				: {}),
