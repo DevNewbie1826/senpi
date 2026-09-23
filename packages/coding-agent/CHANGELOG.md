@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- `/mcp auth <server>` opens the system browser and keeps the complete authorization URL in the transcript instead of replacing it with a progress notice. Browser launch failures leave manual authorization usable, and the MCP documentation now names the supported `auth`, `auth-start`, and `auth-complete` commands. ([oh-my-openagent#6724](https://github.com/code-yeongyu/oh-my-openagent/issues/6724))
+
 ### Removed
 
 ## [2026.9.23-2] - 2026-09-23
