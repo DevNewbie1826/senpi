@@ -1,3 +1,23 @@
+## 2026-09-23 - Fold project-rules notices into the exploration group of their call (senpi#2057)
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts`: a `rule-activation` card of kind `project-rules` whose `toolCallId` belongs to a call in the open group joins the group instead of closing it.
+- `packages/coding-agent/src/modes/interactive/components/exploration-group.ts`: `setMembers` takes the absorbed rule paths; the collapsed cell adds `Applied N project rules` (distinct paths). Expanding shows the original cards.
+- `packages/coding-agent/src/modes/interactive/components/exploration-rules.ts` (new): `projectRulesOfCall`.
+
+### Why
+
+- One run of reads split into several `Explored` cells with `Project rules` cards between them whenever a read matched a rule.
+
+### Why an extension could not handle it
+
+- The exploration projection is interactive-mode code; entry renderers cannot see sibling cards.
+
+### Expected merge conflict zones
+
+- The projection loop in `exploration-transcript-container.ts` and `setMembers`/`render` in `exploration-group.ts`.
+
 ## 2026-09-23 - Replace the previous custom-entry card in place when its renderer asks (senpi#2051)
 
 ### What changed

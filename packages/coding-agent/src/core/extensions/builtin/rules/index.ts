@@ -151,6 +151,7 @@ export default function piRulesExtension(pi: ExtensionAPI): void {
 			kind: "project-rules",
 			targetPath,
 			rules: rules.map((rule) => rule.relativePath),
+			toolCallId: event.toolCallId,
 		});
 
 		return { content: [...event.content, { type: "text", text: block }] };

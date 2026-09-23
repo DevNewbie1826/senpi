@@ -6,6 +6,8 @@
 
 ### Added
 
+- A `Project rules` notice for a read inside an `Explored` cell now joins that cell as one `Applied N project rules` line instead of a standalone card that split the cell in two. Stream-rule notices and notices from older sessions stay as their own cards. ([#2057](https://github.com/code-yeongyu/senpi/issues/2057))
+
 ### Changed
 
 ### Fixed
