@@ -8,6 +8,8 @@
 
 ### Changed
 
+- The GPT-5.6 and GPT-6 system prompts no longer demand a failing test before every behavior change. They now read the tests that already cover the area as the behavior of record, reproduce a bug before fixing it, let the run prove the change, and add a test only where the repository keeps tests for that behavior and a regression would otherwise pass unnoticed - the stance the Claude and Kimi prompts already had. Sessions on those models stop producing tests that only restate a small change. ([#2035](https://github.com/code-yeongyu/senpi/issues/2035))
+
 ### Fixed
 
 ### Removed

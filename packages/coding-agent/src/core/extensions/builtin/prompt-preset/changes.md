@@ -1,5 +1,27 @@
 # prompt-preset Extension Changes
 
+## 2026-09-23 - GPT presets: the test decision replaces test-first
+
+### What changed
+
+- `test-decision.ts` (new): one shared `TEST_DECISION` directive rendered by both GPT full-core presets. Read the existing tests first as the behavior of record (a test that contradicts the intent is a finding, not a test to edit green); reproduce a bug before fixing it; the run proves the change, and a test is added only where the repository keeps tests for this behavior AND a regression would otherwise pass unnoticed, sized like its neighbors and never restating the change.
+- `gpt-5.6.ts`: `TEST_FIRST` deleted; rule id `test-first` -> `test-decision`, concern `test-first` -> `tests`; the directive moved from the end of `## Pragmatism & Scope` into `## Verification`, between the validator line and the shared Test Discipline block. Rendered constant 409 -> 363 chars.
+- `gpt-6-astra.ts`: `TEST_FIRST` deleted; same id/concern rename; the directive keeps its `## Verification` slot. 359 -> 363 chars (+4; the exemption list is gone, the decision criterion is new).
+- `test/suite/prompt-presets-gpt-5-6.test.ts`, `prompt-presets-gpt-6-astra.test.ts`: rule-id -> concern/section maps updated; the two cross-preset leak checks skip `test-decision` because it is single-sourced on purpose; the 5.6 case that asserted `apply_patch` under a "drops the anti-test default" title is renamed to what it checks.
+
+### Why
+
+- Test-first made a test the proof of every change with a seam. Any simple edit inside a tested module has a seam, so the rule mandated tests that could only restate the change; the harness then grew counter-rules (`prompt-behavior-coverage`, reviewer slop passes) to catch them, and the Astra header itself recorded "over-tests small changes". The decision now sits where an engineer makes it, with two observable conditions instead of a ritual order. The Claude and Kimi presets already carried this stance in their Scope paragraph ("commit tests only where the task asks for them or the repository already keeps tests for that kind of change"); this brings the GPT presets in line and removes the contradiction between presets.
+- Per the GPT-5.6 guide's simplify-first doctrine, the change deletes a process instruction and its exemption list; the only growth is the decision criterion.
+
+### Why an extension could not handle it
+
+The directive is preset core text; a user extension could only append a contradicting rule after it.
+
+### Expected merge conflict zones
+
+- `gpt-5.6.ts` / `gpt-6-astra.ts`: the rule-id unions, the `*_RULES` arrays, and the `## Verification` template block. Fork-only files; no upstream counterpart.
+
 ## 2026-09-23 - GPT-6 Sol / Luna resolve to the GPT-6 family preset
 
 ### What changed
