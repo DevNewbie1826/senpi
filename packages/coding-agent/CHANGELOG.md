@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Claude subscription sessions (`claude-sdk-oauth`) run Claude Code 2.1.280 again, the version Claude Opus 5.5 requires. The bundled `@anthropic-ai/claude-agent-sdk` moves from 0.3.278 to 0.3.280, and the engine's own requests now identify as `claude-cli/2.1.280` instead of `claude-cli/2.1.251`. That identity no longer depends on an installer script, so installs made with `ignore-scripts=true` or through `bun install -g` get it too. If you keep a newer Claude Code on your PATH (for example after `claude update`), senpi now runs that one instead of the older bundled copy; `CLAUDE_CODE_EXECUTABLE` still overrides both. ([#2033](https://github.com/code-yeongyu/senpi/issues/2033))
+
 - A model that calls a deferred (search-exposed) tool under a gateway-namespaced or recased name, such as `mcp__686f__team_create` for `team_create`, now activates and runs that tool on the first call instead of getting `Tool ... not found` and wasting a turn. Tools that disallow lazy activation stay blocked. ([#2025](https://github.com/code-yeongyu/senpi/issues/2025))
 
 - Installs from npm or `bun install -g` load the bundled `gpt-image-gen` skill again. The published bundle resolved its embedded skill file against the current directory, so every session with image-generation credentials printed `[imagegen] bundled skill not found ... skipping contribution` and the skill the system prompt points to was missing. Under Bun (`bun install -g`) the same fix also lets structural reads find their bundled JavaScript grammar. ([#2028](https://github.com/code-yeongyu/senpi/issues/2028))

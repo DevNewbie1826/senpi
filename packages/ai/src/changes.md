@@ -1,3 +1,22 @@
+## 2026-09-23 - claudeCodeVersion follows the pinned claude-agent-sdk (senpi#2033)
+
+### What changed
+
+- `packages/ai/src/api/anthropic-messages.ts`: `claudeCodeVersion` goes from `2.1.251` to `2.1.280`, so the OAuth client's `user-agent` header is `claude-cli/2.1.280`, the Claude Code version `@anthropic-ai/claude-agent-sdk` 0.3.280 ships.
+- `packages/ai/test/anthropic-oauth-claude-code-version.test.ts`: the floor moves to 2.1.280. `packages/coding-agent/test/suite/regressions/2033-claude-code-version-currency.test.ts` fails whenever this constant and the installed SDK's `claudeCodeVersion` differ.
+
+### Why
+
+Claude Opus 5.5 rejects OAuth requests that advertise Claude Code below 2.1.280 (`claude_code_version_too_old`). oh-my-openagent raised the constant with an install-time byte rewrite, and that rewrite never runs under `ignore-scripts=true` or Bun's blocked-postinstall default, so those installs kept sending 2.1.251.
+
+### Why an extension could not handle it
+
+The header is built inside the Anthropic client before any extension hook runs.
+
+### Expected merge conflict zones
+
+- LOW: the single `claudeCodeVersion` constant near the top of `api/anthropic-messages.ts`.
+
 ## 2026-09-23 - GPT-6 Sol / Luna id inference for map-less rows
 
 ### What changed

@@ -1,3 +1,22 @@
+## 2026-09-23 - a newer claude on PATH beats the bundled binary (senpi#2033)
+
+### What changed
+
+- `executable.ts`: `describeClaudeCodeExecutable` still takes `CLAUDE_CODE_EXECUTABLE` first. When it lands on a bundled binary (compiled-Bun extraction or the platform sidecar), it now looks up `claude` on PATH and returns that one if it reports a strictly newer version. Ties, a PATH binary whose version cannot be read, and deps without `versionOf` keep the bundled binary, so existing callers and tests resolve exactly as before. `ExecutableDeps` gains the optional `bundledVersion` and `versionOf`; the bundled lookup moved into `acceptBundled`.
+- `executable-version.ts` (new): `bundledClaudeCodeVersion` reads `claudeCodeVersion` from the imported SDK's manifest, `probeClaudeCodeVersion` runs `<binary> --version` once per path per process (5 s timeout), and `isNewerClaudeCodeVersion` compares `X.Y.Z`. A compiled build that cannot read the manifest probes the bundled binary instead.
+
+### Why
+
+A user who ran `claude update` still got the SDK's older bundled Claude Code, and its version errors, because the bundled binary always won. The newest binary on the machine is the one most likely to accept current models.
+
+### Why an extension could not handle it
+
+This IS the extension's executable resolution.
+
+### Expected merge conflict zones
+
+- `describeClaudeCodeExecutable` in `executable.ts` and the `defaultDeps` object.
+
 ## 2026-09-22 - rename internal symbols, files and the extension directory (senpi#1989)
 
 ### What changed

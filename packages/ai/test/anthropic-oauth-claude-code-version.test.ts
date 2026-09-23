@@ -5,8 +5,8 @@ import type { Context } from "../src/types.ts";
 
 // Anthropic rejects OAuth requests whose advertised Claude Code version is older
 // than this with `claude_code_version_too_old`; the advertised version must never
-// fall below it. Mirrors upstream pi 96317e50 (2.1.75 -> 2.1.251).
-const MINIMUM_CLAUDE_CODE_VERSION = [2, 1, 251] as const;
+// fall below it. Claude Opus 5.5 raised it to 2.1.280 (senpi#2033).
+const MINIMUM_CLAUDE_CODE_VERSION = [2, 1, 280] as const;
 
 const mockState = vi.hoisted(() => ({
 	constructorOptions: undefined as { defaultHeaders?: Record<string, string | null> } | undefined,

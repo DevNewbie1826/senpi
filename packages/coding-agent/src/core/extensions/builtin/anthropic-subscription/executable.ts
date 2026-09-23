@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { posix, win32 } from "node:path";
 import { extractFromBunfs } from "@anthropic-ai/claude-agent-sdk/extract";
 import { findExecutableOnPath } from "./executable-path-lookup.ts";
+import { bundledClaudeCodeVersion, isNewerClaudeCodeVersion, probeClaudeCodeVersion } from "./executable-version.ts";
 
 export type ExecutableDeps = {
 	platform: string;
@@ -14,6 +15,10 @@ export type ExecutableDeps = {
 	isMusl?: () => boolean;
 	isCompiledBun?: () => boolean;
 	extractFromBunfs?: (embeddedPath: string) => string;
+	/** The Claude Code version the SDK bundles; `undefined` makes the resolver ask the bundled binary. */
+	bundledVersion?: () => string | undefined;
+	/** Reported version of a Claude Code binary. Without it the bundled binary is never compared against PATH. */
+	versionOf?: (executable: string) => string | undefined;
 };
 
 export type ExecutableResolution = {
@@ -47,7 +52,9 @@ function spawnableSpelling(platform: string, candidate: string): string {
  * Walks every source of a Claude Code binary and records each spelling it checked. Nothing is
  * accepted on resolution alone: `require.resolve` can name a file this process cannot stat (#1541),
  * so a candidate counts only once `isFile` agrees. Order: `CLAUDE_CODE_EXECUTABLE`, the embedded
- * binary of a compiled Bun build, the platform sidecar package(s), then `claude` on PATH.
+ * binary of a compiled Bun build, the platform sidecar package(s), then `claude` on PATH. A bundled
+ * binary still yields to `claude` on PATH when that one reports a strictly newer version (#2033): a
+ * user who updated Claude Code must not keep getting the older copy the SDK happens to ship.
  */
 export function describeClaudeCodeExecutable(deps: ExecutableDeps): ExecutableResolution {
 	const tried: string[] = [];
@@ -70,6 +77,31 @@ export function describeClaudeCodeExecutable(deps: ExecutableDeps): ExecutableRe
 		deps.platform === "linux" && deps.isMusl?.() === true,
 	);
 
+	const bundled = acceptBundled(deps, candidates, accept, tried);
+	if (bundled !== undefined) {
+		const newer = newerClaudeOnPath(deps, bundled);
+		if (newer === undefined) return done(bundled);
+		tried.push(newer);
+		return done(newer);
+	}
+
+	const onPath = findExecutableOnPath("claude", deps);
+	if (onPath !== undefined) {
+		const accepted = accept(onPath);
+		if (accepted !== undefined) return done(accepted);
+	} else {
+		tried.push(deps.env("PATH") ? "claude on PATH" : "claude on PATH (PATH is unset)");
+	}
+
+	return { executable: undefined, tried };
+}
+
+function acceptBundled(
+	deps: ExecutableDeps,
+	candidates: string[],
+	accept: (candidate: string) => string | undefined,
+	tried: string[],
+): string | undefined {
 	if (deps.isCompiledBun?.() && deps.extractFromBunfs) {
 		for (const candidate of candidates) {
 			let extracted: string;
@@ -79,7 +111,7 @@ export function describeClaudeCodeExecutable(deps: ExecutableDeps): ExecutableRe
 				continue; // not embedded in this bundle - the on-disk probe below still runs
 			}
 			const accepted = accept(extracted);
-			if (accepted !== undefined) return done(accepted);
+			if (accepted !== undefined) return accepted;
 		}
 	}
 
@@ -92,18 +124,23 @@ export function describeClaudeCodeExecutable(deps: ExecutableDeps): ExecutableRe
 			continue;
 		}
 		const accepted = accept(resolved);
-		if (accepted !== undefined) return done(accepted);
+		if (accepted !== undefined) return accepted;
 	}
+	return undefined;
+}
 
+/** `claude` on PATH when it is a different, stat-able binary reporting a strictly newer version than `bundled`. */
+function newerClaudeOnPath(deps: ExecutableDeps, bundled: string): string | undefined {
+	const versionOf = deps.versionOf;
+	if (versionOf === undefined) return undefined;
 	const onPath = findExecutableOnPath("claude", deps);
-	if (onPath !== undefined) {
-		const accepted = accept(onPath);
-		if (accepted !== undefined) return done(accepted);
-	} else {
-		tried.push(deps.env("PATH") ? "claude on PATH" : "claude on PATH (PATH is unset)");
-	}
-
-	return { executable: undefined, tried };
+	if (onPath === undefined) return undefined;
+	const spelled = spawnableSpelling(deps.platform, onPath);
+	if (spelled === bundled || !deps.isFile(spelled)) return undefined;
+	const pathVersion = versionOf(spelled);
+	if (pathVersion === undefined) return undefined;
+	const bundledVersion = deps.bundledVersion?.() ?? versionOf(bundled);
+	return isNewerClaudeCodeVersion(pathVersion, bundledVersion) ? spelled : undefined;
 }
 
 /** The validated executable, or senpi's own error naming every candidate - the SDK never sees a miss. */
@@ -150,6 +187,8 @@ const defaultDeps: ExecutableDeps = {
 	isMusl: isMuslLinuxRuntime,
 	isCompiledBun: () => isCompiledBunBinary,
 	extractFromBunfs,
+	bundledVersion: bundledClaudeCodeVersion,
+	versionOf: probeClaudeCodeVersion,
 	// Rooted at the SDK instance this extension imports, so `require.resolve` walks the parents of
 	// THAT package and a sidecar hoisted above it (omo-ai/node_modules/...) is still found.
 	resolve: (spec) => {

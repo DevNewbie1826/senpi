@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Anthropic OAuth requests identify as `claude-cli/2.1.280` instead of `claude-cli/2.1.251`. Claude Opus 5.5 rejects anything older with `claude_code_version_too_old`. ([#2033](https://github.com/code-yeongyu/senpi/issues/2033))
+
 ### Removed
 
 ## [2026.9.23] - 2026-09-23
