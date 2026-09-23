@@ -1,5 +1,26 @@
 # changes — senpi-monorepo root
 
+## Harness state leaves the tree and cannot be tracked again (2026-09-23)
+
+### What changed
+
+- 541 tracked files are removed from the index and working tree: `.omo/evidence/` (478), `local-ignore/qa-evidence/` (39), `.omo/plans/` (13), `.omo/run-continuation/` (5), `.omo/ultragoal/` (3) and a root-level `.qa-evidence/` (3, from senpi#1980). `.omo/init-deep.json` stays. History is untouched.
+- `.gitignore` replaces the directory rule `.omo/` with `.omo/*` plus `!.omo/init-deep.json`, so the one tracked file is no longer a tracked-but-ignored inconsistency, and adds `.qa-evidence/` and `qa-evidence/` at any depth.
+- `scripts/tracked-harness-artifacts-audit.test.mjs` (root `test:scripts`) reads `git ls-files` and fails when any tracked path lives under `.omo/` (minus the allowlist), `packages/*/.omo/`, `local-ignore/`, `.qa-evidence/` or `qa-evidence/`; RED on the previous `main` tree (541), GREEN here.
+- `AGENTS.md`: `local-ignore/` is described as never tracked, and the QA-receipts rule says receipts stay local and are summarized in the PR body.
+
+### Why
+
+- Every one of those files was added past an ignore rule that already existed; nothing in CI noticed. The sibling repository made the same decision (code-yeongyu/oh-my-openagent#8703): QA evidence is written locally and summarized in the PR, never committed.
+
+### Why an extension could not handle it
+
+- Repository hygiene: `.gitignore`, a scripts-level audit, and the index. No runtime is involved.
+
+### Expected merge conflict zones
+
+- `.gitignore` tail (the `.omo/` block) against any upstream ignore additions; `AGENTS.md` STRUCTURE table and QUALITY GATES bullet.
+
 ## Unify the shared and evals Vitest runners (2026-09-21)
 
 ### What changed
