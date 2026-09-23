@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { fileAttributePlugin } from "./bundle-file-attribute-plugin.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
@@ -60,18 +61,6 @@ const bunRuntimeModulesPlugin = {
 			contents: "export {};",
 			loader: "js",
 		}));
-	},
-};
-
-// Bun's file attribute is not a standard Node import attribute. Let esbuild
-// emit the asset and its path rather than parse it as a JavaScript module.
-const fileAttributePlugin = {
-	name: "file-attribute",
-	setup(build) {
-		build.onLoad({ filter: /./, namespace: "file" }, (args) => {
-			if (args.with.type !== "file") return undefined;
-			return { contents: readFileSync(args.path), loader: "file" };
-		});
 	},
 };
 
