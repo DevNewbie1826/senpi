@@ -8,6 +8,8 @@
 
 ### Changed
 
+- Eval cards no longer display truncation or full-output artifact footer warnings. Model-facing eval text and grouping are unchanged; content explicitly addressed only to the model is omitted from the text fallback. ([#2041](https://github.com/code-yeongyu/senpi/issues/2041))
+
 ### Fixed
 
 ### Removed

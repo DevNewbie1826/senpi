@@ -9,7 +9,7 @@ import {
 	type ToolRenderResultOptions,
 	truncateToVisualLines,
 } from "@code-yeongyu/senpi";
-import { formatTruncationWarning, stripOutputNotice, type TruncationMeta } from "../output/output-meta.ts";
+import type { TruncationMeta } from "../output/output-meta.ts";
 import { displayCode } from "./display-code.ts";
 import { normalizeEvalSummary } from "./eval-request.ts";
 import {
@@ -661,7 +661,7 @@ function renderCell(cell: EvalCellResult, environment: RenderEnvironment, badges
 	for (const line of codePreview.lines) {
 		appendLines(lines, renderPrefixed(line, environment, { prefix: "│ ", continuation: "│ ", color: "borderMuted" }));
 	}
-	const output = stripOutputNotice(cell.output, environment.meta).trimEnd();
+	const output = cell.output.trimEnd();
 	if (output.length > 0) {
 		appendLines(lines, renderPrefixed("output", environment, { prefix: "├─ ", continuation: "│  ", color: "dim" }));
 		const outputColor: ThemeColor = cell.status === "error" ? "error" : "toolOutput";
@@ -773,24 +773,13 @@ function renderDetailedLines(
 				context.environment.width,
 			),
 		);
-	if (details.notice !== undefined)
-		appendLines(
-			lines,
-			renderAllVisualLines(style(context.environment.theme, "dim", details.notice), context.environment.width),
-		);
-	const warning = formatTruncationWarning(details.meta) ?? (details.truncated ? "[eval output truncated]" : null);
-	if (warning !== null)
-		appendLines(
-			lines,
-			renderAllVisualLines(style(context.environment.theme, "warning", warning), context.environment.width),
-		);
 	return lines;
 }
 
 function textOutput(result: AgentToolResult<EvalResultDetails>, showImageFallback: boolean): string {
 	const lines: string[] = [];
 	for (const part of result.content) {
-		if (part.type === "text") lines.push(part.text);
+		if (part.type === "text" && part.audience !== "model") lines.push(part.text);
 		else if (showImageFallback && part.type === "image") {
 			lines.push(`[image: ${sanitizeTerminalLabel(part.mimeType)}]`);
 		}
@@ -1031,7 +1020,7 @@ export function renderEvalResult(
 		{ kind: "blank" },
 	];
 	const rawOutput = textOutput(result, context.showImages && imageProtocol === null);
-	const output = stripOutputNotice(rawOutput, details?.meta).trimEnd();
+	const output = rawOutput.trimEnd();
 	const hasRenderedImage =
 		context.showImages && imageProtocol !== null && result.content.some((part) => part.type === "image");
 	if (output.length > 0) {
@@ -1088,10 +1077,6 @@ export function renderEvalResult(
 	const calls = toolCallRows(details);
 	const nestedCalls = nestedToolCallBlock(details, theme, context.cwd, expanded);
 	if (calls.length > 0) blocks.push({ kind: "blank" }, nestedCalls ?? { kind: "toolCalls", calls, expanded, theme });
-	if (details?.notice !== undefined)
-		blocks.push({ kind: "blank" }, { kind: "text", text: style(theme, "dim", details.notice) });
-	const warning = formatTruncationWarning(details?.meta) ?? (details?.truncated ? "[eval output truncated]" : null);
-	if (warning !== null) blocks.push({ kind: "blank" }, { kind: "text", text: style(theme, "warning", warning) });
 	component.setBlocks(blocks);
 	return component;
 }
