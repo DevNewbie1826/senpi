@@ -32,7 +32,11 @@ import type {
 	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
-import { ProviderRetryWatchdogAbortError, prepareAgentToolCall } from "@earendil-works/pi-agent-core";
+import {
+	ProviderRetryWatchdogAbortError,
+	prepareAgentToolCall,
+	resolveToolNameAlias,
+} from "@earendil-works/pi-agent-core";
 import {
 	contentText,
 	providerNotConfiguredMessage,
@@ -1323,15 +1327,9 @@ export class AgentSession {
 
 	private _installAgentToolHooks(): void {
 		this.agent.resolveUnknownToolCall = (toolName) => {
-			let service: ReturnType<typeof getToolSearchService>;
-			try {
-				service = getToolSearchService();
-			} catch {
-				return undefined;
-			}
-			const catalogTool = service.getCatalog().some((doc) => doc.name === toolName);
-			if (!catalogTool || !this._activateLazyTool(toolName)) return undefined;
-			return this.agent.state.tools.find((tool) => tool.name === toolName);
+			const resolvedName = resolveToolNameAlias(toolName, this._callableToolNames());
+			if (resolvedName === undefined || !this._activateLazyTool(resolvedName)) return undefined;
+			return this.agent.state.tools.find((tool) => tool.name === resolvedName);
 		};
 		this._bindToolSearchRemovedHints();
 
@@ -3224,6 +3222,25 @@ export class AgentSession {
 	 * `allowLazyActivation` hard stop, then invoke activators in registration order.
 	 * The caller re-resolves the tool from the active registry before execution.
 	 */
+	private _callableToolNames(): string[] {
+		const names = this.agent.state.tools.map((tool) => tool.name);
+		for (const [name, { definition }] of this._toolDefinitions) {
+			const exposure = normalizeToolExposure(definition);
+			if (exposure.exposure === "search" && exposure.allowLazyActivation) names.push(name);
+		}
+		return [...names, ...this._toolSearchCatalogNames()];
+	}
+
+	private _toolSearchCatalogNames(): string[] {
+		try {
+			return getToolSearchService()
+				.getCatalog()
+				.map((doc) => doc.name);
+		} catch {
+			return [];
+		}
+	}
+
 	private _activateLazyTool(toolName: string): boolean {
 		const definition = this._toolDefinitions.get(toolName)?.definition;
 		if (!definition) return false;

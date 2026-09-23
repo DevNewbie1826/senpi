@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- A model that calls a deferred (search-exposed) tool under a gateway-namespaced or recased name, such as `mcp__686f__team_create` for `team_create`, now activates and runs that tool on the first call instead of getting `Tool ... not found` and wasting a turn. Tools that disallow lazy activation stay blocked. ([#2025](https://github.com/code-yeongyu/senpi/issues/2025))
+
 ### Removed
 
 ## [2026.9.23] - 2026-09-23

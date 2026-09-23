@@ -1,3 +1,25 @@
+## 2026-09-23 - Resolve gateway-namespaced and recased tool-call names (senpi#2025)
+
+### What changed
+
+- `packages/agent/src/tool-name-alias.ts`: new `resolveToolNameAlias(requested, available)`. An exact name wins; otherwise a `mcp__<id>__` gateway namespace is stripped and the remainder is compared with case and `-`/`_` separators folded away. A name resolves only when exactly one available tool owns the folded key, so two candidates are never guessed between. `toolNameCorrectionNotice` renders the `[auto-corrected]` line the result carries.
+- `packages/agent/src/agent-loop.ts`: `prepareToolCall` tries the alias against the active tools after the exact lookup and the host's `resolveUnknownToolCall`. When the resolved tool's name differs from the requested one, preparation continues on a copy of the call carrying the canonical name, so `beforeToolCall`, execution, `tool_execution_update`/`tool_execution_end` and the tool result all see the registered name; the result is prefixed with the correction notice. Sequential-mode lookup and immediate outcomes use the resolved call.
+- `packages/agent/src/index.ts`: exports `resolveToolNameAlias` so a host with a deferred catalog applies the same rule.
+
+### Why
+
+- On a Claude-Code-compatible gateway path the model sees non-native tools as `mcp__<id>__<PascalName>`. For a deferred tool it learned by its bare name from `tool_search`, a model wrote `mcp__686f__team_create`; the exact lookup answered `Tool mcp__686f__team_create not found` and a full turn was wasted before the model retried the bare name. senpi#1480 already folds the same shapes when repairing replayed history; the inbound call path had no equivalent.
+- Hooks must see the canonical name: a permission hook that matches `bash` would otherwise be bypassed by a call named `mcp__x__Bash` that still ran `bash`.
+
+### Why an extension could not handle it
+
+- Tool lookup happens inside the agent loop before any `tool_call` hook fires; an extension cannot rename a call the loop has already rejected as unknown.
+
+### Expected merge conflict zones
+
+- MEDIUM: `prepareToolCall` in `packages/agent/src/agent-loop.ts` (split into `prepareToolCall` + `prepareResolvedToolCall`), the `PreparedToolCall` type, and the tail of `finalizeExecutedToolCall`.
+- LOW: `packages/agent/src/tool-name-alias.ts` is new; one export line in `packages/agent/src/index.ts`.
+
 ## 2026-09-22 - Tool-argument preparation runs on a detached copy (senpi#1472)
 
 ### What changed
