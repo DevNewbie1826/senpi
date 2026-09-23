@@ -1346,7 +1346,7 @@ pid), stop -> `stopped` (socket removed).
 
 - `scripts/bundle-file-attribute-plugin.mjs` (new, moved out of `scripts/build-coding-agent-bundle.mjs`): each `import(..., { with: { type: "file" } })` becomes a wrapper module that imports the esbuild-emitted asset path and exports `fileURLToPath(new URL(emittedPath, import.meta.url))`.
 - `scripts/bundle-file-attribute-plugin.test.mjs`: builds a fixture in both release layouts (split main bundle, unsplit sibling build) and runs it on Node and Bun from an unrelated cwd.
-- `scripts/node-bundle-smoke.test.ts`: the bundled CLI lists the `gpt-image-gen` skill with an existing path and prints no missing-skill notice.
+- `scripts/node-bundle-smoke.test.ts`: the bundled CLI lists the `gpt-image-gen` skill with an existing path and prints no missing-skill notice, and the bundle keeps exactly the two `claudeCodeVersion="X.Y.Z"` declarations (the `anthropic-messages-*` chunk and `session-worker.js`) that a downstream installer rewrites in place.
 
 ### Why
 

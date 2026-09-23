@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { on, once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 
@@ -52,6 +52,23 @@ beforeAll(() => {
 	});
 	expect(result.status, result.stderr).toBe(0);
 }, 130_000);
+
+// A downstream installer (oh-my-openagent) rewrites these declarations byte-for-byte inside the
+// installed bundle, so emitting must keep one literal `claudeCodeVersion="X.Y.Z"` per emitting file.
+test("keeps the claudeCodeVersion declarations a downstream installer rewrites", () => {
+	// Given
+	const bundle = join(repo, "packages/coding-agent/dist/bundle");
+	// When
+	const declaringFiles = readdirSync(bundle, { recursive: true })
+		.map(String)
+		.filter((path) => path.endsWith(".js"))
+		.flatMap((path) =>
+			Array.from(readFileSync(join(bundle, path), "utf8").matchAll(/claudeCodeVersion="\d+\.\d+\.\d+"/g), () => basename(path)),
+		)
+		.sort();
+	// Then
+	expect(declaringFiles).toEqual([expect.stringMatching(/^anthropic-messages-.+\.js$/), "session-worker.js"]);
+});
 
 describe.each(runtimes)("the Node bundle under %s", (runtime) => {
 	test("reports the package version when the bundle is launched", () => {
