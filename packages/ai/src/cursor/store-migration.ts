@@ -1,7 +1,7 @@
 import type { Model } from "../types.ts";
 import { type CursorCatalogEntry, deriveCursorVariantAliases, normalizeCursorCatalog } from "./catalog-grouping.ts";
 import { resolveCursorContextWindow } from "./context-limit-store.ts";
-import { getCursorVariantAlias } from "./model-capabilities.ts";
+import { getCursorVariantAlias, parseCursorVariantId } from "./model-capabilities.ts";
 
 function entryToModel(entry: CursorCatalogEntry, maxTokensById: ReadonlyMap<string, number>): Model<"cursor-agent"> {
 	const representative = entry.representativeVariantId ?? entry.legacyAliases[0] ?? entry.id;
@@ -45,7 +45,17 @@ function entryToModel(entry: CursorCatalogEntry, maxTokensById: ReadonlyMap<stri
  * unchanged in stable input order.
  */
 export function regroupStoredCursorModels(models: readonly Model<"cursor-agent">[]): Model<"cursor-agent">[] {
-	const derived = deriveCursorVariantAliases(models.map((model) => model.id));
+	const existingDerived = new Map(
+		models
+			.filter((model) => model.compat?.cursorReasoning?.variantIds !== undefined)
+			.map((model) => [model.id, model]),
+	);
+	const derived = deriveCursorVariantAliases([
+		...models.filter((model) => model.compat?.cursorReasoning === undefined).map((model) => model.id),
+		...[...existingDerived.values()].flatMap((model) =>
+			Object.values(model.compat?.cursorReasoning?.variantIds ?? {}),
+		),
+	]);
 	const isLegacy = (model: Model<"cursor-agent">): boolean =>
 		model.compat?.cursorReasoning === undefined &&
 		(getCursorVariantAlias(model.id) !== undefined || derived.has(model.id));
@@ -62,23 +72,46 @@ export function regroupStoredCursorModels(models: readonly Model<"cursor-agent">
 			})),
 		).map((entry) => [entry.id, entryToModel(entry, maxTokensById)] as const),
 	);
+	const merged = new Map<string, Model<"cursor-agent">>();
+	for (const [targetId, current] of existingDerived) {
+		const kept = current.compat?.cursorReasoning;
+		if (kept?.variantIds === undefined) continue;
+		const variantIds = { ...kept.variantIds };
+		const thinkingLevelMap = { ...current.thinkingLevelMap };
+		let changed = false;
+		for (const model of legacy) {
+			const alias = derived.get(model.id);
+			if (alias?.targetId !== targetId || alias.level === undefined) continue;
+			if (variantIds[alias.level] !== undefined && variantIds[alias.level] !== model.id) continue;
+			variantIds[alias.level] = model.id;
+			thinkingLevelMap[alias.level] = parseCursorVariantId(model.id).level;
+			changed = true;
+		}
+		if (!changed) continue;
+		merged.set(targetId, {
+			...current,
+			thinkingLevelMap,
+			compat: { ...current.compat, cursorReasoning: { ...kept, variantIds } },
+		});
+	}
 	const seen = new Set<string>();
 	const out: Model<"cursor-agent">[] = [];
 	for (const model of models) {
+		const alias = isLegacy(model) ? (getCursorVariantAlias(model.id) ?? derived.get(model.id)) : undefined;
+		const targetId = alias?.targetId ?? model.id;
+		const coalesced = merged.get(targetId);
+		if (coalesced !== undefined) {
+			if (!seen.has(targetId)) out.push(coalesced);
+			seen.add(targetId);
+			continue;
+		}
 		if (!isLegacy(model)) {
 			out.push(model);
 			continue;
 		}
-		const alias = getCursorVariantAlias(model.id) ?? derived.get(model.id);
-		const targetId = alias?.targetId ?? model.id;
 		if (seen.has(targetId)) continue;
 		seen.add(targetId);
-		const transformed = regrouped.get(targetId);
-		if (transformed !== undefined) {
-			out.push(transformed);
-		} else {
-			out.push(model);
-		}
+		out.push(regrouped.get(targetId) ?? model);
 	}
 	return out;
 }

@@ -172,6 +172,57 @@ describe("normalizeCursorCatalog (derived variant grouping, senpi#2038)", () => 
 		}
 	});
 
+	it("rejects derived families when a bare target id is listed", () => {
+		const ids = ["grok-4.7", "grok-4.7-low", "grok-4.7-high"];
+		const out = normalizeCursorCatalog(ids.map(rawEntry));
+		expect(out.map((entry) => entry.id)).toEqual(ids);
+		expect(out.every((entry) => !entry.reasoning && entry.variantIds === undefined)).toBe(true);
+	});
+
+	it("rejects a derived target claimed by a static alias even when that alias is not listed", () => {
+		const ids = ["cursor-grok-4.6-none", "cursor-grok-4.6-minimal"];
+		const out = normalizeCursorCatalog(ids.map(rawEntry));
+		expect(out.map((entry) => entry.id)).toEqual(ids);
+		expect(out.every((entry) => !entry.reasoning && entry.variantIds === undefined)).toBe(true);
+	});
+
+	it("does not add unlisted levels to a static group", () => {
+		const ids = ["cursor-grok-4.6-high", "cursor-grok-4.6-none", "cursor-grok-4.6-minimal"];
+		const out = normalizeCursorCatalog(ids.map(rawEntry));
+		expect(out.map((entry) => entry.id)).toEqual(["cursor-grok-4.6", ...ids.slice(1)]);
+		expect(out[0]?.representativeVariantId).toBe("cursor-grok-4.6-high");
+		expect(out[0]?.legacyAliases).toEqual([ids[0]]);
+		expect(out[0]?.variantIds).toBeUndefined();
+		expect(out.slice(1).every((entry) => !entry.reasoning)).toBe(true);
+	});
+
+	it("keeps duplicate normalized levels flat and chooses xhigh regardless of listing order", () => {
+		const ids = ["probe-low", "probe-extra-high", "probe-xhigh", "probe-xhigh-fast"];
+		for (const listed of [ids, [...ids].reverse()]) {
+			const out = normalizeCursorCatalog(listed.map(rawEntry));
+			const group = out.find((entry) => entry.id === "probe");
+			expect(group?.variantIds).toEqual({ low: "probe-low", xhigh: "probe-xhigh" });
+			expect(group?.thinkingLevelMap).toEqual({ low: "low", xhigh: "xhigh" });
+			expect(group?.legacyAliases).toEqual(["probe-low", "probe-xhigh"]);
+			expect(out.find((entry) => entry.id === "probe-extra-high")?.reasoning).toBe(false);
+			expect(out.find((entry) => entry.id === "probe-xhigh-fast")?.reasoning).toBe(false);
+		}
+	});
+
+	it("uses the original parser base for derived capability and window, not the target parsed twice", () => {
+		const out = normalizeCursorCatalog(
+			["probe-high-low", "probe-high-medium", "gpt-5.5-high-low", "gpt-5.5-high-medium"].map(rawEntry),
+		);
+		expect(out.find((entry) => entry.id === "probe-high")).toMatchObject({
+			capabilityId: "probe-high",
+			window: 200000,
+		});
+		expect(out.find((entry) => entry.id === "gpt-5.5-high")).toMatchObject({
+			capabilityId: "gpt-5.5-high",
+			window: 200000,
+		});
+	});
+
 	it("yields static families next to derived ones byte-identically (no variantIds)", () => {
 		const out = normalizeCursorCatalog([
 			rawEntry("cursor-grok-4.6-high"),
@@ -283,6 +334,49 @@ describe("regroupStoredCursorModels (derived families, senpi#2038)", () => {
 			high: "grok-4.7-high",
 			xhigh: "grok-4.7-xhigh",
 		});
+	});
+
+	it("coalesces a complete derived identity and flat members in either order at their first position", () => {
+		const complete = entryToCursorModel(findDerived("grok-4.7"));
+		const partial = {
+			...complete,
+			thinkingLevelMap: { medium: "medium", xhigh: "xhigh" },
+			compat: {
+				cursorReasoning: {
+					capabilityId: "grok-4.7",
+					representativeVariantId: "grok-4.7-medium",
+					variantIds: {
+						medium: "grok-4.7-medium",
+						xhigh: "grok-4.7-xhigh",
+					},
+				},
+			},
+		};
+		for (const existing of [partial, complete])
+			for (const batch of [
+				[existing, storedFlat("grok-4.7-low"), storedFlat("grok-4.7-high")],
+				[storedFlat("grok-4.7-low"), storedFlat("grok-4.7-high"), existing],
+			]) {
+				const out = regroupStoredCursorModels([storedFlat("before"), ...batch, storedFlat("after")]);
+				expect(out.map((model) => model.id)).toEqual(["before", "grok-4.7", "after"]);
+				const grouped = out[1];
+				expect(grouped?.compat?.cursorReasoning?.variantIds).toEqual({
+					medium: "grok-4.7-medium",
+					xhigh: "grok-4.7-xhigh",
+					low: "grok-4.7-low",
+					high: "grok-4.7-high",
+				});
+				expect(grouped?.thinkingLevelMap).toEqual({ medium: "medium", xhigh: "xhigh", low: "low", high: "high" });
+				expect(regroupStoredCursorModels(out)).toEqual(out);
+			}
+	});
+
+	it("merges a single new flat level into an existing derived identity", () => {
+		const complete = entryToCursorModel(findDerived("grok-4.7"));
+		const out = regroupStoredCursorModels([storedFlat("grok-4.7-minimal"), complete]);
+		expect(out.map((model) => model.id)).toEqual(["grok-4.7"]);
+		expect(out[0]?.compat?.cursorReasoning?.variantIds?.minimal).toBe("grok-4.7-minimal");
+		expect(regroupStoredCursorModels(out)).toEqual(out);
 	});
 
 	it("is idempotent on its own output", () => {

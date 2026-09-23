@@ -1,4 +1,5 @@
 import type { ModelThinkingLevel, ThinkingLevelMap } from "../types.ts";
+import aliasData from "./cursor-variant-aliases.json" with { type: "json" };
 import {
 	CURSOR_MODEL_CAPABILITIES,
 	type CursorModelCapability,
@@ -39,6 +40,7 @@ export interface CursorCatalogEntry {
 
 const ALL_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const FALLBACK_WINDOW = 200000;
+const STATIC_TARGETS = new Set(Object.values(aliasData.aliases).map((alias) => alias.targetId));
 
 interface GroupMember {
 	readonly raw: CursorCatalogRawEntry;
@@ -157,8 +159,9 @@ function buildDerivedVariantIds(
 export function deriveCursorVariantAliases(ids: readonly string[]): ReadonlyMap<string, CursorVariantAlias> {
 	const families = new Map<
 		string,
-		{ targetId: string; levels: Set<ModelThinkingLevel>; members: [string, ModelThinkingLevel][] }
+		{ targetId: string; levels: Set<ModelThinkingLevel>; members: [string, ModelThinkingLevel, string][] }
 	>();
+	const rawIds = new Set(ids);
 	for (const id of ids) {
 		if (getCursorVariantAlias(id) !== undefined) continue;
 		const parsed = parseCursorVariantId(id);
@@ -168,14 +171,28 @@ export function deriveCursorVariantAliases(ids: readonly string[]): ReadonlyMap<
 		const targetId = parsed.thinking === true ? `${parsed.baseId}-thinking` : parsed.baseId;
 		const family = families.get(targetId) ?? { targetId, levels: new Set(), members: [] };
 		family.levels.add(level);
-		family.members.push([id, level]);
+		family.members.push([id, level, parsed.level]);
 		families.set(targetId, family);
 	}
 	const derived = new Map<string, CursorVariantAlias>();
 	for (const family of families.values()) {
-		if (family.levels.size < 2) continue;
-		for (const [id, level] of family.members) {
-			if (derived.has(id)) continue;
+		if (family.levels.size < 2 || STATIC_TARGETS.has(family.targetId) || rawIds.has(family.targetId)) continue;
+		const chosen = new Map<ModelThinkingLevel, string>();
+		for (const [id, level, suffix] of family.members) {
+			const previous = chosen.get(level);
+			if (previous === undefined) {
+				chosen.set(level, id);
+				continue;
+			}
+			const previousSuffix = parseCursorVariantId(previous).level;
+			if (
+				(suffix === level && previousSuffix !== level) ||
+				((suffix === level) === (previousSuffix === level) && id < previous)
+			) {
+				chosen.set(level, id);
+			}
+		}
+		for (const [level, id] of chosen) {
 			derived.set(id, { targetId: family.targetId, legacyVariantId: id, encoding: "legacy-variant", level });
 		}
 	}
@@ -223,14 +240,14 @@ export function normalizeCursorCatalog(rawEntries: readonly CursorCatalogRawEntr
 		const members = groups.get(key) as GroupMember[];
 		const first = members[0];
 		const baseParsed = parseCursorVariantId(first.alias.targetId);
-		const baseId = baseParsed.baseId;
+		const derivedGroup = members.every((member) => derived.has(member.raw.id));
+		const baseId = derivedGroup ? parseCursorVariantId(first.raw.id).baseId : baseParsed.baseId;
 		const capability = CURSOR_MODEL_CAPABILITIES[baseId];
 		const isGrouped = members.length > 1 || first.alias.targetId !== first.raw.id;
 		const efforts = members.filter((member) => member.level !== undefined && member.level !== "none");
 
 		if (isGrouped && efforts.length > 0 && !first.fast) {
 			const thinkingMode = isClaude(baseId) ? first.thinking === true : undefined;
-			const derivedGroup = members.every((member) => derived.has(member.raw.id));
 			out.push({
 				id: first.alias.targetId,
 				name: cleanName(members, baseId, thinkingMode),
