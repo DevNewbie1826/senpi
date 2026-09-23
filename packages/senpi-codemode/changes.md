@@ -1,5 +1,25 @@
 # senpi-codemode fork changes
 
+## 2026-09-23 - Readable preview for dense JS eval cells (#2050)
+
+### What changed
+
+- `packages/senpi-codemode/src/tool/display-code.ts` (new): `displayCode(code, language)` reformats a JS cell with a line longer than 100 characters. It parses with `@babel/parser` (top-level `await`/`return` allowed, as in the kernel) and turns the whitespace, comma, and comment regions between statements, inside non-empty blocks, and between the elements of a one-line array longer than 60 characters into indented line breaks. Every other character is copied verbatim. Parse failures, non-JS languages, and non-dense code return the input unchanged; results are memoized (64 entries).
+- `packages/senpi-codemode/src/tool/render.ts`: `highlightedCode` and the no-theme call frame preview `displayCode(...)` instead of the raw cell.
+- `packages/senpi-codemode/test/eval-display-code.test.ts`: the dense cell shape from the report, top-level `await`/`return`, comments, identity cases, and the rendered cell frame.
+
+### Why
+
+- Models often send a cell as one line of semicolon-joined statements, and the preview hard-wrapped it into an unreadable block. Reformatting only at display time keeps the tool arguments byte-identical (senpi#1472). Babel works under Node (the package's Node 24 target and Vitest) and Bun, and it keeps comments, which `Bun.Transpiler` would drop.
+
+### Why an extension could not handle it
+
+- The eval renderer belongs to this package.
+
+### Expected merge conflict zones
+
+- LOW: `packages/senpi-codemode/src/tool/render.ts` `highlightedCode` and the no-theme branch of `renderEvalCall`; `display-code.ts` is new.
+
 ## 2026-09-23 - Uncapped, purpose-framed eval summary (#2050)
 
 ### What changed

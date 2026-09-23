@@ -29,7 +29,9 @@ task-tool names are known.
   session-adjacent spill files for large streams.
 - TUI and HTML-export rendering for syntax-highlighted cells, status rows,
   task progress, structured display values, truncation warnings, and image
-  fallbacks.
+  fallbacks. A JavaScript cell sent as dense one-line code is previewed broken
+  at statement, block, and long-array boundaries; the cell itself runs exactly
+  as sent.
 - Runtime identity badges in eval headers — `eval py (3.14.7, ~/.venv/bin/python3)`,
   `eval js (node 26.7.0, /opt/…/bin/node)` — with the same `runtime` info on
   `EvalToolDetails` and its `cells` for RPC consumers; interpreter detection

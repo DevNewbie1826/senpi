@@ -10,6 +10,7 @@ import {
 	truncateToVisualLines,
 } from "@code-yeongyu/senpi";
 import { formatTruncationWarning, stripOutputNotice, type TruncationMeta } from "../output/output-meta.ts";
+import { displayCode } from "./display-code.ts";
 import { normalizeEvalSummary } from "./eval-request.ts";
 import {
 	JSON_TREE_MAX_DEPTH_COLLAPSED,
@@ -304,7 +305,7 @@ function languageForHighlighter(language: EvalLanguage): "python" | "javascript"
 
 function highlightedCode(code: string, language: EvalLanguage, theme: Theme | undefined): string {
 	const normalizedCode = code.trim().length > 0 ? code : "...";
-	const lines = highlightCode(normalizedCode, languageForHighlighter(language));
+	const lines = highlightCode(displayCode(normalizedCode, language), languageForHighlighter(language));
 	return (theme === undefined ? lines.map((line) => line.replace(/\u001b\[[0-9;]*m/gu, "")) : lines).join("\n");
 }
 
@@ -933,7 +934,11 @@ export function renderEvalCall(
 				: [summaryBlock(displaySummary(args.summary) ?? "", theme, context.expanded)]),
 			{
 				kind: "text",
-				text: style(theme, "mdCodeBlock", args.code.trim().length > 0 ? args.code : "..."),
+				text: style(
+					theme,
+					"mdCodeBlock",
+					args.code.trim().length > 0 ? displayCode(args.code, args.language) : "...",
+				),
 				maxVisualLines: context.expanded ? undefined : CODE_PREVIEW_LINES,
 				collapseKind: "code",
 				theme,
