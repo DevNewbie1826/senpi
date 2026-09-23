@@ -3,6 +3,10 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
+import {
+	recordCursorContextLimit,
+	resetCursorContextLimitStoreForTest,
+} from "@earendil-works/pi-ai/utils/cursor-context-limit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	parseCursorAgentModelsListing,
@@ -51,7 +55,7 @@ describe("cursor-cli-oauth derived variant identities (senpi#2038)", () => {
 		expect(cursorReasoning(fast)).toBeUndefined();
 	});
 
-	it("retains the observed wire ids through probe, cache reload, and rejects incomplete grouped cache metadata", async () => {
+	it("retains the observed wire ids through probe and cache reload, rebuilding grouped metadata from the listing", async () => {
 		const agentDir = await mkdtemp(join(tmpdir(), "cursor-derived-cache-"));
 		directories.push(agentDir);
 		const runProbe = vi.fn(async (_executable: string, stdoutPath: string) => {
@@ -86,8 +90,45 @@ describe("cursor-cli-oauth derived variant identities (senpi#2038)", () => {
 		if (!grouped) throw new Error("missing grouped cache entry");
 		delete grouped.compat?.cursorReasoning?.variantIds;
 		await writeFile(cachePath, JSON.stringify(contents), "utf8");
+		// The listing is the source of truth, so damaged projected metadata is rebuilt, not trusted.
+		const rebuilt = await resolveCursorCliModelCatalog(options);
+		expect(runProbe).toHaveBeenCalledTimes(1);
+		expect(rebuilt.find((entry) => entry.id === "grok-4.7")).toEqual(original);
+
+		// A pre-listing cache record cannot reconstruct variant ids, so it forces one fresh probe.
+		await writeFile(cachePath, JSON.stringify({ cachedAt: 1_000_000, models: contents.models }), "utf8");
 		const refreshed = await resolveCursorCliModelCatalog(options);
 		expect(runProbe).toHaveBeenCalledTimes(2);
 		expect(refreshed.find((entry) => entry.id === "grok-4.7")).toEqual(original);
+	});
+
+	it("keeps serving a fresh cache after a context-limit observation, even when a probe would fail", async () => {
+		resetCursorContextLimitStoreForTest();
+		const agentDir = await mkdtemp(join(tmpdir(), "cursor-derived-window-"));
+		directories.push(agentDir);
+		let probeFails = false;
+		const runProbe = vi.fn(async (_executable: string, stdoutPath: string) => {
+			if (probeFails) throw new Error("offline");
+			await writeFile(stdoutPath, listing, "utf8");
+		});
+		const options = {
+			agentDir,
+			deps: { now: () => 1_000_000, resolveExecutable: () => "cursor-agent", runProbe },
+		};
+		try {
+			const first = await resolveCursorCliModelCatalog(options);
+			expect(first.find((model) => model.id === "grok-4.7")?.contextWindow).toBe(200_000);
+			recordCursorContextLimit("grok-4.7", 500_000);
+			probeFails = true;
+
+			const afterObservation = await resolveCursorCliModelCatalog(options);
+
+			expect(runProbe).toHaveBeenCalledTimes(1);
+			const grok = afterObservation.find((model) => model.id === "grok-4.7");
+			expect(grok?.contextWindow).toBe(500_000);
+			expect(cursorReasoning(grok)?.variantIds?.xhigh).toBe("grok-4.7-xhigh");
+		} finally {
+			resetCursorContextLimitStoreForTest();
+		}
 	});
 });

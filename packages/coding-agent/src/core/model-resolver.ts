@@ -196,21 +196,41 @@ function derivedCursorVariantIds(model: Model<Api>): Readonly<Partial<Record<Mod
 	return (model as Model<"cursor-agent">).compat?.cursorReasoning?.variantIds;
 }
 
-/** Reverse lookup through variant ids a runtime-derived Cursor group observed (senpi#2038). */
-function derivedCursorVariantLevel(model: Model<Api>, variantId: string): ModelThinkingLevel | undefined {
+interface DerivedCursorVariantMatch {
+	readonly level: ModelThinkingLevel;
+	/** The catalog's own spelling; the selection descriptor allowlists exact ids only. */
+	readonly variantId: string;
+}
+
+/**
+ * Reverse lookup through variant ids a runtime-derived Cursor group observed (senpi#2038).
+ * Case-insensitive like `findExactModelReferenceMatch`, which resolved these ids before grouping.
+ */
+function derivedCursorVariantMatch(model: Model<Api>, reference: string): DerivedCursorVariantMatch | undefined {
 	const variantIds = derivedCursorVariantIds(model);
 	if (variantIds === undefined) return undefined;
+	const normalized = reference.toLowerCase();
 	for (const [level, id] of Object.entries(variantIds)) {
-		if (id === variantId) return level as ModelThinkingLevel;
+		if (id?.toLowerCase() === normalized) return { level: level as ModelThinkingLevel, variantId: id };
 	}
 	return undefined;
+}
+
+function derivedResolution(model: Model<Api>, match: DerivedCursorVariantMatch): ResolvedModelReference {
+	return {
+		model,
+		thinkingLevel: match.level,
+		thinkingSelection: { level: match.level, source: "legacy-variant", legacyVariantId: match.variantId },
+	};
 }
 
 function cursorLegacySelection(model: Model<Api>, variantId: string): ThinkingSelection | undefined {
 	const alias = legacySelection(variantId);
 	if (alias) return alias;
-	const level = derivedCursorVariantLevel(model, variantId);
-	return level === undefined ? undefined : { level, source: "legacy-variant", legacyVariantId: variantId };
+	const match = derivedCursorVariantMatch(model, variantId);
+	return match === undefined
+		? undefined
+		: { level: match.level, source: "legacy-variant", legacyVariantId: match.variantId };
 }
 
 function resolveLegacyCursorReference(
@@ -240,17 +260,12 @@ function resolveLegacyCursorReference(
 	const exactCandidates = explicitProvider ? availableModels.filter(providerMatches) : availableModels;
 	if (findExactModelReferenceMatch(trimmed, [...exactCandidates])) return undefined;
 	// Variant ids only the runtime derivation groups resolve through the observed ids (senpi#2038).
-	const derivedCandidates = availableModels.filter(
-		(model) => providerMatches(model) && derivedCursorVariantLevel(model, legacyVariantId) !== undefined,
-	);
+	const derivedCandidates = availableModels.flatMap((model) => {
+		const match = providerMatches(model) ? derivedCursorVariantMatch(model, legacyVariantId) : undefined;
+		return match === undefined ? [] : [{ model, match }];
+	});
 	if (derivedCandidates.length !== 1) return undefined;
-	const derivedLevel = derivedCursorVariantLevel(derivedCandidates[0], legacyVariantId);
-	if (derivedLevel === undefined) return undefined;
-	return {
-		model: derivedCandidates[0],
-		thinkingLevel: derivedLevel,
-		thinkingSelection: { level: derivedLevel, source: "legacy-variant", legacyVariantId },
-	};
+	return derivedResolution(derivedCandidates[0].model, derivedCandidates[0].match);
 }
 
 function cursorLegacyAliasesForModel(model: Model<Api>): string[] {
@@ -280,13 +295,9 @@ function resolveDerivedCursorVariant(
 	if (parsed.fast || parsed.level === undefined || parsed.baseId === "") return undefined;
 	const targetId = parsed.thinking === true ? `${parsed.baseId}-thinking` : parsed.baseId;
 	const model = modelSource.getModel(provider, targetId);
-	const level = model === undefined ? undefined : derivedCursorVariantLevel(model, modelId);
-	if (model === undefined || level === undefined) return undefined;
-	return {
-		model,
-		thinkingLevel: level,
-		thinkingSelection: { level, source: "legacy-variant", legacyVariantId: modelId },
-	};
+	const match = model === undefined ? undefined : derivedCursorVariantMatch(model, modelId);
+	if (model === undefined || match === undefined) return undefined;
+	return derivedResolution(model, match);
 }
 
 export function resolveStoredModelReference(

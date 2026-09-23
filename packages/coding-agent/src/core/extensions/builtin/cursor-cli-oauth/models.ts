@@ -180,11 +180,12 @@ function parseCachedCatalog(contents: string): CachedModelCatalog | undefined {
 	)
 		return undefined;
 
-	// A grouped id alone cannot reconstruct its observed variants. Re-derive from the
-	// listing and reject incomplete/stale cache records rather than inventing a wire id.
-	const expected = parseCursorAgentModelsListing(listing);
-	if (expected.length === 0 || JSON.stringify(expected) !== JSON.stringify(models)) return undefined;
-	return { cachedAt, listing, models: expected };
+	// The listing is the source of truth: a grouped id alone cannot reconstruct its observed
+	// variants, and the stored `models` projection carries mutable state (observed context
+	// windows) that must not invalidate an otherwise fresh cache. Rebuild from the listing.
+	const rebuilt = parseCursorAgentModelsListing(listing);
+	if (rebuilt.length === 0) return undefined;
+	return { cachedAt, listing, models: rebuilt };
 }
 
 async function readFreshCache(
