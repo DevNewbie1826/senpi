@@ -1,3 +1,4 @@
+import { noticeEntryRenderer } from "../../notice/index.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "../../types.ts";
 import { handleMcpAuthCommand } from "./auth/commands-auth-dispatch.ts";
 import { addGlobalMcpServer, setGlobalMcpServerEnabled } from "./config-edit.ts";
@@ -27,6 +28,12 @@ export function registerMcpCommands(
 	service = getMcpService(),
 	pendingAttach: () => Promise<void> | undefined = () => undefined,
 ): void {
+	pi.registerEntryRenderer(
+		"mcp-auth",
+		noticeEntryRenderer<string>((entry) =>
+			typeof entry.data === "string" ? { title: "MCP authorization", why: entry.data } : undefined,
+		),
+	);
 	pi.registerCommand("mcp", {
 		description: "Inspect and manage MCP servers.",
 		getArgumentCompletions: (prefix) =>
