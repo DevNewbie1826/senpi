@@ -101,11 +101,11 @@ describe("rules dynamic cross-target dedup", () => {
 		return runner;
 	};
 
-	const readResult = (runner: ExtensionRunner, path: string) =>
+	const readResult = (runner: ExtensionRunner, path: string, toolCallId = `call-${randomUUID()}`) =>
 		runner.emitToolResult({
 			type: "tool_result",
 			toolName: "read",
-			toolCallId: `call-${randomUUID()}`,
+			toolCallId,
 			input: { path },
 			content: [{ type: "text", text: "<file contents>" }],
 			details: undefined,
@@ -151,6 +151,19 @@ describe("rules dynamic cross-target dedup", () => {
 		expect(textOf((await readResult(runner, firstTarget))?.content)).toContain(ruleToken);
 		expect(textOf((await readResult(runner, secondTarget))?.content)).not.toContain(ruleToken);
 		expect(activationCount()).toBe(1);
+	});
+
+	// senpi#2057: the notice names the read it was injected into, so the TUI can fold it into that read's group.
+	it("records the triggering tool call id on the project-rules activation", async () => {
+		const runner = await createRunner();
+
+		await readResult(runner, firstTarget, "call-read-first");
+
+		expect(appendedEntries.filter((entry) => entry.customType === "rule-activation")).toEqual([
+			expect.objectContaining({
+				data: expect.objectContaining({ kind: "project-rules", toolCallId: "call-read-first" }),
+			}),
+		]);
 	});
 
 	it("keeps suppression after rejected compaction and resets it after accepted compaction", async () => {
