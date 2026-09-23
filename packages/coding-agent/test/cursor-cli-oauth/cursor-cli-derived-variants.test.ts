@@ -1,7 +1,7 @@
 // senpi#2038
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import {
 	recordCursorContextLimit,
@@ -100,6 +100,33 @@ describe("cursor-cli-oauth derived variant identities (senpi#2038)", () => {
 		const refreshed = await resolveCursorCliModelCatalog(options);
 		expect(runProbe).toHaveBeenCalledTimes(2);
 		expect(refreshed.find((entry) => entry.id === "grok-4.7")).toEqual(original);
+	});
+
+	it("falls back to a pre-listing cache record, not the static catalog, when its forced re-probe fails", async () => {
+		const agentDir = await mkdtemp(join(tmpdir(), "cursor-derived-legacy-"));
+		directories.push(agentDir);
+		const cachePath = join(agentDir, "cursor-cli-oauth", "models.json");
+		const legacyModels = listing
+			.split("\n")
+			.filter((line) => line.length > 0)
+			.map((line) => {
+				const [id, name] = line.split(" - ");
+				return { id, name };
+			});
+		await mkdir(dirname(cachePath), { recursive: true });
+		await writeFile(cachePath, JSON.stringify({ cachedAt: 1_000_000, models: legacyModels }), "utf8");
+		const runProbe = vi.fn(async () => {
+			throw new Error("offline");
+		});
+
+		const catalog = await resolveCursorCliModelCatalog({
+			agentDir,
+			deps: { now: () => 1_000_000, resolveExecutable: () => "cursor-agent", runProbe },
+		});
+
+		expect(runProbe).toHaveBeenCalledTimes(1);
+		expect(catalog.map((model) => model.id)).toEqual(parseCursorAgentModelsListing(listing).map((model) => model.id));
+		expect(cursorReasoning(catalog.find((model) => model.id === "grok-4.7"))?.variantIds?.low).toBe("grok-4.7-low");
 	});
 
 	it("keeps serving a fresh cache after a context-limit observation, even when a probe would fail", async () => {
