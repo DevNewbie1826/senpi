@@ -1,5 +1,23 @@
 # Local fork changes
 
+## 2026-09-23 - claude-agent-sdk 0.3.280 (senpi#2033)
+
+### What changed
+
+- `packages/coding-agent/package.json`: `@anthropic-ai/claude-agent-sdk` 0.3.278 -> 0.3.280 (Claude Code 2.1.278 -> 2.1.280). `bun.lock`, `package-lock.json`, `install-lock/package-lock.json` and `publish-deps.lock.json` are regenerated with `bun run refresh-lock`, and the eight platform packages are relocked with `scripts/generate-claude-agent-sdk-platform-lock.mjs` (npm's lock-only pass dropped them).
+
+### Why
+
+- Claude Opus 5.5 needs Claude Code 2.1.280 or newer, and the bundled binary is what `claude-sdk-oauth` spawns unless a newer `claude` is on PATH.
+
+### Why an extension could not handle it
+
+- The published tarball's dependency closure is resolved by the package manager and the publish pipeline, never by the runtime extension system.
+
+### Expected merge conflict zones
+
+- The `@anthropic-ai/claude-agent-sdk` pin in `packages/coding-agent/package.json` and the lockfiles.
+
 ## 2026-09-22 - Grok 4.7 preset + xAI default (#1990)
 
 ### What changed
