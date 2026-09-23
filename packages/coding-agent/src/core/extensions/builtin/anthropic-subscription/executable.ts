@@ -21,9 +21,15 @@ export type ExecutableDeps = {
 	versionOf?: (executable: string) => string | undefined;
 };
 
+/** Where the spawned Claude Code came from; decides which remedy a version-floor error can offer. */
+export type ClaudeCodeExecutableSource = "override" | "bundled" | "path";
+
+export type ClaudeCodeRun = { executable: string; source: ClaudeCodeExecutableSource };
+
 export type ExecutableResolution = {
 	/** The spawnable spelling, or `undefined` when every candidate was rejected. */
 	executable: string | undefined;
+	source: ClaudeCodeExecutableSource | undefined;
 	/** Every spelling checked, in order; the last entry is the winner when `executable` is set. */
 	tried: string[];
 };
@@ -63,12 +69,16 @@ export function describeClaudeCodeExecutable(deps: ExecutableDeps): ExecutableRe
 		tried.push(spelled);
 		return deps.isFile(spelled) ? spelled : undefined;
 	};
-	const done = (executable: string): ExecutableResolution => ({ executable, tried });
+	const done = (executable: string, source: ClaudeCodeExecutableSource): ExecutableResolution => ({
+		executable,
+		source,
+		tried,
+	});
 
 	const override = deps.env("CLAUDE_CODE_EXECUTABLE");
 	if (override) {
 		const accepted = accept(override);
-		if (accepted !== undefined) return done(accepted);
+		if (accepted !== undefined) return done(accepted, "override");
 	}
 
 	const candidates = claudeCodeExecutableCandidates(
@@ -80,20 +90,20 @@ export function describeClaudeCodeExecutable(deps: ExecutableDeps): ExecutableRe
 	const bundled = acceptBundled(deps, candidates, accept, tried);
 	if (bundled !== undefined) {
 		const newer = newerClaudeOnPath(deps, bundled);
-		if (newer === undefined) return done(bundled);
+		if (newer === undefined) return done(bundled, "bundled");
 		tried.push(newer);
-		return done(newer);
+		return done(newer, "path");
 	}
 
 	const onPath = findExecutableOnPath("claude", deps);
 	if (onPath !== undefined) {
 		const accepted = accept(onPath);
-		if (accepted !== undefined) return done(accepted);
+		if (accepted !== undefined) return done(accepted, "path");
 	} else {
 		tried.push(deps.env("PATH") ? "claude on PATH" : "claude on PATH (PATH is unset)");
 	}
 
-	return { executable: undefined, tried };
+	return { executable: undefined, source: undefined, tried };
 }
 
 function acceptBundled(
@@ -145,8 +155,15 @@ function newerClaudeOnPath(deps: ExecutableDeps, bundled: string): string | unde
 
 /** The validated executable, or senpi's own error naming every candidate - the SDK never sees a miss. */
 export function resolveClaudeCodeExecutable(deps: ExecutableDeps): string {
+	return resolveClaudeCodeRun(deps).executable;
+}
+
+/** {@link resolveClaudeCodeExecutable} plus where the binary came from. */
+export function resolveClaudeCodeRun(deps: ExecutableDeps): ClaudeCodeRun {
 	const resolution = describeClaudeCodeExecutable(deps);
-	if (resolution.executable !== undefined) return resolution.executable;
+	if (resolution.executable !== undefined && resolution.source !== undefined) {
+		return { executable: resolution.executable, source: resolution.source };
+	}
 	throw new Error(
 		[
 			`Claude Code executable not found for ${deps.platform}-${deps.arch}. Tried:`,
