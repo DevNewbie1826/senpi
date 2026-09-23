@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { posix, win32 } from "node:path";
 import { extractFromBunfs } from "@anthropic-ai/claude-agent-sdk/extract";
@@ -12,6 +12,8 @@ export type ExecutableDeps = {
 	resolve: (spec: string) => string;
 	/** True when `path` names an existing regular file in THIS process - what the SDK's spawn will see. */
 	isFile: (path: string) => boolean;
+	/** Text of a win32 batch file found on PATH, so an npm `claude.cmd` shim resolves to its native binary. */
+	readText?: (path: string) => string | undefined;
 	isMusl?: () => boolean;
 	isCompiledBun?: () => boolean;
 	extractFromBunfs?: (embeddedPath: string) => string;
@@ -95,7 +97,10 @@ export function describeClaudeCodeExecutable(deps: ExecutableDeps): ExecutableRe
 		return done(newer, "path");
 	}
 
-	const onPath = findExecutableOnPath("claude", deps);
+	const onPath = findExecutableOnPath("claude", {
+		...deps,
+		onSkip: (batchFile) => tried.push(`${batchFile} (batch file wrapping no native binary)`),
+	});
 	if (onPath !== undefined) {
 		const accepted = accept(onPath);
 		if (accepted !== undefined) return done(accepted, "path");
@@ -188,6 +193,14 @@ function isMuslLinuxRuntime(): boolean {
 	return !("glibcVersionRuntime" in report.header) || report.header.glibcVersionRuntime === undefined;
 }
 
+function readBatchFileText(path: string): string | undefined {
+	try {
+		return readFileSync(path, "utf8");
+	} catch {
+		return undefined; // unreadable: the batch file is skipped like any other non-native candidate
+	}
+}
+
 function isRegularFile(path: string): boolean {
 	try {
 		return statSync(path).isFile();
@@ -201,6 +214,7 @@ const defaultDeps: ExecutableDeps = {
 	arch: process.arch,
 	env: (name) => process.env[name],
 	isFile: isRegularFile,
+	readText: readBatchFileText,
 	isMusl: isMuslLinuxRuntime,
 	isCompiledBun: () => isCompiledBunBinary,
 	extractFromBunfs,
