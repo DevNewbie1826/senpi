@@ -207,13 +207,13 @@ same name/spec/mode; no worker state is reconstructed in the prelude.
 
 ## Required summary
 
-Every `eval` run call MUST include a `summary` — one line in the user's
-conversational language stating what the cell does and for what purpose (e.g.
-a Korean conversation produces a Korean summary such as "src 전체에서
-legacyClient 사용처 집계"). The summary is shown in the TUI while the cell
-runs and in the finished result, so you can always tell what is running and
-why. Values longer than 80 characters are force-truncated. A run request
-without a `summary` fails with a teaching error.
+Every `eval` run call MUST include a `summary` — one line in the language the
+user writes in: a progress update saying what the agent is doing and why, not
+a label for the code. The
+summary is shown in the TUI while the cell runs and in the finished result, so
+you can always tell what is running and why. It has no length limit; a
+collapsed block shows its first three lines. A run request without a
+`summary` fails with a teaching error.
 
 ## Detached cells
 

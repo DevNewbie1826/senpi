@@ -1,5 +1,27 @@
 # senpi-codemode fork changes
 
+## 2026-09-23 - Uncapped, purpose-framed eval summary (#2050)
+
+### What changed
+
+- `packages/senpi-codemode/src/tool/types.ts`: the `summary` field loses `maxLength` and `EVAL_SUMMARY_MAX_LENGTH`; its description drops the language-specific example and the truncation claim and asks for one line, in the language the user writes in, that is a progress update saying what the agent is doing and why rather than a label for the code. A literal English template ("Working on <task> to <purpose>") was tried and rejected: a real model copied the English words into a Korean summary.
+- `packages/senpi-codemode/src/tool/eval-request.ts`: `clampEvalSummary` becomes `normalizeEvalSummary` (trim, whitespace collapse, blank -> absent; no truncation). The teaching error uses the same framing. `eval-tool.ts` `prepareArguments` and the render-time `displaySummary` call it.
+- `packages/senpi-codemode/src/tool/render.ts`: `summaryVisualLines`/`summaryBlock` show the first `SUMMARY_PREVIEW_LINES` (3) wrapped lines of a collapsed summary with a trailing ellipsis and the whole summary when expanded, in the cell frame, the no-theme call frame, and the plain result frame.
+- Tests: `packages/senpi-codemode/test/eval-request-summary.test.ts` and `packages/senpi-codemode/test/eval-render-summary.test.ts` (renamed from `eval-render-summary-clamp.test.ts`) pin the uncapped contract and the display bound; the coding-agent #1472 regressions exercise whitespace normalization, the preparation difference that remains.
+
+### Why
+
+- "WHAT this cell does" produced labels for the code block rather than a statement of the work in progress and its purpose, and the 80-character cap cut the purpose clause. The language-specific example is redundant with "the language the user writes in".
+- The display bound keeps the src/tool rule that rendered output is capped, without capping what the model may write.
+
+### Why an extension could not handle it
+
+- The schema, request parser, and renderer are this package's own eval tool.
+
+### Expected merge conflict zones
+
+- LOW: `packages/senpi-codemode/src/tool/types.ts` summary field, `packages/senpi-codemode/src/tool/eval-request.ts` summary normalization, `packages/senpi-codemode/src/tool/render.ts` summary rendering.
+
 ## 2026-09-23 - Bound interpreter test concurrency in CI (#2039)
 
 ### What changed

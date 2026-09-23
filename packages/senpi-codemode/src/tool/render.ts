@@ -10,7 +10,7 @@ import {
 	truncateToVisualLines,
 } from "@code-yeongyu/senpi";
 import { formatTruncationWarning, stripOutputNotice, type TruncationMeta } from "../output/output-meta.ts";
-import { clampEvalSummary } from "./eval-request.ts";
+import { normalizeEvalSummary } from "./eval-request.ts";
 import {
 	JSON_TREE_MAX_DEPTH_COLLAPSED,
 	JSON_TREE_MAX_DEPTH_EXPANDED,
@@ -65,6 +65,7 @@ type RenderBlock =
 	| { readonly kind: "dynamic"; readonly render: (width: number) => readonly string[] };
 
 const CODE_PREVIEW_LINES = 4;
+const SUMMARY_PREVIEW_LINES = 3;
 const OUTPUT_PREVIEW_LINES = 8;
 const STATUS_PREVIEW_COUNT = 3;
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
@@ -181,6 +182,22 @@ function appendLines(target: string[], source: readonly string[]): void {
 
 function renderAllVisualLines(text: string, width: number): string[] {
 	return truncateToVisualLines(text, Number.POSITIVE_INFINITY, width).visualLines.map((line) => line.trimEnd());
+}
+
+// A summary has no length limit, so a collapsed block shows its first lines and marks the cut.
+function summaryVisualLines(summary: string, width: number, expanded: boolean): string[] {
+	const lines = renderAllVisualLines(summary, width);
+	if (expanded || lines.length <= SUMMARY_PREVIEW_LINES) return lines;
+	const kept = renderAllVisualLines(summary, Math.max(1, width - 1)).slice(0, SUMMARY_PREVIEW_LINES);
+	kept[SUMMARY_PREVIEW_LINES - 1] = `${kept[SUMMARY_PREVIEW_LINES - 1] ?? ""}\u2026`;
+	return kept;
+}
+
+function summaryBlock(summary: string, theme: Theme | undefined, expanded: boolean): RenderBlock {
+	return {
+		kind: "dynamic",
+		render: (width) => summaryVisualLines(summary, width, expanded).map((line) => style(theme, "muted", line)),
+	};
 }
 
 function renderTextBlock(block: Extract<RenderBlock, { kind: "text" }>, width: number): string[] {
@@ -619,11 +636,9 @@ function renderCell(cell: EvalCellResult, environment: RenderEnvironment, badges
 	if (cell.summary !== undefined) {
 		appendLines(
 			lines,
-			renderPrefixed(style(environment.theme, "muted", cell.summary), environment, {
-				prefix: "│ ",
-				continuation: "│ ",
-				color: "muted",
-			}),
+			summaryVisualLines(cell.summary, Math.max(1, environment.width - 2), environment.expanded).map(
+				(line) => `${style(environment.theme, "muted", "│ ")}${style(environment.theme, "muted", line)}`,
+			),
 		);
 	}
 	const innerWidth = Math.max(1, environment.width - 2);
@@ -884,11 +899,11 @@ function resultMetadata(
 	return [{ kind: "text", text: style(theme, "muted", metadata.join(" | ")) }];
 }
 
-// The call renderer reads the assistant message's raw arguments, which now keep the provider's
-// original summary (senpi#1472 detached preparation from the message). The advertised display
-// limit is enforced here instead, idempotently: an already-clamped value is returned unchanged.
+// The call renderer reads the assistant message's raw arguments, which keep the provider's
+// original summary (senpi#1472 detached preparation from the message), so it normalizes here,
+// idempotently: an already-normalized value is returned unchanged.
 function displaySummary(summary: string | undefined): string | undefined {
-	return clampEvalSummary(summary);
+	return normalizeEvalSummary(summary);
 }
 
 export function renderEvalCall(
@@ -915,7 +930,7 @@ export function renderEvalCall(
 			{ kind: "text", text: style(theme, "toolTitle", `eval ${args.language}${reset}${timeout}`) },
 			...(displaySummary(args.summary) === undefined
 				? []
-				: [{ kind: "text" as const, text: style(theme, "muted", displaySummary(args.summary) ?? "") }]),
+				: [summaryBlock(displaySummary(args.summary) ?? "", theme, context.expanded)]),
 			{
 				kind: "text",
 				text: style(theme, "mdCodeBlock", args.code.trim().length > 0 ? args.code : "..."),
@@ -1006,9 +1021,7 @@ export function renderEvalResult(
 	const status = resultStatus(details, options, context.isError);
 	const blocks: RenderBlock[] = [
 		{ kind: "text", text: resultHeader(details, status, theme) },
-		...(details?.summary === undefined
-			? []
-			: [{ kind: "text" as const, text: style(theme, "muted", details.summary) }]),
+		...(details?.summary === undefined ? [] : [summaryBlock(details.summary, theme, expanded)]),
 		...resultMetadata(details, options, theme, status),
 		{ kind: "blank" },
 	];
