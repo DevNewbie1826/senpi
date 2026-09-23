@@ -28,7 +28,7 @@ export interface ReadRenderState {
 	classifications?: Map<string | null, CompactReadClassification | undefined>;
 }
 const COMPACT_RESOURCE_FILE_NAMES = new Set(["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
-type ReadRenderArgs = { path?: string; file_path?: string; offset?: number; limit?: number };
+export type ReadRenderArgs = { path?: string; file_path?: string; offset?: number; limit?: number };
 function formatReadLineRange(args: ReadRenderArgs | undefined, theme: Theme): string {
 	if (args?.offset === undefined && args?.limit === undefined) return "";
 	const startLine = args.offset ?? 1;
@@ -67,7 +67,8 @@ function getPiDocsClassification(absolutePath: string): CompactReadClassificatio
 	}
 	return undefined;
 }
-function getCompactReadClassification(
+/** The compact headline a collapsed read card shows for these args, or undefined for a plain file read. */
+export function getCompactReadClassification(
 	args: ReadRenderArgs | undefined,
 	cwd: string,
 ): CompactReadClassification | undefined {

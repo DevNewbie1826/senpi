@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Loading a skill or recalling a memory no longer disappears into the `Explored` cell as `Read SKILL.md`. Those reads keep their own `[skill] <name>` and `✦ Recalled <label>` cards, so loading two skills shows both names, and the reads around them form separate cells. Ordinary, docs, and `AGENTS.md` reads still group as before. ([#2060](https://github.com/code-yeongyu/senpi/issues/2060))
+
 ### Removed
 
 ## [2026.9.23-3] - 2026-09-23
