@@ -1,3 +1,22 @@
+## 2026-09-23 - Replace the previous custom-entry card in place when its renderer asks (senpi#2051)
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`: `addCustomEntryToChat` asks `getEntryRendererOptions` for the entry type and, when `replacedEntryCardIndex` reports a match, swaps the previous card instead of appending. The streaming insertion point is unchanged. Live `entry_appended` and `renderSessionItems` replay share the path.
+- `packages/coding-agent/src/modes/interactive/components/custom-entry.ts`: `CustomEntryComponent.customEntry` getter and the exported `replacedEntryCardIndex(children, insertIndex, entry, options)` helper (only the child directly before the insertion point, same custom type, `replaces` accepts the pair).
+
+### Why
+
+- One Goal wait rendered as a stack of cache-warm cards (scheduled, reload re-arm, wake). The goal extension now opts into in-place replacement through the `replaces` renderer option.
+
+### Why an extension could not handle it
+
+- The transcript container and its insertion logic belong to interactive mode.
+
+### Expected merge conflict zones
+
+- `addCustomEntryToChat` in `interactive-mode.ts` (the streaming splice block) and the bottom of `custom-entry.ts`.
+
 ## 2026-09-23 — Wire visible-stderr observation into the interactive TUI (senpi#1879)
 
 ### What changed
