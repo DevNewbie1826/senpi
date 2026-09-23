@@ -4,11 +4,11 @@
 
 ### What changed
 
-- `packages/coding-agent/src/core/extensions/builtin/cursor-cli-oauth/models.ts`: `normalizeEntries` copies `entry.variantIds` into `compat.cursorReasoning.variantIds` when `normalizeCursorCatalog` derived a group from ids the static alias table does not list, mirroring `packages/ai/src/providers/cursor.ts` `fetchCursorModels`. Static-table entries keep byte-identical output (the field spreads in only when present); `-fast` variants stay flat. Test: `packages/coding-agent/test/cursor-cli-oauth/cursor-cli-derived-variants.test.ts`.
+- `packages/coding-agent/src/core/extensions/builtin/cursor-cli-oauth/models.ts`: `normalizeEntries` copies `entry.variantIds` into `compat.cursorReasoning.variantIds` when `normalizeCursorCatalog` derived a group from ids the static alias table does not list, mirroring `packages/ai/src/providers/cursor.ts` `fetchCursorModels`. Static-table entries keep byte-identical output (the field spreads in only when present); `-fast` variants stay flat. The cache now retains the original CLI listing, validates saved entries against a fresh normalization of that listing, and re-probes old or incomplete cache records instead of flattening grouped ids. Test: `packages/coding-agent/test/cursor-cli-oauth/cursor-cli-derived-variants.test.ts` exercises probe, cache reload, exact wire selection, and invalidation.
 
 ### Why
 
-- A live `cursor-agent models` listing now contains level families (grok-4.7-low..-xhigh) the static tables cannot know. Without the copy, this lane grouped them but dropped the level-to-variant-id map, so the core resolver could not map legacy references and every explicit level fell back to the representative variant.
+- A live `cursor-agent models` listing now contains level families (grok-4.7-low..-xhigh) the static tables cannot know. Without the copy, this lane grouped them but dropped the level-to-variant-id map, so the core resolver could not map legacy references and every explicit level fell back to the representative variant. Previously cache reload normalized grouped ids as raw ids, erasing the metadata and sending a nonexistent base wire id; a grouped cache row cannot reconstruct its members without the listing.
 
 ### Why an extension could not handle it
 
@@ -16,7 +16,7 @@
 
 ### Expected merge conflict zones
 
-- LOW: the `cursorReasoning` object literal inside `normalizeEntries` in `packages/coding-agent/src/core/extensions/builtin/cursor-cli-oauth/models.ts`.
+- `packages/coding-agent/src/core/extensions/builtin/cursor-cli-oauth/models.ts`: the `cursorReasoning` object literal inside `normalizeEntries`, `CachedModelCatalog`, `parseCachedCatalog`, and the probe-to-cache write path.
 
 ## 2026-09-15 - Startup `cursor-agent models` probe: lane-gated, account HOME, explicit env (senpi#1722)
 

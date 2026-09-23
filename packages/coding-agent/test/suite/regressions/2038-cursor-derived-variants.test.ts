@@ -66,6 +66,11 @@ function fixtureCursorModels(): Model<"cursor-agent">[] {
 
 describe("senpi#2038: derived Cursor variant groups resolve in the model resolver", () => {
 	const cursorModels = fixtureCursorModels();
+	const cliModels: Model<Api>[] = cursorModels.map((model) => ({
+		...model,
+		api: "cursor-cli-oauth" as const,
+		provider: "cursor-cli-oauth",
+	}));
 	const models: Model<Api>[] = [...cursorModels];
 
 	test("the fixture maps to a derived grok-4.7 identity carrying variant ids", () => {
@@ -90,6 +95,52 @@ describe("senpi#2038: derived Cursor variant groups resolve in the model resolve
 			source: "legacy-variant",
 			legacyVariantId: "grok-4.7-xhigh",
 		});
+	});
+
+	test("the registered CLI lane resolves a legacy variant, stored reference, and glob projection", () => {
+		const resolved = parseModelPattern("cursor-cli-oauth/grok-4.7-xhigh", cliModels);
+		expect(resolved.model?.id).toBe("grok-4.7");
+		expect(resolved.thinkingSelection).toEqual({
+			level: "xhigh",
+			source: "legacy-variant",
+			legacyVariantId: "grok-4.7-xhigh",
+		});
+		const stored = resolveStoredModelReference("cursor-cli-oauth", "grok-4.7-xhigh", {
+			getModel: (provider, id) => cliModels.find((model) => model.provider === provider && model.id === id),
+		});
+		expect(stored?.model.id).toBe("grok-4.7");
+		expect(stored?.thinkingSelection).toEqual(resolved.thinkingSelection);
+		const { scopedModels, diagnostics } = resolveModelScopeFromModels(
+			["cursor-cli-oauth/grok-4.7-xhigh*"],
+			cliModels,
+		);
+		expect(diagnostics).toEqual([]);
+		expect(scopedModels.map((entry) => entry.model.id)).toEqual(["grok-4.7", "grok-4.7-xhigh-fast"]);
+	});
+
+	test("a unique exact raw model wins over derived reverse lookup for both Cursor lanes", () => {
+		for (const [provider, catalog] of [
+			["cursor", models],
+			["cursor-cli-oauth", cliModels],
+		] as const) {
+			const exact = { ...catalog[0], id: "grok-4.7-xhigh", provider };
+			const available = [...catalog, exact];
+			expect(parseModelPattern(`${provider}/grok-4.7-xhigh`, available).model).toBe(exact);
+			expect(parseModelPattern(`${provider}/grok-4.7-xhigh`, available).thinkingSelection).toBeUndefined();
+			expect(
+				resolveStoredModelReference(provider, exact.id, {
+					getModel: (candidateProvider, id) =>
+						available.find((model) => model.provider === candidateProvider && model.id === id),
+				})?.model,
+			).toBe(exact);
+		}
+	});
+
+	test("an unqualified exact id on another provider wins over derived Cursor lookup", () => {
+		const exact = { ...cursorModels[0], provider: "other", id: "grok-4.7-xhigh" };
+		const resolved = parseModelPattern(exact.id, [...models, exact]);
+		expect(resolved.model).toBe(exact);
+		expect(resolved.thinkingSelection).toBeUndefined();
 	});
 
 	test("cursor/grok-4.7:xhigh resolves to grok-4.7 with an explicit xhigh selection", () => {

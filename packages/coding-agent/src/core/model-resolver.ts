@@ -187,7 +187,12 @@ function legacySelection(legacyVariantId: string): ThinkingSelection | undefined
 }
 
 function derivedCursorVariantIds(model: Model<Api>): Readonly<Partial<Record<ModelThinkingLevel, string>>> | undefined {
-	if (model.api !== "cursor-agent") return undefined;
+	if (
+		(model.provider !== "cursor" || model.api !== "cursor-agent") &&
+		(model.provider !== "cursor-cli-oauth" || model.api !== "cursor-cli-oauth")
+	)
+		return undefined;
+	// The CLI provider registers its own API id but shares Cursor's catalog compat schema.
 	return (model as Model<"cursor-agent">).compat?.cursorReasoning?.variantIds;
 }
 
@@ -231,6 +236,9 @@ function resolveLegacyCursorReference(
 			thinkingSelection,
 		};
 	}
+	// Unlike static aliases, derived aliases must not displace an exact raw model.
+	const exactCandidates = explicitProvider ? availableModels.filter(providerMatches) : availableModels;
+	if (findExactModelReferenceMatch(trimmed, [...exactCandidates])) return undefined;
 	// Variant ids only the runtime derivation groups resolve through the observed ids (senpi#2038).
 	const derivedCandidates = availableModels.filter(
 		(model) => providerMatches(model) && derivedCursorVariantLevel(model, legacyVariantId) !== undefined,
@@ -295,6 +303,8 @@ export function resolveStoredModelReference(
 				return { model, thinkingLevel: thinkingSelection?.level, thinkingSelection };
 			}
 		} else {
+			const direct = modelSource.getModel(provider, modelId);
+			if (direct) return { model: direct };
 			const derived = resolveDerivedCursorVariant(provider, modelId, modelSource);
 			if (derived) return derived;
 		}

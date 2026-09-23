@@ -41,6 +41,7 @@ export type ResolveCursorCliModelCatalogOptions = {
 
 type CachedModelCatalog = {
 	readonly cachedAt: number;
+	readonly listing: string;
 	readonly models: readonly ProviderModelConfig[];
 };
 
@@ -168,32 +169,22 @@ function parseCachedCatalog(contents: string): CachedModelCatalog | undefined {
 		return undefined;
 	}
 	const cachedAt = parsed.cachedAt;
+	const listing = "listing" in parsed ? parsed.listing : undefined;
 	const models = parsed.models;
-	if (typeof cachedAt !== "number" || !Number.isFinite(cachedAt) || !Array.isArray(models) || models.length === 0) {
+	if (
+		typeof cachedAt !== "number" ||
+		!Number.isFinite(cachedAt) ||
+		typeof listing !== "string" ||
+		!Array.isArray(models) ||
+		models.length === 0
+	)
 		return undefined;
-	}
 
-	const rawCached: { id: string; label: string }[] = [];
-	const seen = new Set<string>();
-	for (const candidate of models) {
-		if (typeof candidate !== "object" || candidate === null || !("id" in candidate) || !("name" in candidate)) {
-			return undefined;
-		}
-		const id = candidate.id;
-		const name = candidate.name;
-		if (
-			typeof id !== "string" ||
-			!MODEL_ID.test(id) ||
-			typeof name !== "string" ||
-			name.length === 0 ||
-			seen.has(id)
-		) {
-			return undefined;
-		}
-		seen.add(id);
-		rawCached.push({ id, label: name });
-	}
-	return { cachedAt, models: normalizeEntries(rawCached) };
+	// A grouped id alone cannot reconstruct its observed variants. Re-derive from the
+	// listing and reject incomplete/stale cache records rather than inventing a wire id.
+	const expected = parseCursorAgentModelsListing(listing);
+	if (expected.length === 0 || JSON.stringify(expected) !== JSON.stringify(models)) return undefined;
+	return { cachedAt, listing, models: expected };
 }
 
 async function readFreshCache(
@@ -241,10 +232,11 @@ export async function resolveCursorCliModelCatalog(
 		temporaryDirectory = await deps.makeTemporaryDirectory(join(tmpdir(), "senpi-cursor-models-"));
 		const stdoutPath = join(temporaryDirectory, "stdout.txt");
 		await deps.runProbe(executable, stdoutPath, MODEL_PROBE_TIMEOUT_MS);
-		const models = parseCursorAgentModelsListing(await deps.readTextFile(stdoutPath));
+		const listing = await deps.readTextFile(stdoutPath);
+		const models = parseCursorAgentModelsListing(listing);
 		if (models.length === 0) return STATIC_CURSOR_CLI_MODELS;
 		try {
-			await writeCache(cacheDirectory, cachePath, { cachedAt: now, models }, deps);
+			await writeCache(cacheDirectory, cachePath, { cachedAt: now, listing, models }, deps);
 		} catch {
 			// A read-only cache directory must not prevent provider registration.
 		}
