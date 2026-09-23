@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Cursor suffix families the 2026-08-18 alias snapshot does not list (`grok-4.7`, `claude-opus-5-5`, `claude-fable-5-1` and its thinking variants, `gemini-3.8-flash`, `muse-spark-1.3`) group into one selectable identity with reasoning levels, derived from the live `GetUsableModels` batch instead of arriving as flat singletons with no reasoning and the 200k fallback window; explicit level selection resolves to the exact server-listed variant id instead of silently downgrading to the representative, and stored flat variants regroup on restore. ([#2038](https://github.com/code-yeongyu/senpi/issues/2038))
+
 ### Removed
 
 ## [2026.9.23-2] - 2026-09-23

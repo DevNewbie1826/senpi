@@ -1,11 +1,7 @@
 import type { Model } from "../types.ts";
-import { type CursorCatalogEntry, normalizeCursorCatalog } from "./catalog-grouping.ts";
+import { type CursorCatalogEntry, deriveCursorVariantAliases, normalizeCursorCatalog } from "./catalog-grouping.ts";
 import { resolveCursorContextWindow } from "./context-limit-store.ts";
 import { getCursorVariantAlias } from "./model-capabilities.ts";
-
-function isGroupedShape(model: Model<"cursor-agent">): boolean {
-	return model.compat?.cursorReasoning !== undefined || getCursorVariantAlias(model.id) === undefined;
-}
 
 function entryToModel(entry: CursorCatalogEntry, maxTokensById: ReadonlyMap<string, number>): Model<"cursor-agent"> {
 	const representative = entry.representativeVariantId ?? entry.legacyAliases[0] ?? entry.id;
@@ -33,6 +29,7 @@ function entryToModel(entry: CursorCatalogEntry, maxTokensById: ReadonlyMap<stri
 							capabilityId: entry.capabilityId,
 							...(entry.thinkingMode !== undefined ? { thinkingMode: entry.thinkingMode } : {}),
 							representativeVariantId: entry.representativeVariantId,
+							...(entry.variantIds !== undefined ? { variantIds: entry.variantIds } : {}),
 						},
 					}
 				: {}),
@@ -42,11 +39,17 @@ function entryToModel(entry: CursorCatalogEntry, maxTokensById: ReadonlyMap<stri
 
 /**
  * Idempotent stored-catalog transform: pre-grouping 204-variant cursor entries
- * are regrouped into selectable identities; already-grouped, unknown, and
- * malformed entries pass through unchanged in stable input order.
+ * are regrouped into selectable identities, including families the static
+ * alias table does not list yet, which are derived over the stored batch
+ * (senpi#2038); already-grouped, unknown, and malformed entries pass through
+ * unchanged in stable input order.
  */
 export function regroupStoredCursorModels(models: readonly Model<"cursor-agent">[]): Model<"cursor-agent">[] {
-	const legacy = models.filter((model) => !isGroupedShape(model));
+	const derived = deriveCursorVariantAliases(models.map((model) => model.id));
+	const isLegacy = (model: Model<"cursor-agent">): boolean =>
+		model.compat?.cursorReasoning === undefined &&
+		(getCursorVariantAlias(model.id) !== undefined || derived.has(model.id));
+	const legacy = models.filter(isLegacy);
 	if (legacy.length === 0) return [...models];
 	const maxTokensById = new Map(models.map((model) => [model.id, model.maxTokens]));
 	const regrouped = new Map(
@@ -62,11 +65,11 @@ export function regroupStoredCursorModels(models: readonly Model<"cursor-agent">
 	const seen = new Set<string>();
 	const out: Model<"cursor-agent">[] = [];
 	for (const model of models) {
-		if (isGroupedShape(model)) {
+		if (!isLegacy(model)) {
 			out.push(model);
 			continue;
 		}
-		const alias = getCursorVariantAlias(model.id);
+		const alias = getCursorVariantAlias(model.id) ?? derived.get(model.id);
 		const targetId = alias?.targetId ?? model.id;
 		if (seen.has(targetId)) continue;
 		seen.add(targetId);

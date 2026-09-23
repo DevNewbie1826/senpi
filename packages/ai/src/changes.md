@@ -1,3 +1,30 @@
+## 2026-09-23 - Cursor variant grouping derived from the live catalog (senpi#2038)
+
+### What changed
+
+- `packages/ai/src/cursor/catalog-grouping.ts`: adds the pure `deriveCursorVariantAliases(ids)` export. For raw ids `cursor-variant-aliases.json` does not list, it derives family aliases (base id, with the `-thinking` infix as a separate identity, requiring `>= 2` distinct observed levels in the same batch; `-fast`, single-level, and level-less ids stay flat). `normalizeCursorCatalog` resolves `static alias ?? derived alias`, so static-table output stays byte-identical; derived groups get `capabilityId`/`window` (capability row or `FALLBACK_WINDOW`), an observed-levels-only `thinkingLevelMap`, `representativeVariantId`, `legacyAliases`, and the new `variantIds` map (normalized level -> exact server-listed variant id). Declares `CursorCatalogEntry.variantIds`.
+- `packages/ai/src/model.ts`: declares `CursorAgentCompat.cursorReasoning.variantIds` (`Readonly<Partial<Record<ModelThinkingLevel, string>>>`), present only on derived identities.
+- `packages/ai/src/cursor/selection-descriptor.ts`: `resolveCursorSelectionDescriptor` resolves explicit selections through `cursorReasoning.variantIds` before any capability lookup (a level missing from `variantIds` falls back to the representative instead of silently downgrading), and legacy-variant selections accept ids that are static aliases or `variantIds` values.
+- `packages/ai/src/cursor/store-migration.ts`: `regroupStoredCursorModels` treats stored flat entries whose ids derivation groups as legacy and regroups them over the stored batch, idempotently and in stable order; `entryToModel` copies `variantIds` into `cursorReasoning`.
+- `packages/ai/src/providers/cursor.ts`: `fetchCursorModels` copies `entry.variantIds` into `compat.cursorReasoning.variantIds`.
+- `packages/ai/test/cursor-derived-variant-grouping.test.ts` (`// senpi#2038`): coverage over the 2026-09-23 unlisted-ids fixture.
+
+### Why
+
+Cursor shipped suffix families after the 2026-08-18 alias snapshot (`grok-4.7`, `claude-opus-5-5`, `claude-fable-5-1` plus its thinking variants, `gemini-3.8-flash`, `muse-spark-1.3`); ids absent from the static table became singleton flat models (reasoning false, 200k fallback window), and `resolveCursorSelectionDescriptor` returned the representative (medium) whenever the capability row was missing, so `senpi --model cursor/grok-4.7:low` and `:xhigh` both ran `grok-4.7-xhigh-fast` with thinking off. Deriving the grouping from the observed `GetUsableModels` batch fixes selection for new families without touching the static snapshot or its byte-identical output.
+
+### Why an extension could not handle it
+
+The grouping runs inside `normalizeCursorCatalog` / `regroupStoredCursorModels` during catalog normalization and store restore, before any extension observes model identities; selection resolution happens inside the Cursor transports' descriptor resolution, which extensions cannot intercept.
+
+### Expected merge conflict zones
+
+- `packages/ai/src/cursor/catalog-grouping.ts`: the `CursorCatalogEntry` interface tail, the derivation helpers, and the grouped-entry construction in `normalizeCursorCatalog`.
+- `packages/ai/src/cursor/selection-descriptor.ts`: the selection blocks of `resolveCursorSelectionDescriptor`.
+- `packages/ai/src/cursor/store-migration.ts`: the legacy classification and the `entryToModel` compat spread.
+- `packages/ai/src/model.ts`: the `cursorReasoning` block of `CursorAgentCompat`.
+- `packages/ai/src/providers/cursor.ts`: the `cursorReasoning` spread in `fetchCursorModels`.
+
 ## 2026-09-23 - claudeCodeVersion follows the pinned claude-agent-sdk (senpi#2033)
 
 ### What changed
