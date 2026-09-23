@@ -1,5 +1,23 @@
 # changes
 
+## 2026-09-23 - Export EntryRendererOptions from the package entry (senpi#2051)
+
+### What changed
+
+- `packages/coding-agent/src/index.ts`: re-exports the new `EntryRendererOptions` type next to `EntryRenderer` and `EntryRenderOptions`.
+
+### Why
+
+- `pi.registerEntryRenderer()` gained an optional third argument (`replaces`) so an entry can update the card before it; extension authors importing from the package need its type.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/index.ts` is the package's public type surface; extensions cannot add exports to it.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/index.ts`: the extension-rendering type export list.
+
 ## 2026-09-21 - Print mode explains transport drops and never prints the replay marker (senpi#1628)
 
 ### What changed
