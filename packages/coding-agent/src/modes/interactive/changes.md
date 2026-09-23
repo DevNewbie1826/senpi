@@ -1473,3 +1473,22 @@ The login command is interactive mode's own command handler; an extension cannot
 
 - MEDIUM: the chat container construction and the assistant branch of `renderSessionItems` in `packages/coding-agent/src/modes/interactive/interactive-mode.ts`.
 - LOW: the added getters in `packages/coding-agent/src/modes/interactive/components/tool-execution.ts` and `packages/coding-agent/src/modes/interactive/components/assistant-message.ts`, and the spinner helper in `packages/coding-agent/src/modes/interactive/tool-progress.ts`.
+
+
+## 2026-09-23 — Filter model-only text at the tool-renderer boundary
+
+### What changed
+
+`packages/coding-agent/src/modes/interactive/components/tool-execution.ts`: Filter marked parts in createRenderState only, before both custom and built-in renderers receive content. Retain the original stored result and all exploration hooks.
+
+### Why
+
+Custom renderers and fallback text joins must observe the same visibility contract without changing session persistence.
+
+### Why an extension could not handle it
+
+The interactive component controls the common render-state boundary for every tool definition.
+
+### Expected merge conflict zones
+
+The result field of createRenderState; exploration-container hooks belong to the sibling lane.

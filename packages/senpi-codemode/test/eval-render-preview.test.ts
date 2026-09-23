@@ -17,9 +17,9 @@ describe("eval renderer preview", () => {
 
 		// Then
 		const lines = renderLines(component);
-		for (const visibleLine of codeLines.slice(-4)) expect.soft(lines).toContain(visibleLine);
-		for (const hiddenLine of codeLines.slice(0, 2)) expect.soft(lines).not.toContain(hiddenLine);
-		expect.soft(lines).toContain("2 earlier code lines");
+		for (const visibleLine of codeLines.slice(-4)) expect(lines).toContain(visibleLine);
+		for (const hiddenLine of codeLines.slice(0, 2)) expect(lines).not.toContain(hiddenLine);
+		expect(lines).toContain("2 earlier code lines");
 	});
 
 	it("Given ten output lines when collapsed then last eight and earlier output count are shown", () => {
@@ -40,9 +40,9 @@ describe("eval renderer preview", () => {
 
 		// Then
 		const lines = renderLines(component);
-		for (const visibleLine of outputLines.slice(-8)) expect.soft(lines).toContain(visibleLine);
-		for (const hiddenLine of outputLines.slice(0, 2)) expect.soft(lines).not.toContain(hiddenLine);
-		expect.soft(lines).toContain("2 earlier output lines");
+		for (const visibleLine of outputLines.slice(-8)) expect(lines).toContain(visibleLine);
+		for (const hiddenLine of outputLines.slice(0, 2)) expect(lines).not.toContain(hiddenLine);
+		expect(lines).toContain("2 earlier output lines");
 	});
 
 	it("Given seven nested tool calls when collapsed then last five and earlier tool count are shown", () => {
@@ -76,14 +76,14 @@ describe("eval renderer preview", () => {
 		// Then
 		const lines = renderLines(component);
 		const toolLines = lines.filter((line) => line.includes("tool."));
-		expect.soft(toolLines).not.toContain("- tool.call-1: ok");
-		expect.soft(toolLines).not.toContain("- tool.call-2: error (early denied)");
-		expect.soft(toolLines).toContain("- tool.call-3: ok");
-		expect.soft(toolLines).toContain("- tool.call-4: error (late denied)");
-		expect.soft(toolLines).toContain("- tool.call-5: ok");
-		expect.soft(toolLines).toContain("- tool.call-6: ok");
-		expect.soft(toolLines).toContain("- tool.call-7: ok");
-		expect.soft(lines).toContain("2 earlier tool calls");
+		expect(toolLines).not.toContain("- tool.call-1: ok");
+		expect(toolLines).not.toContain("- tool.call-2: error (early denied)");
+		expect(toolLines).toContain("- tool.call-3: ok");
+		expect(toolLines).toContain("- tool.call-4: error (late denied)");
+		expect(toolLines).toContain("- tool.call-5: ok");
+		expect(toolLines).toContain("- tool.call-6: ok");
+		expect(toolLines).toContain("- tool.call-7: ok");
+		expect(lines).toContain("2 earlier tool calls");
 	});
 
 	it("Given six nested tool calls when collapsed then singular earlier tool count is shown", () => {
@@ -110,7 +110,7 @@ describe("eval renderer preview", () => {
 		expect(renderLines(component)).toContain("1 earlier tool call");
 	});
 
-	it("Given truncated details when rendered then eval output truncated marker is shown", () => {
+	it("Given truncated details when rendered then only the output collapse hint is shown", () => {
 		// Given
 		const outputLines = Array.from({ length: 10 }, (_, index) => `truncated-line-${index + 1}`);
 		const givenResult = evalResult(
@@ -129,8 +129,8 @@ describe("eval renderer preview", () => {
 		// Then
 		const lines = renderLines(component);
 		const outputCollapseLines = lines.filter((line) => line.includes("earlier") && line.includes("output"));
-		expect.soft(lines).toContain("[eval output truncated]");
-		expect.soft(outputCollapseLines).toEqual(["2 earlier output lines"]);
+		expect(lines).not.toContain("[eval output truncated]");
+		expect(outputCollapseLines).toEqual(["2 earlier output lines"]);
 	});
 
 	it("Given reused completed eval render when expanded then all code output and nested tool calls are visible", () => {
@@ -174,13 +174,13 @@ describe("eval renderer preview", () => {
 		// Then
 		const lines = [...renderLines(expandedCall), ...renderLines(expandedResult)];
 		const visibleText = lines.join("\n");
-		expect.soft(expandedCall).toBe(collapsedCall);
-		expect.soft(expandedResult).toBe(collapsedResult);
-		for (const codeLine of codeLines) expect.soft(lines).toContain(codeLine);
-		for (const outputLine of outputLines) expect.soft(lines).toContain(outputLine);
-		for (const toolCall of toolCalls) expect.soft(lines).toContain(`- tool.${toolCall.name}: ok`);
-		expect.soft(visibleText).not.toMatch(/\bearlier\b/i);
-		expect.soft(visibleText).not.toMatch(/ctrl|to expand|to collapse/i);
+		expect(expandedCall).toBe(collapsedCall);
+		expect(expandedResult).toBe(collapsedResult);
+		for (const codeLine of codeLines) expect(lines).toContain(codeLine);
+		for (const outputLine of outputLines) expect(lines).toContain(outputLine);
+		for (const toolCall of toolCalls) expect(lines).toContain(`- tool.${toolCall.name}: ok`);
+		expect(visibleText).not.toMatch(/\bearlier\b/i);
+		expect(visibleText).not.toMatch(/ctrl|to expand|to collapse/i);
 	});
 
 	it("Given realistically large expanded code when rendered then every line remains visible", () => {
@@ -196,10 +196,10 @@ describe("eval renderer preview", () => {
 		const lines = renderEvalCall(givenArgs, undefined, callContext({ expanded: true })).render(80);
 
 		// Then
-		expect.soft(lines).toHaveLength(codeLines.length + 2);
-		expect.soft(lines[1]).toBe("large listing");
-		expect.soft(lines[2]).toBe(codeLines[0]);
-		expect.soft(lines.at(-1)).toBe(codeLines.at(-1));
+		expect(lines).toHaveLength(codeLines.length + 2);
+		expect(lines[1]).toBe("large listing");
+		expect(lines[2]).toBe(codeLines[0]);
+		expect(lines.at(-1)).toBe(codeLines.at(-1));
 	});
 
 	it("Given a retained nested tool call with a huge multiline error when collapsed then detail is bounded and expandable", () => {
@@ -327,17 +327,16 @@ describe("eval renderer preview", () => {
 			.join("\n");
 
 		// Then
-		expect.soft(collapsedText).toContain("2 earlier status events");
-		expect.soft(collapsedText).not.toContain("status-1");
-		expect.soft(collapsedText).not.toContain("status-2");
-		for (const visibleStatus of ["status-3", "status-4", "status-5"])
-			expect.soft(collapsedText).toContain(visibleStatus);
-		expect.soft(collapsedText).not.toContain(codeLines[0]);
-		expect.soft(collapsedText).not.toMatch(/cell-output-1(?:\r?\n|$)/u);
-		for (const status of statusEvents) expect.soft(expandedText).toContain(status.message);
-		for (const codeLine of codeLines) expect.soft(expandedText).toContain(codeLine);
-		for (const outputLine of outputLines) expect.soft(expandedText).toContain(outputLine);
-		expect.soft(expandedText).not.toContain("earlier status events");
+		expect(collapsedText).toContain("2 earlier status events");
+		expect(collapsedText).not.toContain("status-1");
+		expect(collapsedText).not.toContain("status-2");
+		for (const visibleStatus of ["status-3", "status-4", "status-5"]) expect(collapsedText).toContain(visibleStatus);
+		expect(collapsedText).not.toContain(codeLines[0]);
+		expect(collapsedText).not.toMatch(/cell-output-1(?:\r?\n|$)/u);
+		for (const status of statusEvents) expect(expandedText).toContain(status.message);
+		for (const codeLine of codeLines) expect(expandedText).toContain(codeLine);
+		for (const outputLine of outputLines) expect(expandedText).toContain(outputLine);
+		expect(expandedText).not.toContain("earlier status events");
 	});
 
 	it("Given a bounded status history when collapsed and expanded then the exact omission count survives", () => {
@@ -387,11 +386,10 @@ describe("eval renderer preview", () => {
 
 		// Then: collapsing keeps the newest three rows and reports 19,901 + 2 sliced omissions,
 		// while expanding shows every retained row above the exact marker count.
-		expect.soft(collapsedText).toContain("19903 earlier status events");
-		for (const visibleStatus of ["status-3", "status-4", "status-5"])
-			expect.soft(collapsedText).toContain(visibleStatus);
-		expect.soft(expandedText).toContain("19901 earlier status events");
-		for (let index = 1; index <= 5; index++) expect.soft(expandedText).toContain(`status-${index}`);
-		expect.soft(expandedText).not.toContain("status-events-omitted");
+		expect(collapsedText).toContain("19903 earlier status events");
+		for (const visibleStatus of ["status-3", "status-4", "status-5"]) expect(collapsedText).toContain(visibleStatus);
+		expect(expandedText).toContain("19901 earlier status events");
+		for (let index = 1; index <= 5; index++) expect(expandedText).toContain(`status-${index}`);
+		expect(expandedText).not.toContain("status-events-omitted");
 	});
 });

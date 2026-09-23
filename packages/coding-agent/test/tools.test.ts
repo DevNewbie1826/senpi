@@ -17,6 +17,7 @@ import { createFindToolDefinition } from "../src/core/tools/find.ts";
 import { createGrepToolDefinition } from "../src/core/tools/grep.ts";
 import { createLsToolDefinition } from "../src/core/tools/ls.ts";
 import { createReadToolDefinition } from "../src/core/tools/read.ts";
+import { getTextOutput as getRenderedTextOutput } from "../src/core/tools/render-utils.ts";
 import { createWriteToolDefinition } from "../src/core/tools/write.ts";
 import {
 	createEditTool,
@@ -152,6 +153,12 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("Line 10");
 			expect(output).not.toContain("Line 11");
 			expect(output).toContain("[90 more lines in file. Use offset=11 to continue.]");
+			// #2041: continuation instructions stay in model content, not the tool card.
+			expect(result.content).toEqual([
+				{ type: "text", text: `${lines.slice(0, 10).join("\n")}\n` },
+				{ type: "text", text: "[90 more lines in file. Use offset=11 to continue.]", audience: "model" },
+			]);
+			expect(getRenderedTextOutput(result, false)).toBe(`${lines.slice(0, 10).join("\n")}\n`);
 		});
 
 		it("should handle offset + limit together", async () => {
@@ -771,54 +778,46 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("rejects and cleans its spill when an output callback never settles", async () => {
-			vi.useFakeTimers();
-			try {
-				const spillMarker = `never-settling-callback-${process.pid}-${Date.now()}`;
-				const output = `${spillMarker}\n${"x".repeat(51 * 1024)}`;
-				const execution = executeBashWithOperations(
-					"never-settling-callback",
-					process.cwd(),
-					{
-						exec: async (_command, _cwd, { onData }) => {
-							onData(Buffer.from(output));
-							return { exitCode: 0 };
-						},
+			const callbackStarted = Promise.withResolvers<void>();
+			const startedAt = performance.now();
+			const spillMarker = `never-settling-callback-${process.pid}-${Date.now()}`;
+			const output = `${spillMarker}\n${"x".repeat(51 * 1024)}`;
+			const execution = executeBashWithOperations(
+				"never-settling-callback",
+				process.cwd(),
+				{
+					exec: async (_command, _cwd, { onData }) => {
+						onData(Buffer.from(output));
+						return { exitCode: 0 };
 					},
-					{ onChunk: () => new Promise<void>(() => {}) },
-				);
-				const rejection = expect(execution).rejects.toThrow("Bash output callback did not settle within 5000ms");
-				let settled = false;
-				void execution.then(
-					() => {
-						settled = true;
+				},
+				{
+					onChunk: () => {
+						callbackStarted.resolve();
+						return new Promise<void>(() => {});
 					},
-					() => {
-						settled = true;
-					},
-				);
+				},
+			);
+			const rejection = expect(execution).rejects.toThrow("Bash output callback did not settle within 5000ms");
+			await callbackStarted.promise;
+			await rejection;
+			expect(performance.now() - startedAt).toBeGreaterThanOrEqual(4_999);
 
-				await vi.advanceTimersByTimeAsync(4_999);
-				expect(settled).toBe(false);
-				await vi.advanceTimersByTimeAsync(1);
-				await rejection;
-
-				const leakedSpills = readdirSync(tmpdir())
-					.filter((name) => name.startsWith("pi-bash-") && name.endsWith(".log"))
-					.filter((name) => {
-						try {
-							return readFileSync(join(tmpdir(), name), "utf-8").includes(spillMarker);
-						} catch {
-							return false;
-						}
-					});
-				expect(leakedSpills).toEqual([]);
-			} finally {
-				vi.useRealTimers();
-			}
-		});
+			const leakedSpills = readdirSync(tmpdir())
+				.filter((name) => name.startsWith("pi-bash-") && name.endsWith(".log"))
+				.filter((name) => {
+					try {
+						return readFileSync(join(tmpdir(), name), "utf-8").includes(spillMarker);
+					} catch {
+						return false;
+					}
+				});
+			expect(leakedSpills).toEqual([]);
+		}, 15_000);
 
 		it("waits for a slow output callback before normal completion", async () => {
-			vi.useFakeTimers();
+			const started = Promise.withResolvers<void>();
+			const release = Promise.withResolvers<void>();
 			try {
 				const execution = executeBashWithOperations(
 					"slow-callback",
@@ -829,18 +828,23 @@ describe("Coding Agent Tools", () => {
 							return { exitCode: 0 };
 						},
 					},
-					{ onChunk: () => new Promise<void>((resolve) => setTimeout(resolve, 500)) },
+					{
+						onChunk: () => {
+							started.resolve();
+							return release.promise;
+						},
+					},
 				);
-				await vi.advanceTimersByTimeAsync(499);
+				await started.promise;
 				let settled = false;
 				void execution.then(() => {
 					settled = true;
 				});
 				expect(settled).toBe(false);
-				await vi.advanceTimersByTimeAsync(1);
+				release.resolve();
 				await expect(execution).resolves.toMatchObject({ output: "output", exitCode: 0 });
 			} finally {
-				vi.useRealTimers();
+				release.resolve();
 			}
 		});
 

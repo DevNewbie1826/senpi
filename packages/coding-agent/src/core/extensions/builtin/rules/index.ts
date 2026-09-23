@@ -154,7 +154,7 @@ export default function piRulesExtension(pi: ExtensionAPI): void {
 			toolCallId: event.toolCallId,
 		});
 
-		return { content: [...event.content, { type: "text", text: block }] };
+		return { content: [...event.content, { type: "text", text: block, audience: "model" }] };
 	});
 }
 
