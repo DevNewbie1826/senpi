@@ -47,17 +47,20 @@ function normalizeModelId(modelId: string): string {
 	return modelId.toLowerCase().replace(/\s+/g, "-");
 }
 
-// GPT-6 Astra id shapes verified against the OpenAI model page, codex's
-// models.json, and Bedrock's catalog (2026-09-04): gpt-6-astra, gpt-6-astra-fast,
-// dated snapshots, openai/gpt-6-astra, openai.gpt-6-astra, global.openai.gpt-6-astra,
-// and the display name "GPT-6 Astra". Bare "gpt-6" and "astra" stay out: the guide
-// names no other GPT-6 model, and a future sibling deserves its own preset.
-function hasGpt6AstraSignal(value: string): boolean {
-	return /(?:^|[/@:._-])gpt[._-]?6[._-]astra(?:$|[/@:._-])/.test(normalizeModelId(value));
+// The GPT-6 family (Astra, Sol, Luna) shares one prompting guide
+// (developers.openai.com/api/docs/guides/latest-model, 2026-09-23), so every tier
+// renders the gpt-6-astra preset; the preset keeps that name because settings.json
+// already pins it. Id shapes verified against the OpenAI model pages, codex's
+// models.json, models.dev and Bedrock's catalog: gpt-6-sol, gpt-6-luna-fast, dated
+// snapshots, openai/gpt-6-sol, openai-gpt-6-luna, global.openai.gpt-6-astra, and
+// the display names "GPT-6 Sol" / "GPT-6 Luna". Bare "gpt-6", "gpt-6-mini" and a
+// lone tier word stay out: an unknown sibling deserves its own decision.
+function hasGpt6FamilySignal(value: string): boolean {
+	return /(?:^|[/@:._-])gpt[._-]?6[._-](?:astra|sol|luna)(?:$|[/@:._-])/.test(normalizeModelId(value));
 }
 
-function isGpt6AstraModel(model: ModelWithPromptPresetMetadata): boolean {
-	return hasGpt6AstraSignal(model.id) || (model.name !== undefined && hasGpt6AstraSignal(model.name));
+function isGpt6FamilyModel(model: ModelWithPromptPresetMetadata): boolean {
+	return hasGpt6FamilySignal(model.id) || (model.name !== undefined && hasGpt6FamilySignal(model.name));
 }
 
 type Gpt5Version = "gpt-5.2" | "gpt-5.3-codex" | "gpt-5.4" | "gpt-5.5" | "gpt-5.6";
@@ -298,7 +301,7 @@ export function resolvePresetName(
 		return modelPromptPreset;
 	}
 
-	if (isGpt6AstraModel(model)) {
+	if (isGpt6FamilyModel(model)) {
 		return "gpt-6-astra";
 	}
 	const gpt5Version = extractGpt5Version(model.id);

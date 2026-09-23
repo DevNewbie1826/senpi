@@ -6,9 +6,13 @@
 
 ### Added
 
+- GPT-6 Sol (`gpt-6-sol`) and GPT-6 Luna (`gpt-6-luna`) join the catalog on OpenAI, ChatGPT Subscription, Azure OpenAI, OpenCode Zen, OpenRouter, Venice and Vercel AI Gateway, with `-fast` Priority-tier variants on OpenAI and ChatGPT Subscription. Both carry their published prices (Sol \$2/\$10 per 1M tokens with \$0.20 cache reads, Luna \$0.10/\$0.50 with \$0.01 cache reads, both doubling input and 1.5x output past 272k), 128k output, text and image input, tool search and additional-tools support, and the documented effort ladder `none`/`low`/`medium`/`high`/`xhigh`/`max`. Project prompt budgets: Luna ships the full 922k input cap, Sol ships 400k, on every provider that lists the model.
+
 ### Changed
 
 ### Fixed
+
+- OpenRouter's passthrough rows for `openai/gpt-6-sol` and `openai/gpt-6-luna` (and their `-pro` / `:batch` siblings) shipped in 2026.9.22-4 with no effort ladder at all, so `xhigh` and `max` were not selectable there and the rows sat at the raw 922k window instead of the tier budget. They now carry the same GPT-6 ladder and budget as the first-party rows.
 
 ### Removed
 

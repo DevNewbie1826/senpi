@@ -1,3 +1,24 @@
+## 2026-09-23 - GPT-6 Sol and GPT-6 Luna catalog rows
+
+### What changed
+
+- `packages/ai/scripts/generate-models.ts`: `gpt-6-sol` and `gpt-6-luna` join every OpenAI id table that already carried `gpt-6-astra` (tool search + additional tools on `openai` and `chatgpt-subscription`, short-context cap, long-context pricing tiers, `none` reasoning on the direct provider, Priority `-fast` variants on both first-party providers). Hand-added rows for both tiers land in the `openai` fallback list (used only when models.dev lacks the id) and in the `chatgpt-subscription` list (models.dev never carries the Codex backend), priced from the new `OPENAI_GPT_6_STANDARD_COSTS` table (Sol 2/10/0.2/2.5, Luna 0.1/0.5/0.01/0.125 per MTok) through `withOpenAiLongContextPricing`; `OPENAI_STANDARD_COSTS` merges the 5.6 and 6 tables for the direct-provider and Cloudflare price overrides. `supportsOpenAiXhigh` / `supportsOpenAiMax` and the former Astra-only final pass now key on `isGpt6FamilyId` (astra | sol | luna markers, prefixed or suffixed ids): `applyGpt6ContextWindow` stamps the tier budget on every provider row (Astra 600,000 unchanged, Sol 400,000, Luna 922,000 = the documented input cap) and `applyGpt6ThinkingLevels` stamps the documented ladder (`minimal: null`, low..max) and forces `off: null` for Astra only, since Sol and Luna document `none`.
+- `packages/ai/src/providers/data/` regenerated with `--strict`: +4 rows each on `openai.json` and `chatgpt-subscription.json` (base + `-fast`), +2 on `azure-openai-responses.json`, `opencode.json` (plus incidental upstream additions `claude-opus-5-5`, `grok-4.7`), `venice.json`, +4 on `vercel-ai-gateway.json`; the eight pre-existing `openrouter.json` GPT-6 Sol/Luna rows gain the ladder and the Sol budget. Incidental upstream drift: OpenRouter pricing/context refreshes (aion, deepseek, hy3, glm, `~latest` aliases), Vercel gemini metadata. No model id was removed.
+- Tests: `test/gpt-6-family-catalog.test.ts` (first-party rows, pricing tiers, ladder incl. `off`, tool metadata, `-fast` variants, map-less id inference, family-wide budget across every catalog); `test/openai-input-cap-catalog.test.ts` exempts the deliberate `gpt-6-sol @ 400,000` pairing from the documented-total check (a 1,050,000 Sol row would still fail) and pins the new direct-provider defaults.
+
+### Why
+
+OpenAI's GPT-6 family is Astra, Sol and Luna (developers.openai.com/api/docs/guides/latest-model). 2026.9.22-4 shipped Astra rows only; models.dev had since added Sol/Luna rows for openai, opencode, azure, openrouter and vercel, and 2026.9.22-4's regeneration had already pulled the OpenRouter passthrough rows without any effort ladder, so `xhigh` / `max` were unreachable there and the Codex backend could not select either tier at all. Budgets follow the user-stated defaults (Luna full window, Sol 400k) rather than the 272k short-context tier.
+
+### Why an extension could not handle it
+
+The catalog shards ship inside this package; nothing loaded at runtime can add a first-party row or change what the generator wrote.
+
+### Expected merge conflict zones
+
+- `packages/ai/scripts/generate-models.ts`: the OpenAI id tables near the top, `supportsOpenAiXhigh` / `supportsOpenAiMax`, the hand-added `openai` and `chatgpt-subscription` row lists, and the final metadata pass.
+- `packages/ai/src/providers/data/*.json` + `.manifest.json`: regenerate rather than merge.
+
 ## 2026-09-22 - Claude Opus 5.5 catalog rows and request compat
 
 ### What changed

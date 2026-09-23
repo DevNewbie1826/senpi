@@ -1036,6 +1036,8 @@ const XHIGH_MODEL_IDS = [
 	"gpt-5.6-sol",
 	"gpt-5.6-terra",
 	"gpt-6-astra",
+	"gpt-6-sol",
+	"gpt-6-luna",
 	"deepseek-v4-pro",
 	"deepseek-v4-flash",
 	"opus-4-6",
@@ -1088,8 +1090,8 @@ const OPENAI_MAX_APIS: Api[] = [
 	"openai-completions",
 ];
 
-/** Model family that accepts native `max` effort on OpenAI-compatible APIs. */
-const OPENAI_MAX_MODEL_IDS = ["gpt-5.6-sol", "gpt-6-astra"];
+/** Model families that accept native `max` effort on OpenAI-compatible APIs. */
+const OPENAI_MAX_MODEL_IDS = ["gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"];
 
 const MAX_MODEL_IDS = [
 	"opus-4-6",

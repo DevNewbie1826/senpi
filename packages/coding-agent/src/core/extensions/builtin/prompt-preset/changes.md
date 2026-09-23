@@ -1,5 +1,24 @@
 # prompt-preset Extension Changes
 
+## 2026-09-23 - GPT-6 Sol / Luna resolve to the GPT-6 family preset
+
+### What changed
+
+- `presets.ts`: `hasGpt6AstraSignal` / `isGpt6AstraModel` become `hasGpt6FamilySignal` / `isGpt6FamilyModel`, matching `gpt-6-(astra|sol|luna)` with the same delimiter-boundary shape (prefixed ids such as `openai/gpt-6-sol`, `openai-gpt-6-luna`, `global.openai.gpt-6-sol`, suffixed `-fast` / dated snapshots / `:batch`, and the display names). The dispatch still returns `"gpt-6-astra"`; no new `PromptPresetName` and no new prompt file, because the rendered Astra core names no model and OpenAI's guide covers the family with one set of practices. Bare `gpt-6`, `gpt-6-mini`, `gpt-6.1` and near-miss words (`gpt-6-solaris`, `gpt-6-lunar`) stay unmatched.
+- `test/suite/prompt-presets-gpt-6-family.test.ts`: id-shape matrix for Sol and Luna, display-name resolution, byte-identical prompt against Astra (and no `Astra` token in it), 5.6 ids stay on `gpt-5.6`, non-family ids stay out, the preset and `getApplyPatchWireMode` agree on the three Responses APIs (#1891 class), and every Sol/Luna row in the generated catalogs resolves.
+
+### Why
+
+Before this change a `gpt-6-sol` or `gpt-6-luna` session (the new catalog rows in this release) ran on the generic senpi prompt while Astra ran on the GPT-6 core, even though the family shares one prompting guide and the same tool gate (apply_patch freeform) already applied to all three.
+
+### Why an extension could not handle it
+
+Preset matching is this extension; a user extension could only re-implement the whole dispatch.
+
+### Expected merge conflict zones
+
+- `presets.ts`: the GPT-6 matcher block near the top and the first branch of `resolvePresetName`.
+
 ## 2026-09-22 - Claude Opus 5.5 preset
 
 ### What changed

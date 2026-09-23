@@ -21,13 +21,31 @@ afterEach(() => {
 });
 
 describe("recommended-models builtin", () => {
-	it("#given the shipped recommendation list #when order is read #then gpt-6-astra high sits directly before gpt-5.6-sol", () => {
+	it("#given the shipped recommendation list #when order is read #then gpt-6-astra high, gpt-6-sol medium, then gpt-5.6-sol medium", () => {
 		const astraIndex = RECOMMENDED_DEFAULT_MODELS.findIndex(([modelId]) => modelId === "gpt-6-astra");
+		const gpt6SolIndex = RECOMMENDED_DEFAULT_MODELS.findIndex(([modelId]) => modelId === "gpt-6-sol");
 		const solIndex = RECOMMENDED_DEFAULT_MODELS.findIndex(([modelId]) => modelId === "gpt-5.6-sol");
 
 		expect(astraIndex).toBeGreaterThanOrEqual(0);
-		expect(solIndex).toBe(astraIndex + 1);
+		expect(gpt6SolIndex).toBe(astraIndex + 1);
+		expect(solIndex).toBe(gpt6SolIndex + 1);
 		expect(RECOMMENDED_DEFAULT_MODELS[astraIndex]?.[1]).toBe("high");
+		expect(RECOMMENDED_DEFAULT_MODELS[gpt6SolIndex]?.[1]).toBe("medium");
+	});
+
+	it("#given chatgpt-subscription/gpt-6-sol and gpt-5.6-sol #when an off-list model starts by provider default #then it switches to gpt-6-sol at medium", async () => {
+		const gpt6Sol = model("gpt-6-sol", "chatgpt-subscription");
+		const sol = model("gpt-5.6-sol", "chatgpt-subscription");
+		const harness = createHarness({
+			active: model("off-list"),
+			available: [sol, gpt6Sol],
+		});
+
+		await harness.start("provider-default");
+
+		expect(harness.getActiveModel()).toBe(gpt6Sol);
+		expect(harness.getThinkingLevel()).toBe("medium");
+		expect(harness.notices).toEqual([{ message: "Switched to recommended model 'gpt-6-sol'.", type: "info" }]);
 	});
 
 	it("#given chatgpt-subscription/gpt-6-astra and sol #when an implicit-fallback provenance starts #then it switches to astra at high", async () => {
