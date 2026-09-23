@@ -6,6 +6,8 @@
 
 ### Added
 
+- GPT-6 Sol and GPT-6 Luna run on the GPT-6 system prompt. OpenAI publishes one set of prompting practices for the whole GPT-6 family, so any `gpt-6-sol` or `gpt-6-luna` id (Fast variants, dated snapshots, gateway-prefixed and Bedrock-style ids, and the display names "GPT-6 Sol" / "GPT-6 Luna") now selects the prompt GPT-6 Astra already used instead of falling back to the generic one; `promptPreset: "gpt-6-astra"` keeps its name and now reads as the family preset.
+
 ### Changed
 
 ### Fixed
