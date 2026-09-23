@@ -1,3 +1,22 @@
+## 2026-09-23 - Keep skill and memory reads out of the exploration group (senpi#2060)
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/exploration-call.ts`: `explorationCall` asks `getCompactReadClassification` (exported from `core/tools/renderers/read.ts`) about a `read` before grouping it; a `skill` or `memory` classification returns no exploration call, so the card renders on its own and ends the open group. `docs` and `resource` reads still group.
+- `packages/coding-agent/test/suite/exploration-semantic-reads.test.ts` (new): a skill read splits the group and shows `[skill] <name>`; two skills show both names with no `Explored` cell; a registered memory classifier keeps `✦ Recalled <label>`; `AGENTS.md` stays grouped; live and replay text match.
+
+### Why
+
+- Since senpi#2042 every built-in `read` joined the `Explored` cell, including skill loads and memory recalls, which collapsed to `Read SKILL.md` and deduplicated several skills into one line. The compact `[skill]` / `✦ Recalled` cards predate the cell and carry the information the cell drops.
+
+### Why an extension could not handle it
+
+- Group membership is decided by the interactive projection; an extension only registers a classifier and has no view of the transcript's sibling cards.
+
+### Expected merge conflict zones
+
+- The `read` branch of `explorationCall` in `exploration-call.ts`.
+
 ## 2026-09-23 - Fold project-rules notices into the exploration group of their call (senpi#2057)
 
 ### What changed
