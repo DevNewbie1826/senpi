@@ -778,46 +778,54 @@ describe("Coding Agent Tools", () => {
 		});
 
 		it("rejects and cleans its spill when an output callback never settles", async () => {
-			const callbackStarted = Promise.withResolvers<void>();
-			const startedAt = performance.now();
-			const spillMarker = `never-settling-callback-${process.pid}-${Date.now()}`;
-			const output = `${spillMarker}\n${"x".repeat(51 * 1024)}`;
-			const execution = executeBashWithOperations(
-				"never-settling-callback",
-				process.cwd(),
-				{
-					exec: async (_command, _cwd, { onData }) => {
-						onData(Buffer.from(output));
-						return { exitCode: 0 };
+			vi.useFakeTimers();
+			try {
+				const spillMarker = `never-settling-callback-${process.pid}-${Date.now()}`;
+				const output = `${spillMarker}\n${"x".repeat(51 * 1024)}`;
+				const execution = executeBashWithOperations(
+					"never-settling-callback",
+					process.cwd(),
+					{
+						exec: async (_command, _cwd, { onData }) => {
+							onData(Buffer.from(output));
+							return { exitCode: 0 };
+						},
 					},
-				},
-				{
-					onChunk: () => {
-						callbackStarted.resolve();
-						return new Promise<void>(() => {});
+					{ onChunk: () => new Promise<void>(() => {}) },
+				);
+				const rejection = expect(execution).rejects.toThrow("Bash output callback did not settle within 5000ms");
+				let settled = false;
+				void execution.then(
+					() => {
+						settled = true;
 					},
-				},
-			);
-			const rejection = expect(execution).rejects.toThrow("Bash output callback did not settle within 5000ms");
-			await callbackStarted.promise;
-			await rejection;
-			expect(performance.now() - startedAt).toBeGreaterThanOrEqual(4_999);
+					() => {
+						settled = true;
+					},
+				);
 
-			const leakedSpills = readdirSync(tmpdir())
-				.filter((name) => name.startsWith("pi-bash-") && name.endsWith(".log"))
-				.filter((name) => {
-					try {
-						return readFileSync(join(tmpdir(), name), "utf-8").includes(spillMarker);
-					} catch {
-						return false;
-					}
-				});
-			expect(leakedSpills).toEqual([]);
-		}, 15_000);
+				await vi.advanceTimersByTimeAsync(4_999);
+				expect(settled).toBe(false);
+				await vi.advanceTimersByTimeAsync(1);
+				await rejection;
+
+				const leakedSpills = readdirSync(tmpdir())
+					.filter((name) => name.startsWith("pi-bash-") && name.endsWith(".log"))
+					.filter((name) => {
+						try {
+							return readFileSync(join(tmpdir(), name), "utf-8").includes(spillMarker);
+						} catch {
+							return false;
+						}
+					});
+				expect(leakedSpills).toEqual([]);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
 
 		it("waits for a slow output callback before normal completion", async () => {
-			const started = Promise.withResolvers<void>();
-			const release = Promise.withResolvers<void>();
+			vi.useFakeTimers();
 			try {
 				const execution = executeBashWithOperations(
 					"slow-callback",
@@ -828,23 +836,18 @@ describe("Coding Agent Tools", () => {
 							return { exitCode: 0 };
 						},
 					},
-					{
-						onChunk: () => {
-							started.resolve();
-							return release.promise;
-						},
-					},
+					{ onChunk: () => new Promise<void>((resolve) => setTimeout(resolve, 500)) },
 				);
-				await started.promise;
+				await vi.advanceTimersByTimeAsync(499);
 				let settled = false;
 				void execution.then(() => {
 					settled = true;
 				});
 				expect(settled).toBe(false);
-				release.resolve();
+				await vi.advanceTimersByTimeAsync(1);
 				await expect(execution).resolves.toMatchObject({ output: "output", exitCode: 0 });
 			} finally {
-				release.resolve();
+				vi.useRealTimers();
 			}
 		});
 

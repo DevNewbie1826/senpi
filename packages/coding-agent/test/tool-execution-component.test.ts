@@ -356,8 +356,8 @@ describe("ToolExecutionComponent parity", () => {
 	});
 
 	test("renders bash elapsed time as stable whole-second text while running", () => {
-		const start = new Date("2026-05-15T00:00:00.000Z").getTime();
-		const now = vi.spyOn(Date, "now").mockReturnValue(start);
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-05-15T00:00:00.000Z"));
 
 		try {
 			const component = new ToolExecutionComponent(
@@ -375,12 +375,10 @@ describe("ToolExecutionComponent parity", () => {
 
 			expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed <1s");
 
-			now.mockReturnValue(start + 1_100);
-			component.invalidate();
+			vi.advanceTimersByTime(1_100);
 			expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed 1s");
 
-			now.mockReturnValue(start + 68_100);
-			component.invalidate();
+			vi.advanceTimersByTime(67_000);
 			expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed 1m 8s");
 
 			component.updateResult(
@@ -389,7 +387,7 @@ describe("ToolExecutionComponent parity", () => {
 			);
 			expect(stripAnsi(component.render(120).join("\n"))).toContain("Took 1m 8s");
 		} finally {
-			now.mockRestore();
+			vi.useRealTimers();
 		}
 	});
 
@@ -904,8 +902,7 @@ describe("ToolExecutionComponent parity", () => {
 				expect(collapsed).toContain(theme.fg("accent", `\x1b[1m✦ ${headline ?? "Recalled"}\x1b[22m`));
 				expect(collapsed).toContain(theme.fg("customMessageText", "preference"));
 				expect(stripAnsi(collapsed)).not.toContain("hidden memory");
-				expect(classifier).toHaveBeenCalledTimes(1);
-				expect(classifier).toHaveBeenCalledWith({
+				expect(classifier).toHaveBeenCalledExactlyOnceWith({
 					absolutePath: resolve(process.cwd(), args.path),
 					cwd: process.cwd(),
 				});

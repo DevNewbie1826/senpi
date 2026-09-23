@@ -185,10 +185,10 @@ describe.each(WIDTHS)("eval renderer width %i", (width) => {
 
 		// Then
 		expectLinesWithinWidth(lines, width, "throughput badge");
-		expect(text).toContain("2 calls");
-		expect(text).toContain("1.00");
-		expect(text).toContain("calls/s");
-		expect(text).toContain("2s");
+		expect.soft(text).toContain("2 calls");
+		expect.soft(text).toContain("1.00");
+		expect.soft(text).toContain("calls/s");
+		expect.soft(text).toContain("2s");
 		expect(text).toContain("timeout 420s");
 	});
 });
@@ -290,11 +290,11 @@ describe("eval renderer cell detail width", () => {
 
 		// Then
 		expectLinesWithinWidth(lines, width, "narrow detail render");
-		expect(text).toContain("eval py error");
-		expect(text).toContain("failed cell");
-		expect(text).toContain("read 12 chars");
-		expect(text).toContain("worker-cell done");
-		expect(text).toContain("display[1]");
-		expect(text).not.toContain("Showing lines 10-12 of 12");
+		expect.soft(text).toContain("eval py error");
+		expect.soft(text).toContain("failed cell");
+		expect.soft(text).toContain("read 12 chars");
+		expect.soft(text).toContain("worker-cell done");
+		expect.soft(text).toContain("display[1]");
+		expect.soft(text).not.toContain("Showing lines 10-12 of 12");
 	});
 });

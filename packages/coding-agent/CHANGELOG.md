@@ -10,6 +10,8 @@
 
 ### Changed
 
+- Built-in read, bash, find, ls, grep, webfetch, and injected-rule notices are separate model-only text parts. Interactive tool cards omit them, including grep statistics and renderer-owned truncation warnings, while preserving tool bodies and rule-activation entries. Provider text and session content remain available to the model. ([#2041](https://github.com/code-yeongyu/senpi/issues/2041))
+
 ### Fixed
 
 ### Removed
@@ -23,8 +25,6 @@
 - The interactive TUI shows consecutive `read`, `grep`, `find`, and `ls` calls as one exploration cell, the way Codex does: `• Explored` followed by lines such as `Read a.ts, b.ts`, `Search <pattern> in <dir>`, and `List <dir>`, with no line ranges or output. Reading one file three times now shows its name once instead of three cards. A failed call stays in the cell and is counted as ` · 1 failed`. Press the tool-expand key (default `ctrl+o`) or click the header to see the original cards. Any other tool, assistant text, or your next message ends the cell, and resumed sessions show the same cells. ([#2042](https://github.com/code-yeongyu/senpi/issues/2042))
 
 ### Changed
-
-- Built-in read, bash, find, ls, grep, webfetch, and injected-rule notices are separate model-only text parts. Interactive tool cards omit them, including grep statistics and renderer-owned truncation warnings, while preserving tool bodies and rule-activation entries. Provider text and session content remain available to the model. ([#2041](https://github.com/code-yeongyu/senpi/issues/2041))
 
 - The GPT-5.6 and GPT-6 system prompts no longer demand a failing test before every behavior change. They now read the tests that already cover the area as the behavior of record, reproduce a bug before fixing it, let the run prove the change, and add a test only where the repository keeps tests for that behavior and a regression would otherwise pass unnoticed - the stance the Claude and Kimi prompts already had. Sessions on those models stop producing tests that only restate a small change. ([#2035](https://github.com/code-yeongyu/senpi/issues/2035))
 

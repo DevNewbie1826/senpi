@@ -301,8 +301,8 @@ describe("eval renderer", () => {
 		);
 
 		// Then only the pre-result render draws a frame; the post-result call lane is empty
-		expect(renderLines(withoutResult).some((line) => line.includes("╭─"))).toBe(true);
-		expect(renderLines(withResult)).toEqual([]);
+		expect.soft(renderLines(withoutResult).some((line) => line.includes("╭─"))).toBe(true);
+		expect.soft(renderLines(withResult)).toEqual([]);
 	});
 
 	it("Given a result exists when the compact call lane renders then it also yields an empty component", () => {
@@ -319,8 +319,8 @@ describe("eval renderer", () => {
 		);
 
 		// Then the pre-result preview renders code while the post-result lane is empty
-		expect(renderLines(compact)).toEqual(["eval js", "quick math", "1 + 1"]);
-		expect(renderLines(yielded)).toEqual([]);
+		expect.soft(renderLines(compact)).toEqual(["eval js", "quick math", "1 + 1"]);
+		expect.soft(renderLines(yielded)).toEqual([]);
 	});
 
 	it("Given completed cell details when rendered then framed status agent and JSON output are visible", () => {
@@ -359,15 +359,15 @@ describe("eval renderer", () => {
 		const text = lines.join("\n");
 
 		// Then
-		expect(lines[0]).toContain("╭─");
-		expect(text).toContain("eval py done");
-		expect(text).toContain("load config");
-		expect(text).toContain("✓");
-		expect(text).toContain("1s");
-		expect(text).toContain("read 42 chars · from /tmp/config.json");
-		expect(text).toContain("write 18 chars · to /tmp/result.json");
-		expect(text).toContain("display[1]");
-		expect(text).toMatch(/a: 1/u);
+		expect.soft(lines[0]).toContain("╭─");
+		expect.soft(text).toContain("eval py done");
+		expect.soft(text).toContain("load config");
+		expect.soft(text).toContain("✓");
+		expect.soft(text).toContain("1s");
+		expect.soft(text).toContain("read 42 chars · from /tmp/config.json");
+		expect.soft(text).toContain("write 18 chars · to /tmp/result.json");
+		expect.soft(text).toContain("display[1]");
+		expect.soft(text).toMatch(/a: 1/u);
 	});
 
 	it("Given the supported status event matrix when expanded then each operation has a useful summary", () => {
@@ -430,7 +430,7 @@ describe("eval renderer", () => {
 			"log checkpoint",
 			"phase finalize",
 		]) {
-			expect(text).toContain(summary);
+			expect.soft(text).toContain(summary);
 		}
 	});
 });
