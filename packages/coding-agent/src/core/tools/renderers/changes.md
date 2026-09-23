@@ -35,3 +35,24 @@
 ### Expected merge conflict zones
 
 - `packages/coding-agent/src/core/tools/renderers/*.ts`
+
+
+## 2026-09-23 — Remove renderer-owned tool notice lines
+
+### What changed
+
+`packages/coding-agent/src/core/tools/renderers/read.ts`, `packages/coding-agent/src/core/tools/renderers/grep.ts`, `packages/coding-agent/src/core/tools/renderers/bash.ts`: Remove read truncation and oversized-line warnings, grep truncation/statistics headers, and bash full-output warnings. Remove bash footer text matching; structured audience metadata controls visibility.
+
+### Why
+
+The TUI must not reconstruct a notice that the producer deliberately marks model-only.
+
+### Why an extension could not handle it
+
+Built-in renderers own these detail-derived lines and run independently of extension-added text parts.
+
+### Expected merge conflict zones
+
+Read, grep, and bash result formatting; ordinary collapse hints remain.
+
+- Covered production paths: `packages/coding-agent/src/core/tools/renderers/read.ts`, `packages/coding-agent/src/core/tools/renderers/grep.ts`, `packages/coding-agent/src/core/tools/renderers/bash.ts`.

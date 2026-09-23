@@ -10,6 +10,10 @@
 
 ### Changed
 
+- Nested AGENTS.md directory-context blocks are model-only text parts too, so their headers and instruction bodies stay out of the TUI while reaching the model unchanged. ([#2041](https://github.com/code-yeongyu/senpi/issues/2041))
+
+- Built-in read, bash, find, ls, grep, webfetch, and injected-rule notices are separate model-only text parts. Interactive tool cards omit them, including grep statistics and renderer-owned truncation warnings, while preserving tool bodies and rule-activation entries. Provider text and session content remain available to the model. ([#2041](https://github.com/code-yeongyu/senpi/issues/2041))
+
 ### Fixed
 
 - Loading a skill or recalling a memory no longer disappears into the `Explored` cell as `Read SKILL.md`. Those reads keep their own `[skill] <name>` and `✦ Recalled <label>` cards, so loading two skills shows both names, and the reads around them form separate cells. Ordinary, docs, and `AGENTS.md` reads still group as before. ([#2060](https://github.com/code-yeongyu/senpi/issues/2060))

@@ -12,6 +12,7 @@ import { ExtensionRunner } from "../src/core/extensions/runner.ts";
 import type { ExtensionActions, ExtensionContextActions, SessionCompactEvent } from "../src/core/extensions/types.ts";
 import type { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { getTextOutput } from "../src/core/tools/render-utils.ts";
 import { createInMemoryExtensionSessionSettings } from "./helpers/extension-session-settings.ts";
 import { createModelRegistry } from "./model-runtime-test-utils.ts";
 
@@ -148,7 +149,13 @@ describe("rules dynamic cross-target dedup", () => {
 	it("injects one unchanged rule across two distinct matching targets", async () => {
 		const runner = await createRunner();
 
-		expect(textOf((await readResult(runner, firstTarget))?.content)).toContain(ruleToken);
+		const firstResult = await readResult(runner, firstTarget);
+		expect(textOf(firstResult?.content)).toContain(ruleToken);
+		// #2041: the body stays visible; the appended instruction is model-only.
+		expect(firstResult?.content).toEqual([
+			{ type: "text", text: "<file contents>" },
+			{ type: "text", text: expect.stringContaining(ruleToken), audience: "model" },
+		]);
 		expect(textOf((await readResult(runner, secondTarget))?.content)).not.toContain(ruleToken);
 		expect(activationCount()).toBe(1);
 	});
@@ -201,6 +208,19 @@ describe("rules dynamic cross-target dedup", () => {
 		} satisfies SessionCompactEvent);
 		expect(textOf((await readResult(runner, secondTarget))?.content)).toContain(ruleToken);
 		expect(activationCount()).toBe(2);
+	});
+
+	it("keeps a truncated-rule continuation inside the model-only part (#2041)", async () => {
+		writeFileSync(rulePath, ruleContents(`${ruleToken}\n${"rule text\n".repeat(2000)}`), "utf-8");
+		const runner = await createRunner();
+		const result = await readResult(runner, firstTarget);
+		if (!result?.content) throw new Error("Expected injected rule content");
+		expect(result.content.at(-1)).toMatchObject({
+			type: "text",
+			audience: "model",
+			text: expect.stringContaining("[Rule truncated. Read full rule:"),
+		});
+		expect(getTextOutput({ content: result.content }, false)).toBe("<file contents>");
 	});
 
 	it("re-injects when rule content changes before compaction", async () => {
