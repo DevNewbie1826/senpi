@@ -1,3 +1,21 @@
+## 2026-09-23 — Wire visible-stderr observation into the interactive TUI (senpi#1879)
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/tui-renderer.ts` passes `observeVisibleStderrWrites` into `ProcessTerminal` so mouse geometry follows the real stderr destination.
+
+### Why
+
+- Hidden diagnostics were observed above the interactive stderr redirect and duplicated the working frame.
+
+### Why an extension could not handle it
+
+- The interactive TUI factory owns `ProcessTerminal` construction; extensions cannot replace that observer.
+
+### Expected merge conflict zones
+
+- `createInteractiveTui` `ProcessTerminal` options. Keep `onExternalStdoutWrite: appendHiddenTuiStdout`.
+
 ## 2026-09-22 - surface models.json provider-rename warnings (senpi#1989)
 
 ### What changed

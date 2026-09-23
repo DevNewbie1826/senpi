@@ -12,6 +12,8 @@
 
 ### Fixed
 
+- Hidden diagnostics no longer duplicate the terminal screen when mouse capture is enabled. Messages saved only to the debug log leave the current frame intact; errors actually printed to the terminal still reset mouse targeting. ([#1879](https://github.com/code-yeongyu/senpi/issues/1879))
+
 - `/mcp auth <server>` opens the system browser and keeps the complete authorization URL in the transcript instead of replacing it with a progress notice. Browser launch failures leave manual authorization usable, and the MCP documentation now names the supported `auth`, `auth-start`, and `auth-complete` commands. ([oh-my-openagent#6724](https://github.com/code-yeongyu/oh-my-openagent/issues/6724))
 
 ### Removed
