@@ -1,3 +1,22 @@
+## 2026-09-23 - Settings overrides survive saves and reloads (senpi#2052)
+
+### What changed
+
+- `packages/coding-agent/src/core/settings-manager.ts`: `applyOverrides` merges into a private, never-persisted `runtimeOverrides` layer, and every recompute (`save`, `saveProjectSettings`, `reload`, `setProjectTrusted`) goes through `mergedSettings()` = global, then project, then that layer. `markModified` / `markProjectModified` drop the override for exactly the key an explicit setter writes.
+- `packages/coding-agent/src/core/settings-overrides.ts` (new): `withoutOverride` removes one field or one nested key from the layer without mutating it.
+
+### Why
+
+- An override lived only in the resolved view, so the first save of anything (the thinking level, for example) or a reload rebuilt that view from disk and dropped it. `--no-model-fallback` / `SENPI_NO_FALLBACK=1` therefore stopped working mid-session and a Claude version-floor 400 walked the whole fallback chain (oh-my-openagent#8700); `--no-ask-user`, `--theme` and SDK `applyOverrides` callers had the same hole.
+
+### Why an extension could not handle it
+
+- Overrides are the settings manager's own state; an extension can only read the resolved settings the manager hands out.
+
+### Expected merge conflict zones
+
+- LOW: `applyOverrides`, the recompute call sites, `markModified` / `markProjectModified`, and the private field list in `packages/coding-agent/src/core/settings-manager.ts`.
+
 ## 2026-09-23 - Migrate legacy provider ids in models.json on disk (senpi#2044)
 
 ### What changed
@@ -35,7 +54,6 @@ The read boundary added for senpi#1989 normalized legacy ids in memory but never
 ### Expected merge conflict zones
 
 - Stderr takeover and restoration. Multiple subscribers and both teardown orders must remain safe.
-
 ## 2026-09-23 - Namespaced calls to deferred tools activate the unique match (senpi#2025)
 
 ### What changed
