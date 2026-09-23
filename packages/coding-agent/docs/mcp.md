@@ -24,7 +24,7 @@ catalog costs almost nothing until the model actually needs it.
 
 2. Start senpi. Run `/mcp` for the status panel, `/mcp status` for a one-line
    summary, `/mcp add <name> <command...>` to add servers interactively.
-3. Servers needing OAuth: `/mcp login <name>` (see [Auth](#auth)).
+3. Servers needing OAuth: `/mcp auth <name>` (see [Auth](#auth)).
 4. Use it: small catalogs register directly; big ones surface through
    `tool_search` (see [Exposure tiers](#exposure-tiers)).
 
@@ -251,20 +251,23 @@ Semantics:
 ## Auth
 
 - **Bearer**: set `bearerTokenEnv` (recommended) or an `Authorization` header.
-- **OAuth (interactive)**: `/mcp login <name>` runs the authorization-code +
-  PKCE flow with a loopback callback; tokens persist under `<agentDir>` with
+- **OAuth (interactive)**: `/mcp auth <name>` opens the browser for the
+  authorization-code + PKCE flow after the loopback callback is ready. The
+  complete authorization URL stays in the transcript if the browser cannot
+  open, so you can open it manually. Tokens persist under `<agentDir>` with
   `0600` permissions and refresh automatically (single-flight across
   processes).
 - **OAuth (headless)**: `flow:"client_credentials"` for machine-to-machine, or
-  `/mcp login <name> --paste` to complete the code flow by pasting the
-  redirect URL from another browser/machine.
+  `/mcp auth-start <name>` to obtain an authorization URL, followed by
+  `/mcp auth-complete <name> <redirect-url>` to paste the final redirect URL
+  from another browser/machine in the same session.
 - `/mcp logout <name>` clears stored tokens.
 
 ## Troubleshooting
 
 | Symptom (`/mcp status`) | Meaning | Fix |
 |---|---|---|
-| `needs_auth` | 401 and no usable token | `/mcp login <name>` |
+| `needs_auth` | 401 and no usable token | `/mcp auth <name>` |
 | `suspended` | reconnect circuit breaker opened (5 failures/30s) | fix the server, then `/mcp reconnect <name>` |
 | `degraded` | transient failure; auto-reconnect with backoff is running | wait, or `/mcp reconnect <name>` |
 | tools missing | server filtered/disabled, or hidden behind search | check `includeTools`/`excludeTools`, ask the model to `tool_search` |

@@ -6,12 +6,37 @@
 
 ### Added
 
+- A `Project rules` notice for a read inside an `Explored` cell now joins that cell as one `Applied N project rules` line instead of a standalone card that split the cell in two. Stream-rule notices and notices from older sessions stay as their own cards. ([#2057](https://github.com/code-yeongyu/senpi/issues/2057))
+
+### Changed
+
+### Fixed
+
+- Loading a skill or recalling a memory no longer disappears into the `Explored` cell as `Read SKILL.md`. Those reads keep their own `[skill] <name>` and `✦ Recalled <label>` cards, so loading two skills shows both names, and the reads around them form separate cells. Ordinary, docs, and `AGENTS.md` reads still group as before. ([#2060](https://github.com/code-yeongyu/senpi/issues/2060))
+
+### Removed
+
+## [2026.9.23-3] - 2026-09-23
+
+### Breaking Changes
+
+### Added
+
+- The interactive TUI shows consecutive `read`, `grep`, `find`, and `ls` calls as one exploration cell, the way Codex does: `• Explored` followed by lines such as `Read a.ts, b.ts`, `Search <pattern> in <dir>`, and `List <dir>`, with no line ranges or output. Reading one file three times now shows its name once instead of three cards. A failed call stays in the cell and is counted as ` · 1 failed`. Press the tool-expand key (default `ctrl+o`) or click the header to see the original cards. Any other tool, assistant text, or your next message ends the cell, and resumed sessions show the same cells. ([#2042](https://github.com/code-yeongyu/senpi/issues/2042))
+
 ### Changed
 
 - The GPT-5.6 and GPT-6 system prompts no longer demand a failing test before every behavior change. They now read the tests that already cover the area as the behavior of record, reproduce a bug before fixing it, let the run prove the change, and add a test only where the repository keeps tests for that behavior and a regression would otherwise pass unnoticed - the stance the Claude and Kimi prompts already had. Sessions on those models stop producing tests that only restate a small change. ([#2035](https://github.com/code-yeongyu/senpi/issues/2035))
 
 ### Fixed
 
+- A Goal parked on a live wake source shows one `Cache-warm` card per wait instead of a stack of `iteration 1` cards. A config reload used to re-append the parked wait as a new iteration-1 card, drop its cache line, and restart the backstop clock from the reload, which could push the wake past the prompt-cache TTL the card promised; the reload now keeps the same wait, iteration, cache figures, and ready time. The wait card also turns into the `Cache-warm wake` card when the wait ends instead of stacking a second card, and resumed sessions that already recorded stacked cards show one. Extensions can opt into the same in-place update with the new `replaces` option of `pi.registerEntryRenderer()`. ([#2051](https://github.com/code-yeongyu/senpi/issues/2051))
+
+- Hidden diagnostics no longer duplicate the terminal screen when mouse capture is enabled. Messages saved only to the debug log leave the current frame intact; errors actually printed to the terminal still reset mouse targeting. ([#1879](https://github.com/code-yeongyu/senpi/issues/1879))
+- A `models.json` written before the subscription provider rename is now updated to the new provider ids (`chatgpt-subscription`, `anthropic-subscription`) automatically on the first launch, keeping its comments and formatting and a timestamped backup of the original, instead of printing "models.json uses renamed provider ids" on every launch. ([#2044](https://github.com/code-yeongyu/senpi/issues/2044))
+- `--no-model-fallback`, `SENPI_NO_FALLBACK=1`, `--no-ask-user` and `--theme` now hold for the whole session. They were silently dropped the first time the session saved any setting, so a run that opted out of model fallback could still answer from a different model. Changing the same setting yourself during the session (for example with `/fallback`) still takes effect. ([#2052](https://github.com/code-yeongyu/senpi/issues/2052))
+- When a Claude subscription model rejects the local Claude Code as too old, the message now names the binary that ran and where it came from (`CLAUDE_CODE_EXECUTABLE`, the copy senpi ships, or `claude` on your PATH) and gives the fix that works for that binary, instead of always telling you to update senpi. On Windows, a Claude Code installed with `npm i -g @anthropic-ai/claude-code` is now found and used when it is newer than the bundled copy. ([#2053](https://github.com/code-yeongyu/senpi/issues/2053))
+- `/mcp auth <server>` opens the system browser and keeps the complete authorization URL in the transcript instead of replacing it with a progress notice. Browser launch failures leave manual authorization usable, and the MCP documentation now names the supported `auth`, `auth-start`, and `auth-complete` commands. ([oh-my-openagent#6724](https://github.com/code-yeongyu/oh-my-openagent/issues/6724))
 - Cursor legacy variant references for families the static alias table does not list (grok-4.7, claude-opus-5-5, claude-fable-5-1, gemini-3.8-flash, muse-spark-1.3) now resolve onto the runtime-derived identity with their thinking level instead of fuzzy-matching a flat `-fast` model: `--model cursor/grok-4.7:low` selects grok-4.7 at low (previously grok-4.7-xhigh-fast with thinking off), `cursor/grok-4.7-xhigh` (in any letter case) and stored variant ids restore their level, `cursor/grok-4.7-*` globs project the derived identity alongside the fast models, and both Cursor lanes keep the derived level-to-variant-id map across CLI catalog cache reloads. Exact raw models still win over derived aliases. The CLI catalog cache rebuilds its models from the stored `cursor-agent models` listing, so a recorded context limit no longer forces a re-probe, and a cache written before this change probes once; if that probe fails, the cached models are still served instead of the built-in offline list. ([#2038](https://github.com/code-yeongyu/senpi/issues/2038))
 
 ### Removed

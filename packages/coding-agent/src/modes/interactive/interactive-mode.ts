@@ -175,11 +175,12 @@ import { BranchSummaryMessageComponent } from "./components/branch-summary-messa
 import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.ts";
 import { ContinuityNoticeTracker } from "./components/continuity-notice.ts";
 import { CustomEditor } from "./components/custom-editor.ts";
-import { CustomEntryComponent } from "./components/custom-entry.ts";
+import { CustomEntryComponent, replacedEntryCardIndex } from "./components/custom-entry.ts";
 import { CustomMessageComponent } from "./components/custom-message.ts";
 import { DaxnutsComponent } from "./components/daxnuts.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
 import { EarendilAnnouncementComponent } from "./components/earendil-announcement.ts";
+import { ExplorationTranscriptContainer } from "./components/exploration-transcript-container.ts";
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
@@ -200,11 +201,7 @@ import {
 	formatAuthSelectorProviderType,
 	OAuthSelectorComponent,
 } from "./components/oauth-selector.ts";
-import {
-	DEFAULT_TAIL_BUDGET,
-	DEFAULT_WARM_CHUNK_SIZE,
-	ProgressiveTranscriptContainer,
-} from "./components/progressive-transcript-container.ts";
+import { DEFAULT_TAIL_BUDGET, DEFAULT_WARM_CHUNK_SIZE } from "./components/progressive-transcript-container.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
@@ -250,6 +247,7 @@ import {
 	isNetworkProviderMessage,
 	ProviderErrorPresentation,
 } from "./provider-error-presentation.ts";
+import { replayAssistantTools } from "./replay-assistant-tools.ts";
 import { isRiskyMainModel, RISKY_MAIN_MODEL_WARNING } from "./risky-main-model-warning.ts";
 import { DEFAULT_SMOOTH_FPS, StreamingRevealController } from "./streaming-reveal.ts";
 import {
@@ -1163,7 +1161,7 @@ export class InteractiveMode {
 		// Resuming a long session paints a bounded, fully-styled tail first and warms
 		// the earlier history in background chunks, so /resume is not blocked on
 		// Markdown-rendering every persisted message before the first frame.
-		this.chatContainer = new ProgressiveTranscriptContainer({
+		this.chatContainer = new ExplorationTranscriptContainer({
 			tailBudget: DEFAULT_TAIL_BUDGET,
 			warmChunkSize: DEFAULT_WARM_CHUNK_SIZE,
 			requestRender: () => this.ui.requestRender(),
@@ -5805,12 +5803,24 @@ export class InteractiveMode {
 			return;
 		}
 
-		if (this.streamingComponent) {
-			const streamingIndex = this.chatContainer.children.indexOf(this.streamingComponent);
-			if (streamingIndex >= 0) {
-				this.chatContainer.children.splice(streamingIndex, 0, component);
-				return;
-			}
+		const children = this.chatContainer.children;
+		const streamingIndex = this.streamingComponent ? children.indexOf(this.streamingComponent) : -1;
+		const insertIndex = streamingIndex >= 0 ? streamingIndex : children.length;
+		const options = this.session.extensionRunner.getEntryRendererOptions(entry.customType);
+		const replacedIndex = replacedEntryCardIndex(
+			children,
+			insertIndex,
+			entry,
+			options,
+			(child) => child === this.lastStatusText || child === this.lastStatusSpacer,
+		);
+		if (replacedIndex >= 0) {
+			children.splice(replacedIndex, 1, component);
+			return;
+		}
+		if (streamingIndex >= 0) {
+			children.splice(streamingIndex, 0, component);
+			return;
 		}
 
 		this.chatContainer.addChild(component);
@@ -6117,31 +6127,13 @@ export class InteractiveMode {
 			const message = item;
 			// Assistant messages need special handling for tool calls
 			if (message.role === "assistant") {
-				this.addMessageToChat(message);
-				// Render tool call components
-				for (const content of message.content) {
-					if (content.type === "toolCall") {
-						const component = this.createToolExecutionComponent(content.name, content.id, content.arguments);
-						component.setExpanded(this.toolOutputExpanded);
-						this.chatContainer.addChild(component);
-
-						if (message.stopReason === "aborted" || message.stopReason === "error") {
-							let errorMessage: string;
-							if (message.stopReason === "aborted") {
-								errorMessage =
-									abortedMessageForRendering(message, 0, undefined).errorMessage || "Provider request failed";
-							} else {
-								errorMessage = message.errorMessage || "Error";
-							}
-							component.updateResult({
-								content: [{ type: "text", text: errorMessage }],
-								isError: true,
-							});
-						} else {
-							renderedPendingTools.set(content.id, component);
-						}
-					}
-				}
+				replayAssistantTools(message, {
+					expanded: this.toolOutputExpanded,
+					addMessage: (part) => this.addMessageToChat(part),
+					addChild: (component) => this.chatContainer.addChild(component),
+					createTool: (name, id, args) => this.createToolExecutionComponent(name, id, args),
+					pending: renderedPendingTools,
+				});
 				if (message.stopReason !== "aborted" && message.stopReason !== "error") {
 					this.maybeShowAssistantDiagnostics?.(message);
 					const miss = cacheMisses.get(message);

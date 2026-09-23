@@ -2,6 +2,24 @@
 
 Vendored from [`code-yeongyu/pi-rules`](https://github.com/code-yeongyu/pi-rules) (see `external-versions.json`).
 
+## 2026-09-23 - Project-rules activations name the tool call they were injected into (senpi#2057)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/rules/index.ts`: the `project-rules` rule-activation entry carries `toolCallId` from the `tool_result` event whose content received the rules.
+
+### Why
+
+- The interactive TUI folds the notice into the Explored group of that call instead of rendering a standalone card that splits the group; the desktop app reads the same field.
+
+### Why an extension could not handle it
+
+- The rules extension owns the entry; only it knows which tool result received the injection.
+
+### Expected merge conflict zones
+
+- The `appendRuleActivation({...})` call at the end of the `tool_result` handler in `index.ts`.
+
 ## 2026-09-22 - claude-sdk-oauth provider id renamed to anthropic-subscription in the prompt-rebuild comment (senpi#1989)
 
 ### What changed

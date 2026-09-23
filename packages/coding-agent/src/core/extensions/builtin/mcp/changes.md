@@ -1,5 +1,27 @@
 # mcp Extension Changes
 
+## 2026-09-23 - Keep native OAuth authorization usable (oh-my-openagent#6724)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/mcp/auth/commands-auth-dispatch.ts` calls the existing shell-free browser launcher and emits UI-only transcript entries for auth notices.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/auth/commands-auth.ts` presents the full URL before opening the browser, retains paste instructions, and lets manual authorization continue if the opener rejects.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/commands.ts` renders auth entries through the shared notice renderer. These entries never enter model context.
+
+### Why
+
+- Native auth previously substituted a transient notification for the browser launcher, then overwrote that URL with another status notification. A user could neither open the browser nor recover the link.
+
+### Why an extension could not handle it
+
+- The MCP builtin owns the command dispatch and OAuth provider callback; its own `packages/coding-agent/src/core/extensions/builtin/mcp/auth/commands-auth-dispatch.ts` and `packages/coding-agent/src/core/extensions/builtin/mcp/auth/commands-auth.ts` must expose and launch the URL.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/extensions/builtin/mcp/auth/commands-auth-dispatch.ts`: UI/browser dependencies.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/auth/commands-auth.ts`: interactive authorization announcements.
+- `packages/coding-agent/src/core/extensions/builtin/mcp/commands.ts`: renderer registration.
+
 ## 2026-09-21 - Share eligible connections in the in-process host (#1921)
 
 ### What changed

@@ -1,3 +1,60 @@
+## 2026-09-23 - Settings overrides survive saves and reloads (senpi#2052)
+
+### What changed
+
+- `packages/coding-agent/src/core/settings-manager.ts`: `applyOverrides` merges into a private, never-persisted `runtimeOverrides` layer, and every recompute (`save`, `saveProjectSettings`, `reload`, `setProjectTrusted`) goes through `mergedSettings()` = global, then project, then that layer. `markModified` / `markProjectModified` drop the override for exactly the key an explicit setter writes.
+- `packages/coding-agent/src/core/settings-overrides.ts` (new): `withoutOverride` removes one field or one nested key from the layer without mutating it.
+
+### Why
+
+- An override lived only in the resolved view, so the first save of anything (the thinking level, for example) or a reload rebuilt that view from disk and dropped it. `--no-model-fallback` / `SENPI_NO_FALLBACK=1` therefore stopped working mid-session and a Claude version-floor 400 walked the whole fallback chain (oh-my-openagent#8700); `--no-ask-user`, `--theme` and SDK `applyOverrides` callers had the same hole.
+
+### Why an extension could not handle it
+
+- Overrides are the settings manager's own state; an extension can only read the resolved settings the manager hands out.
+
+### Expected merge conflict zones
+
+- LOW: `applyOverrides`, the recompute call sites, `markModified` / `markProjectModified`, and the private field list in `packages/coding-agent/src/core/settings-manager.ts`.
+
+## 2026-09-23 - Migrate legacy provider ids in models.json on disk (senpi#2044)
+
+### What changed
+
+- `packages/coding-agent/src/core/models-json-migration.ts` (new): `migrateModelsJsonProviderIds` rewrites a models.json whose `providers` keys or `disabledProviders` entries use a legacy provider id (`openai-codex`, `claude-sdk-oauth`) to the canonical id, once. It edits only the affected JSONC tokens so comments and formatting survive, proves the result re-parses to the migrated document (falling back to a full re-serialization only when it does not), drops a legacy entry shadowed by its canonical entry, keeps the original bytes as `models.json.backup-<stamp>`, writes through a temp file with the original mode, refuses to replace a file that changed after it was read, and removes its temp and backup on any failure.
+- `packages/coding-agent/src/core/model-config.ts`: `load` and `loadSync` run the migration after a successful parse (`parseAndMigrate`); the in-memory read boundary is unchanged. The per-launch "models.json uses renamed provider ids" warning is gone; a warning remains only when the rewrite fails, and it names the reason. The pre-validation normalization loop in `parse` now skips non-array `models`, non-object `modelOverrides` and non-object entries, so a shape error such as `"models": "x"` is reported by the schema validator as `Invalid models.json schema` instead of crashing with `(record.models ?? []).map is not a function`.
+- Tests: `packages/coding-agent/test/suite/regressions/issue-2044-models-json-provider-id-migration.test.ts`; `packages/coding-agent/test/read-boundary-models-json.test.ts` now expects no warning for a migrated file; `packages/coding-agent/test/suite/no-sync-in-session-path.ledger.json` records the migration's one-shot, KB-scale sync read and two writes on the session path.
+
+### Why
+
+The read boundary added for senpi#1989 normalized legacy ids in memory but never rewrote models.json, so every launch repeated the warning and each user had to hand-edit the file. auth.json, settings.json and the account directory were already migrated in place; models.json was the last persisted surface left read-only. This reverses the "Nothing here rewrites state" stance of the 2026-09-22 read-boundary entry for models.json only.
+
+### Why an extension could not handle it
+
+`ModelConfig` loads models.json inside the model runtime before any extension binds, and the file path is owned by core.
+
+### Expected merge conflict zones
+
+- LOW: `parse`/`load`/`loadSync` in `packages/coding-agent/src/core/model-config.ts` and its import list.
+
+## 2026-09-23 — Observe stderr below hidden diagnostic redirects (senpi#1879)
+
+### What changed
+
+- `packages/coding-agent/src/core/output-guard.ts` exposes a shared visible-stderr subscription. It follows the underlying writer across guard installation and restoration, retaining callback and backpressure behavior.
+
+### Why
+
+- Hidden diagnostics were invalidating mouse geometry even though no bytes reached the terminal.
+
+### Why an extension could not handle it
+
+- The output guard owns the actual stderr destination and its redacted failure fallback.
+
+### Expected merge conflict zones
+
+- Stderr takeover and restoration. Multiple subscribers and both teardown orders must remain safe.
+
 ## 2026-09-23 - Legacy Cursor variant references resolve through runtime-derived groups (senpi#2038)
 
 ### What changed

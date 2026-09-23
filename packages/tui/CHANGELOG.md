@@ -12,6 +12,20 @@
 
 ### Removed
 
+## [2026.9.23-3] - 2026-09-23
+
+### Breaking Changes
+
+### Added
+
+### Changed
+
+### Fixed
+
+- Hidden diagnostics no longer duplicate the terminal screen when mouse capture is enabled. Observation now follows the real stderr destination instead of wrapping writes above a host redirect. ([#1879](https://github.com/code-yeongyu/senpi/issues/1879))
+
+### Removed
+
 ## [2026.9.23-2] - 2026-09-23
 
 ### Breaking Changes

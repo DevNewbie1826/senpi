@@ -16,6 +16,8 @@ export default mergeConfig(
 			testTimeout: 30_000,
 			reporters: process.env.GITHUB_ACTIONS ? ["dot", "github-actions"] : ["dot"],
 			silent: "passed-only",
+			// Interpreter tests spawn child runtimes; use the same CI worker bound as coding-agent.
+			...(process.env.CI || process.env.GITHUB_ACTIONS ? { pool: "forks" as const, maxWorkers: 2 } : {}),
 		},
 		resolve: {
 			alias: [

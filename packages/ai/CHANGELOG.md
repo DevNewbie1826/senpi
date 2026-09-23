@@ -14,6 +14,18 @@
 
 ### Removed
 
+## [2026.9.23-3] - 2026-09-23
+
+### Breaking Changes
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
 ## [2026.9.23-2] - 2026-09-23
 
 ### Breaking Changes
