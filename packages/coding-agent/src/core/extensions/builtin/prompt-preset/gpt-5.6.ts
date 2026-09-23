@@ -37,19 +37,24 @@
 // kernel as the default multi-call surface, deep-planned parallel batching as
 // wide as the step allows, a bias toward over-calling inside that one wave,
 // in-kernel reduction, the stay-direct exceptions, subagent fan-out,
-// finest-grain todo transitions, test-first, atomic commits, and LSP symbol
-// routing. They live in `GPT56_EXECUTION_RULES` (typed rule data, like
+// finest-grain todo transitions, the test decision, atomic commits, and LSP
+// symbol routing. They live in `GPT56_EXECUTION_RULES` (typed rule data, like
 // `dynamic-prompt/verification.ts`) and each directive is interpolated once, at
 // its point of use, replacing the weaker text it supersedes rather than being
 // appended as a trailer: the old "independent calls run in the same message" /
-// "each shell command is its own bash call" pair, the mid-paragraph todo
-// mechanics, and the "default to not adding tests" rule (re-scoped into
-// test-first itself: tests at the touched seam, prose and visual work via
-// real-surface QA - the blanket version contradicted test-first, the scoped
-// version bounds it). The GPT-5.6 guide's Programmatic-Tool-Calling
+// "each shell command is its own bash call" pair and the mid-paragraph todo
+// mechanics. The GPT-5.6 guide's Programmatic-Tool-Calling
 // section drives the shape: a bounded routing contract naming the stage,
 // eligible surface, output, and what stays direct beats generic "use PTC
 // efficiently" wording, which does not route.
+//
+// 2026-09-23: `test-first` became `test-decision` and moved from Pragmatism &
+// Scope into `## Verification`. The test-first rule made a test the proof of
+// every change with a seam, so simple changes inside tested modules grew
+// change-certifying tests and the harness grew counter-rules to catch them.
+// The run proves the change; a test is added only where the repository keeps
+// tests for that behavior and a regression would otherwise pass unnoticed,
+// after the existing tests were read as the behavior of record.
 
 import { APP_NAME } from "../../../../config.ts";
 import type { DynamicPromptCoreContext } from "../../../dynamic-prompt/build.ts";
@@ -57,6 +62,7 @@ import { type BuildDynamicSystemPromptOptions, buildDynamicSystemPrompt } from "
 import { buildTestDisciplineSection } from "../../../dynamic-prompt/verification.ts";
 import { buildFileOperationsTuning } from "./file-operations.ts";
 import { buildGptEvalRoutingTuning } from "./gpt-eval-routing.ts";
+import { TEST_DECISION } from "./test-decision.ts";
 
 export type Gpt56ExecutionRuleId =
 	| "eval-first-routing"
@@ -65,7 +71,7 @@ export type Gpt56ExecutionRuleId =
 	| "stay-direct-exceptions"
 	| "delegation"
 	| "todo-granularity"
-	| "test-first"
+	| "test-decision"
 	| "atomic-commits"
 	| "lsp-symbol-routing";
 
@@ -73,7 +79,7 @@ export type Gpt56ExecutionConcern =
 	| "tool-orchestration"
 	| "delegation"
 	| "todo-discipline"
-	| "test-first"
+	| "tests"
 	| "commit-discipline"
 	| "symbol-routing";
 
@@ -101,9 +107,6 @@ const DELEGATION =
 const TODO_GRANULARITY =
 	"Split the work to the finest actionable grain - one item per edit plus the check that proves it - and drive every transition the moment it happens: start it, complete it, append newly discovered steps, drop abandoned ones, never batch the updates.";
 
-const TEST_FIRST =
-	"Work test-first on behavior changes: write the one failing test at the seam the change touches, watch it fail for the right reason, then make the smallest change that turns it green. Prose, doc, and visual-only changes take review plus real-surface QA, not tests. Skip test-first also for formatting, comments, renames, or dependency bumps, and never write a test that cannot fail for the regression it names.";
-
 const ATOMIC_COMMITS =
 	"When commits are authorized, commit atomically per verified increment, in the repository's existing message convention, each commit green on its own - never one omnibus commit at the end.";
 
@@ -117,7 +120,7 @@ export const GPT56_EXECUTION_RULES = [
 	{ id: "stay-direct-exceptions", concern: "tool-orchestration", directive: STAY_DIRECT_EXCEPTIONS },
 	{ id: "delegation", concern: "delegation", directive: DELEGATION },
 	{ id: "todo-granularity", concern: "todo-discipline", directive: TODO_GRANULARITY },
-	{ id: "test-first", concern: "test-first", directive: TEST_FIRST },
+	{ id: "test-decision", concern: "tests", directive: TEST_DECISION },
 	{ id: "atomic-commits", concern: "commit-discipline", directive: ATOMIC_COMMITS },
 	{ id: "lsp-symbol-routing", concern: "symbol-routing", directive: LSP_SYMBOL_ROUTING },
 ] as const satisfies readonly Gpt56ExecutionRule[];
@@ -160,6 +163,8 @@ Scale the scope of checks to the change, never the rigor:
 
 Run the validator before reporting anything clean - "should pass" is not verification; if validation cannot run, say so and name the next best check. Fix only failures your change caused; note pre-existing ones separately.
 
+${TEST_DECISION}
+
 ${buildTestDisciplineSection()}
 
 ## Manual QA Gate
@@ -183,8 +188,6 @@ If an approach fails, try a materially different one - a different algorithm, li
 The best change is usually the smallest correct change: fewer new names, helpers, and layers; single-use logic stays inline - a little duplication beats speculative abstraction. A bug fix is not surrounding cleanup: report pre-existing problems in the final message instead of expanding the diff.
 
 Write only what the current correct path needs - no error handlers, fallbacks, retries, or validation for scenarios the current contracts exclude; validate at system boundaries only (user input, external APIs, untrusted I/O). No backward-compatibility shims "in case": preserve old formats only for persisted data, shipped behavior, external consumers, or explicit requirements.
-
-${TEST_FIRST}
 
 ${context.toolSection}
 

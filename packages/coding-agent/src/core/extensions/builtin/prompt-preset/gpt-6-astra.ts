@@ -37,9 +37,12 @@
 //   declared reading persists so a mid-task message gets work, not a fresh
 //   line. `memory-first` routes the model to stored memory for this user's
 //   preferences before it asks anything memory may already answer.
-// - Testing: Astra over-tests small changes. `## Verification` keeps this
-//   fork's test-first rule scoped to one failing test at the seam, alongside
-//   the guide's run-once-then-move-on calibration.
+// - Testing: Astra over-tests small changes. `## Verification` carries the
+//   fork's test decision (2026-09-23, replacing test-first): read the existing
+//   tests as the behavior of record, let the run prove the change, and add a
+//   test only where the repository keeps tests for that behavior and a
+//   regression would otherwise pass unnoticed - alongside the guide's
+//   run-once-then-move-on calibration.
 //
 // Emphasis is deliberate and rationed: only the asynchronous-execution rules
 // render in capitals and bold - the asynchronous form as the default of every
@@ -119,6 +122,7 @@ import { type BuildDynamicSystemPromptOptions, buildDynamicSystemPrompt } from "
 import { buildTestDisciplineSection } from "../../../dynamic-prompt/verification.ts";
 import { buildFileOperationsTuning } from "./file-operations.ts";
 import { buildGptEvalRoutingTuning } from "./gpt-eval-routing.ts";
+import { TEST_DECISION } from "./test-decision.ts";
 
 export type Gpt6AstraRuleId =
 	| "initiative-bias"
@@ -142,7 +146,7 @@ export type Gpt6AstraRuleId =
 	| "turn-end-is-wait"
 	| "monitor-conditions"
 	| "verification-once"
-	| "test-first"
+	| "test-decision"
 	| "unbounded-retry"
 	| "atomic-commits"
 	| "no-external-messaging"
@@ -160,7 +164,7 @@ export type Gpt6AstraConcern =
 	| "todo-discipline"
 	| "async-work"
 	| "verification"
-	| "test-first"
+	| "tests"
 	| "failure-recovery"
 	| "commit-discipline"
 	| "external-side-effects"
@@ -236,9 +240,6 @@ const MONITOR_CONDITIONS =
 const VERIFICATION_ONCE =
 	"Broaden or repeat checks only when a new change, a failure, or an open concern justifies it; otherwise keep moving toward completion.";
 
-const TEST_FIRST =
-	"A behavior change starts with one failing test at the seam it touches, watched to fail for the right reason, then the smallest change that passes it. Formatting, comments, renames, dependency bumps, and visual-only work get review and a real-surface check instead; leave out any test that mirrors the implementation or cannot fail for the regression it names.";
-
 const UNBOUNDED_RETRY =
 	"When an approach fails, change something material - a different algorithm, library, source, or assumption - and re-verify after each attempt, since stale state explains most confusing failures. There is no attempt limit: keep going until the objective holds, and when a lookup comes back empty or thin, widen it to another source or run it directly before you treat the absence as a fact. Restore broken files to the last known-good state before the next approach, and bring the user in only for a decision that is theirs to make.";
 
@@ -282,7 +283,7 @@ export const GPT6_ASTRA_RULES = [
 	{ id: "turn-end-is-wait", concern: "async-work", directive: TURN_END_IS_WAIT },
 	{ id: "monitor-conditions", concern: "async-work", directive: MONITOR_CONDITIONS },
 	{ id: "verification-once", concern: "verification", directive: VERIFICATION_ONCE },
-	{ id: "test-first", concern: "test-first", directive: TEST_FIRST },
+	{ id: "test-decision", concern: "tests", directive: TEST_DECISION },
 	{ id: "unbounded-retry", concern: "failure-recovery", directive: UNBOUNDED_RETRY },
 	{ id: "atomic-commits", concern: "commit-discipline", directive: ATOMIC_COMMITS },
 	{ id: "no-external-messaging", concern: "external-side-effects", directive: NO_EXTERNAL_MESSAGING },
@@ -331,7 +332,7 @@ ${ASYNC_DEFAULT} ${FOREGROUND_EXCEPTION} ${TURN_END_IS_WAIT} ${MONITOR_CONDITION
 
 Scale the scope of checks to the change and keep the rigor: a non-behavioral single-file edit needs diagnostics on that file; a single-domain behavior change adds the related tests and one run of the affected entry point; multi-file or cross-cutting work adds the build and the user-visible behavior exercised through its real surface (run the binary, curl the endpoint, drive the page, import the module), where a defect found in use is yours to fix this turn. ${VERIFICATION_ONCE}
 
-${TEST_FIRST}
+${TEST_DECISION}
 
 ${buildTestDisciplineSection()}
 

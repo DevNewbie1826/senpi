@@ -71,7 +71,7 @@ const EXPECTED_CONCERN: Record<Gpt56ExecutionRuleId, Gpt56ExecutionConcern> = {
 	"stay-direct-exceptions": "tool-orchestration",
 	delegation: "delegation",
 	"todo-granularity": "todo-discipline",
-	"test-first": "test-first",
+	"test-decision": "tests",
 	"atomic-commits": "commit-discipline",
 	"lsp-symbol-routing": "symbol-routing",
 };
@@ -84,7 +84,7 @@ const EXPECTED_SECTION: Record<Gpt56ExecutionRuleId, string> = {
 	delegation: "Working the Task",
 	"todo-granularity": "Working the Task",
 	"lsp-symbol-routing": "Working the Task",
-	"test-first": "Pragmatism & Scope",
+	"test-decision": "Verification",
 	"atomic-commits": "Hard Limits",
 };
 
@@ -148,7 +148,7 @@ describe("GPT-5.6 execution discipline", () => {
 		expect(prompt).not.toContain("one narrow question, then stop.");
 	});
 
-	it("drops the anti-test default that contradicts the test-first directive", () => {
+	it("renders the apply_patch file-operations tuning for the luna variant", () => {
 		// given
 		const prompt = buildPrompt("gpt-5.6", "gpt-5.6-luna");
 
