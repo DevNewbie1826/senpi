@@ -7,10 +7,6 @@ import { imageGenRegistryOverride } from "./state.ts";
 import { generateImageTool } from "./tool.ts";
 
 const IMAGEGEN_BASE_DIR = dirname(fileURLToPath(import.meta.url));
-// Bun compile extracts imported file assets to a real path; Node dist keeps using the copied skill.
-const embeddedSkillPath = process.versions.bun
-	? import("./skill/SKILL.md", { with: { type: "file" } }).then((module) => module.default as string)
-	: Promise.resolve(undefined);
 let loggedMissingSkill = false;
 
 export const IMAGE_GEN_SECTION = `
@@ -25,11 +21,27 @@ async function isImageGenActive(ctx: ExtensionContext): Promise<boolean> {
 	return auth.kind !== "none";
 }
 
+/**
+ * The compiled binary and the release bundle both rewrite this import into the absolute path of the
+ * shipped asset, and the bundle runs on Node as well as Bun. Unbundled Node rejects the attribute,
+ * but there the copied skill beside this module already answered.
+ */
+async function embeddedSkillPath(): Promise<string | undefined> {
+	try {
+		const module = await import("./skill/SKILL.md", { with: { type: "file" } });
+		return module.default as string;
+	} catch {
+		return undefined;
+	}
+}
+
 async function bundledSkillPath(baseDir: string): Promise<string | undefined> {
 	const skillPath = join(baseDir, "skill", "SKILL.md");
 	if (existsSync(skillPath)) return skillPath;
-	const embeddedPath = await embeddedSkillPath;
-	if (baseDir === IMAGEGEN_BASE_DIR && embeddedPath !== undefined && existsSync(embeddedPath)) return embeddedPath;
+	if (baseDir === IMAGEGEN_BASE_DIR) {
+		const embeddedPath = await embeddedSkillPath();
+		if (embeddedPath !== undefined && existsSync(embeddedPath)) return embeddedPath;
+	}
 	if (!loggedMissingSkill) {
 		loggedMissingSkill = true;
 		console.error(`[imagegen] bundled skill not found at ${skillPath}; skipping contribution`);

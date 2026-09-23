@@ -1,3 +1,21 @@
+## 2026-09-23 - The release bundle resolves the embedded skill on Node and Bun (senpi#2028)
+
+### What changed
+
+- `index.ts`: `embeddedSkillPath()` imports `./skill/SKILL.md` with `{ type: "file" }` lazily, only after the module-relative copy is missing and only for the module's own base directory, and no longer gates on `process.versions.bun`. An unbundled Node run rejects the attribute; the rejection resolves to `undefined` and the missing-skill notice still fires.
+
+### Why
+
+- The npm bundle (`dist/bundle`) runs on Node for npm installs and on Bun for `bun install -g`. Its chunks never have a `skill/SKILL.md` beside them, so the embedded asset is the only copy, and the Bun-only gate meant a Node-run bundle could never contribute the skill. The companion bundle-plugin fix (`scripts/bundle-file-attribute-plugin.mjs`) makes that asset path absolute.
+
+### Why an extension could not handle it
+
+- The skill contribution is owned by this builtin; the resolver is its private helper.
+
+### Expected merge conflict zones
+
+- NONE: fork-only builtin.
+
 ## 2026-09-10 - Sunburst stays the default model
 
 ### What changed

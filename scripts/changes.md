@@ -1339,3 +1339,23 @@ daemon's stderr log was empty because it is truncated on each generation start.
 
 Unbundled 36/36. Bundled: ensure -> `start` (socket present), ensure -> `reuse` (same
 pid), stop -> `stopped` (socket removed).
+
+## fix(bundle): file-attribute imports resolve to absolute paths (senpi#2028)
+
+### What changed
+
+- `scripts/bundle-file-attribute-plugin.mjs` (new, moved out of `scripts/build-coding-agent-bundle.mjs`): each `import(..., { with: { type: "file" } })` becomes a wrapper module that imports the esbuild-emitted asset path and exports `fileURLToPath(new URL(emittedPath, import.meta.url))`.
+- `scripts/bundle-file-attribute-plugin.test.mjs`: builds a fixture in both release layouts (split main bundle, unsplit sibling build) and runs it on Node and Bun from an unrelated cwd.
+- `scripts/node-bundle-smoke.test.ts`: the bundled CLI lists the `gpt-image-gen` skill with an existing path and prints no missing-skill notice, and the bundle keeps exactly the two `claudeCodeVersion="X.Y.Z"` declarations (the `anthropic-messages-*` chunk and `session-worker.js`) that a downstream installer rewrites in place.
+
+### Why
+
+- esbuild's `file` loader inlines a path relative to the output file that contains it (`"../SKILL-<hash>.md"`), while Bun's native import returns an absolute path. Consumers `existsSync` the value, which resolved against `process.cwd()`, so every published install printed `[imagegen] bundled skill not found` and dropped the skill.
+
+### Why an extension could not handle it
+
+- Release bundling is build tooling, not runtime behavior.
+
+### Expected merge conflict zones
+
+- NONE: fork-only scripts.
