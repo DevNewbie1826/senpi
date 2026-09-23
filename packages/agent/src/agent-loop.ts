@@ -25,6 +25,7 @@ import {
 } from "./assistant-terminal-state.ts";
 import { getDefaultStreamFn, withEmptyAssistantRecovery } from "./stream-fn.ts";
 import { prepareAgentToolCallArguments } from "./tool-arguments.ts";
+import { resolveToolNameAlias, toolNameCorrectionNotice } from "./tool-name-alias.ts";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -861,7 +862,7 @@ async function executeToolCallsSequential(
 		let finalized: FinalizedToolCallOutcome;
 		if (preparation.kind === "immediate") {
 			finalized = {
-				toolCall,
+				toolCall: preparation.toolCall,
 				result: preparation.result,
 				isError: preparation.isError,
 			};
@@ -920,7 +921,7 @@ async function executeToolCallsParallel(
 		});
 
 		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
-		const isSequential = isSequentialToolCall(currentContext, toolCall);
+		const isSequential = isSequentialToolCall(currentContext, preparation.toolCall);
 		const dependencies = isSequential
 			? [...(lastSequentialCall ? [lastSequentialCall] : []), ...currentParallelWave]
 			: lastSequentialCall
@@ -1008,6 +1009,7 @@ type PreparedToolCall = {
 	toolCall: AgentToolCall;
 	tool: AgentTool;
 	args: unknown;
+	requestedName?: string;
 };
 
 type ImmediateToolCallOutcome = {
@@ -1070,6 +1072,13 @@ async function prepareToolCall(
 		tool = await config.resolveUnknownToolCall(toolCall.name, currentContext);
 	}
 	if (!tool) {
+		const aliasedName = resolveToolNameAlias(
+			toolCall.name,
+			(currentContext.tools ?? []).map((candidate) => candidate.name),
+		);
+		tool = currentContext.tools?.find((candidate) => candidate.name === aliasedName);
+	}
+	if (!tool) {
 		const hint = config.removedToolHints?.[toolCall.name];
 		return {
 			kind: "immediate",
@@ -1080,7 +1089,44 @@ async function prepareToolCall(
 			isError: true,
 		};
 	}
+	if (tool.name !== toolCall.name) {
+		const requestedName = toolCall.name;
+		const outcome = await prepareResolvedToolCall(
+			currentContext,
+			assistantMessage,
+			{ ...toolCall, name: tool.name },
+			tool,
+			config,
+			signal,
+		);
+		if (outcome.kind === "prepared") return { ...outcome, requestedName };
+		return { ...outcome, result: withToolNameCorrection(outcome.result, requestedName, tool.name) };
+	}
+	return prepareResolvedToolCall(currentContext, assistantMessage, toolCall, tool, config, signal);
+}
 
+function withToolNameCorrection(
+	result: AgentToolResult<unknown>,
+	requestedName: string,
+	resolvedName: string,
+): AgentToolResult<unknown> {
+	return {
+		...result,
+		content: [
+			{ type: "text", text: toolNameCorrectionNotice(requestedName, resolvedName) },
+			...(result.content ?? []),
+		],
+	};
+}
+
+async function prepareResolvedToolCall(
+	currentContext: AgentContext,
+	assistantMessage: AssistantMessage,
+	toolCall: AgentToolCall,
+	tool: AgentTool,
+	config: AgentLoopConfig,
+	signal: AbortSignal | undefined,
+): Promise<PreparedToolCall | ImmediateToolCallOutcome> {
 	try {
 		const preparedToolCall = prepareAgentToolCall(tool, toolCall);
 		const validatedArgs = preparedToolCall.args;
@@ -1238,6 +1284,9 @@ async function finalizeExecutedToolCall(
 			result = createErrorToolResult(error instanceof Error ? error.message : String(error));
 			isError = true;
 		}
+	}
+	if (prepared.requestedName !== undefined) {
+		result = withToolNameCorrection(result, prepared.requestedName, prepared.toolCall.name);
 	}
 
 	return {

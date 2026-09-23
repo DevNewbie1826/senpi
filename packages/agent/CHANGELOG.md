@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- A tool call whose name differs from a registered tool only by a `mcp__<id>__` gateway namespace, letter case, or `-`/`_` separators now runs that tool when exactly one tool matches, instead of failing with `Tool <name> not found`. Hooks, events and the tool result carry the registered name, and the result starts with an `[auto-corrected]` note. Ambiguous names still fail. ([#2025](https://github.com/code-yeongyu/senpi/issues/2025))
+
 ### Removed
 
 ## [2026.9.23] - 2026-09-23

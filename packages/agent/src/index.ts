@@ -154,4 +154,5 @@ export * from "./proxy.ts";
 export * from "./search/index.ts";
 export { setDefaultStreamFn } from "./stream-fn.ts";
 export { prepareToolArguments } from "./tool-arguments.ts";
+export { resolveToolNameAlias } from "./tool-name-alias.ts";
 export * from "./types.ts";

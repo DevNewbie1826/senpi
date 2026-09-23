@@ -1,3 +1,22 @@
+## 2026-09-23 - Namespaced calls to deferred tools activate the unique match (senpi#2025)
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session.ts`: `resolveUnknownToolCall` resolves the requested name through `resolveToolNameAlias` against every callable name - active tools, registered search-exposed tools that allow lazy activation, and the `tool_search` catalog when one is bound - then activates the match through `_activateLazyTool`. The candidates come from `_callableToolNames`; a missing tool-search runtime now contributes no catalog names instead of disabling the resolver.
+
+### Why
+
+- A deferred tool is not in the request's tools, so no provider-side mapping knows it; the session is the only layer that sees the deferred catalog. The resolver used an exact catalog match only, so `mcp__686f__team_create` failed while `team_create` activated.
+- The search-exposed registry is the same set `_activateLazyTool` already promotes when no catalog service is loaded, so a session without a bound tool-search runtime resolves the same names. The `allowLazyActivation` hard stop still applies because such tools are never candidates and `_activateLazyTool` re-checks it.
+
+### Why an extension could not handle it
+
+- `resolveUnknownToolCall` is session-owned agent configuration installed before extensions bind; tool-search can activate a name but cannot see calls the loop rejected.
+
+### Expected merge conflict zones
+
+- LOW: the `resolveUnknownToolCall` assignment in `_installAgentToolHooks` and the two private helpers added above `_activateLazyTool` in `packages/coding-agent/src/core/agent-session.ts`; the `@earendil-works/pi-agent-core` import list.
+
 ## 2026-09-23 - GPT-6 Sol becomes the recommended and default OpenAI model
 
 ### What changed
