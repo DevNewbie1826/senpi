@@ -126,10 +126,14 @@ export function createEvalInputSchema(
 	const languageSchema = evalLanguageUnion(languages);
 	return Type.Unsafe<EvalToolRequest>(
 		Type.Object(evalInputProperties(languageSchema, deadlines), {
-			anyOf: [
-				{ properties: { action: { enum: ["run", "list"] } } },
-				{ properties: { action: { enum: ["peek", "stop"] } }, required: ["action", "cell_id"] },
-			],
+			// #2569: a root anyOf branch carrying an enum is rejected by CodeBuddy-backed
+			// Anthropic-compatible Kimi routes (HTTP 400 code 11133); the equivalent
+			// "not" form passes them. parseEvalRequest still enforces cell_id at runtime.
+			not: {
+				properties: { action: { enum: ["peek", "stop"] } },
+				required: ["action"],
+				not: { required: ["cell_id"] },
+			},
 		}),
 	) as EvalInputSchema;
 }

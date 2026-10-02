@@ -1,5 +1,25 @@
 # senpi-codemode fork changes
 
+## 2026-10-03 - Eval schema avoids a root combiner enum (#2569)
+
+### What changed
+
+- `packages/senpi-codemode/src/tool/types.ts`: `createEvalInputSchema` drops the root `anyOf` whose branches carried `enum` values, for the equivalent `not` form: `not: { properties: { action: { enum: ["peek", "stop"] } }, required: ["action"], not: { required: ["cell_id"] } }`. Same accepted inputs, same rejected inputs.
+- `packages/senpi-codemode/test/eval-schema-root-shape.test.ts`: pins the root shape (no `anyOf`/`oneOf`/`allOf`) and the `not` rule.
+
+### Why
+
+- CodeBuddy-backed Anthropic-compatible Kimi routes (InferHub `cb/kimi-k3`, `cbcn/kimi-k3`) reject the whole request with HTTP 400 code 11133 when a root `anyOf` branch carries an `enum`, in both `/v1/messages` and `/v1/chat/completions`. The equivalent `not` form passes those routes; `parseEvalRequest` keeps enforcing `cell_id` for `peek`/`stop` at runtime either way.
+
+### Why an extension could not handle it
+
+- This package is the extension that owns the eval schema; the wire shape can only be changed here.
+
+### Expected merge conflict zones
+
+- MEDIUM: `createEvalInputSchema` in `packages/senpi-codemode/src/tool/types.ts` — open PR #2444 rewrites the same branches with const-typed object branches.
+
+
 ## 2026-10-02 - Detached-cell footer ticker retires on a stale context (senpi#2549)
 
 ### What changed
